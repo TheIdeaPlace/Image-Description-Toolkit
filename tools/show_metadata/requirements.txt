@@ -2,6 +2,6 @@
 # Install in a separate virtual environment if desired
 # pip install -r tools/requirements.txt
 
-Pillow>=12.3.0
+Pillow>=13.0.0
 pillow-heif>=1.8.1
 requests>=2.34.2
