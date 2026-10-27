@@ -32,8 +32,8 @@ wxPython>=4.3.2        # Cross-platform GUI framework
 # ----------------------------------------------------------------------------
 requests>=2.34.2       # HTTP requests
 ollama>=0.6.3          # Ollama Python client
-openai>=3.33.0          # OpenAI API
-anthropic>=1.15.0       # Anthropic Claude API
+openai>=3.37.0          # OpenAI API
+anthropic>=2.3.0       # Anthropic Claude API
 
 # ----------------------------------------------------------------------------
 # REQUIRED - Attachments
