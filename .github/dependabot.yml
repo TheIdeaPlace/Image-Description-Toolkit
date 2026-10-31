@@ -15,7 +15,7 @@ version: 2
 
 updates:
   # All Python manifests — root requirements.txt + pyproject.toml, the three
-  # app requirements files, and the show_metadata tool.
+  # app requirements files, and the show_metadata and ImageGallery tools.
   - package-ecosystem: "pip"
     directories:
       - "/"
@@ -24,6 +24,8 @@ updates:
       - "/chatapp"          # was missing entirely until 9/14; its openai,
                             # anthropic and pillow-heif pins went untracked
       - "/tools/show_metadata"
+      - "/tools/ImageGallery"   # standard library only today; watched so
+                                # anything added later is covered
     schedule:
       interval: "weekly"
     labels:
@@ -46,3 +48,32 @@ updates:
       github-actions:
         patterns:
           - "*"
+
+  # The Windows AI helper (windows_ai_helper/) and its tests, in one entry so
+  # the test stack moves in both at once.
+  #
+  # The Windows App SDK packages have a group of their own, listed first. The
+  # helper is a packaged exe whose manifest depends on Windows App Runtime 1.8,
+  # and the SDK is split into packages (Base, Foundation, AI, Runtime) that
+  # must move together. A move there changes what a PC needs installed and has
+  # to be tried on a Copilot+ PC, so it should not ride along with routine
+  # updates.
+  - package-ecosystem: "nuget"
+    directories:
+      - "/windows_ai_helper/IdtWindowsAI"
+      - "/windows_ai_helper/IdtWindowsAI.Tests"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+    groups:
+      windows-app-sdk:
+        patterns:
+          - "Microsoft.WindowsAppSDK*"
+      nuget-dependencies:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "Microsoft.WindowsAppSDK*"
