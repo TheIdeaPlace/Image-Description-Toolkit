@@ -1,0 +1,18 @@
+{
+  "//": [
+    "Runs `dotnet test` in Microsoft.Testing.Platform mode rather than VSTest mode, for the",
+    "Windows AI helper's tests (windows_ai_helper/IdtWindowsAI.Tests), the repo's only .NET tests.",
+    "",
+    "Required, not preference: Microsoft.Testing.Platform 2.x, which xunit.v3 4.x brings in,",
+    "refuses to run under the VSTest target on the .NET 10 SDK ('Testing with VSTest target is no",
+    "longer supported'). The SDK reads the runner choice from global.json, found from the folder",
+    "dotnet is run in, so it lives at the repo root, where CI runs it.",
+    "",
+    "What this changes for callers: pass the project with --project rather than positionally.",
+    "",
+    "No sdk section on purpose: any .NET 10 SDK builds."
+  ],
+  "test": {
+    "runner": "Microsoft.Testing.Platform"
+  }
+}
