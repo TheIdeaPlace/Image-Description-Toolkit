@@ -7,6 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\IdtWindowsAI\Protocol.cs" Link="Protocol.cs" />
@@ -14,7 +15,8 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <!-- Run by Microsoft.Testing.Platform (the repo's global.json), so no xunit.runner.visualstudio:
+         that is the VSTest adapter, which MTP doesn't use and warns about (MTP0001). -->
     <PackageReference Include="xunit.v3" Version="4.0.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />
   </ItemGroup>
 </Project>
