@@ -775,6 +775,7 @@ class ChatFrame(wx.Frame):
         self.pending_attachments = []   # Attachment objects queued for the next turn
         self._temp_dir = None           # Holds HEIC conversions and pasted images
         self._web_search = False        # Per-window, not persisted with the session
+        self._thinking = None           # Chat > Thinking: None = automatic (issue #392)
 
         self.speech_settings = SpeechSettings.load()
         # Probing for engines/voices runs PowerShell (or `say`) and takes a
@@ -909,6 +910,21 @@ class ChatFrame(wx.Frame):
             wx.ID_ANY, "Use &Web Search\tCtrl+Shift+K",
             "Let the model search the web (Ollama models with tool support)")
         self.Bind(wx.EVT_MENU, self.on_toggle_web_search, self.web_search_item)
+        # Radio items, like View > announcements: the checked one is what a
+        # screen reader reports. "T&hinking": T is Stop Response's letter.
+        # Before issue #392 a thinking model always thought, with no way to
+        # turn it off here; a question about a photo could take minutes.
+        from idt_core.generation import CHAT_THINKING_CHOICES
+        thinking_menu = wx.Menu()
+        self._thinking_items = {}
+        for value, label, status in CHAT_THINKING_CHOICES:
+            item = thinking_menu.AppendRadioItem(wx.ID_ANY, label)
+            self.Bind(wx.EVT_MENU,
+                      lambda e, v=value, s=status: self._set_thinking(v, s), item)
+            self._thinking_items[value] = item
+        self._thinking_items[None].Check(True)
+        chat_menu.AppendSubMenu(thinking_menu, "T&hinking",
+                                "Whether a reasoning model thinks before answering")
         bar.Append(chat_menu, "&Chat")
 
         view_menu = wx.Menu()
@@ -1361,6 +1377,11 @@ class ChatFrame(wx.Frame):
             self.web_search_item.Check(False)
             self._set_status("Web search is off: only Ollama supports it")
 
+    def _set_thinking(self, value, status):
+        """Chat > Thinking. Applies from the next message on."""
+        self._thinking = value
+        self._set_status(status)
+
     def on_toggle_web_search(self, _event):
         if not self.web_search_item.IsChecked():
             self._web_search = False
@@ -1455,7 +1476,8 @@ class ChatFrame(wx.Frame):
         self.send_btn.Enable(False)
         self._set_status("Waiting for a response…")
 
-        engine, options = self.engine, ChatOptions(web_search=self._web_search)
+        engine, options = self.engine, ChatOptions(web_search=self._web_search,
+                                                   thinking=self._thinking)
         queued = list(attachments)
         if regenerate:
             start = lambda: engine.regenerate(options)  # noqa: E731

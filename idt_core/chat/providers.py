@@ -441,10 +441,18 @@ class OpenAIChatProvider(ChatProvider):
                              "reasoning models accept only their default")
             else:
                 kwargs["temperature"] = request.temperature
+        if request.think is False:
+            from ..providers.openai_provider import is_reasoning_model
+
+            # Reasoning cannot be switched off; low effort is the closest every
+            # reasoning model accepts (issue #392). Non-reasoning models need nothing.
+            if is_reasoning_model(kwargs["model"]):
+                kwargs["reasoning_effort"] = "low"
 
         from ..generation import send_with_fallback
         stream = send_with_fallback(client.chat.completions.create, kwargs,
-                                    ("temperature",), "openai", kwargs["model"])
+                                    ("temperature", "reasoning_effort"), "openai",
+                                    kwargs["model"])
         usage = None
         try:
             for chunk in stream:
@@ -513,10 +521,23 @@ class ClaudeChatProvider(ChatProvider):
         }
         if system:
             kwargs["system"] = system
+        # Thinking (issue #392): on = adaptive; off = low effort, because
+        # current models reject {"type": "disabled"}. Auto leaves the model's
+        # default. Same mapping as descriptions (providers/claude.py).
+        if request.think is True:
+            kwargs["thinking"] = {"type": "adaptive"}
+        elif request.think is False:
+            kwargs["output_config"] = {"effort": "low"}
         return kwargs
+
+    #: Dropped and sent again when a model rejects them (older models have no
+    #: effort or adaptive thinking).
+    _OPTIONAL = {"output_config": ("effort", "output_config"), "thinking": ("thinking",)}
 
     def chat(self, request: ChatRequest) -> Iterator[ChatYield]:
         import anthropic
+
+        from ..generation import _is_rejection_of, note_dropped
 
         client = (
             anthropic.Anthropic(api_key=self._api_key)
@@ -524,15 +545,29 @@ class ClaudeChatProvider(ChatProvider):
             else anthropic.Anthropic()
         )
         system, messages = format_for_claude(request.messages, request.system_prompt)
+        kwargs = self._request_kwargs(request, messages, system)
 
         final = None
-        with client.messages.stream(
-            **self._request_kwargs(request, messages, system)
-        ) as stream:
-            for text in stream.text_stream:
-                if text:
-                    yield ChatDelta(text)
-            final = stream.get_final_message()
+        while True:
+            started = False
+            try:
+                with client.messages.stream(**kwargs) as stream:
+                    for text in stream.text_stream:
+                        if text:
+                            started = True
+                            yield ChatDelta(text)
+                    final = stream.get_final_message()
+                break
+            except Exception as exc:                             # noqa: BLE001
+                # The request is made when the stream opens, so a rejected
+                # optional parameter arrives before any text.
+                culprit = None if started else next(
+                    (p for p, words in self._OPTIONAL.items()
+                     if p in kwargs and _is_rejection_of(exc, words)), None)
+                if culprit is None:
+                    raise
+                note_dropped("claude", kwargs["model"], culprit, f"the model rejected it: {exc}")
+                kwargs.pop(culprit)
 
         if final is not None:
             yield ChatUsage(

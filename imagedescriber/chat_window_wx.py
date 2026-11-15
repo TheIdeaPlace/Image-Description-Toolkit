@@ -886,7 +886,7 @@ class ChatWindow(wx.Dialog):
 
         # continue_turn, not send: on_send_message has already appended and
         # persisted the user's message, so send() would record it twice.
-        options = ChatOptions()
+        options = ChatOptions(thinking=self._thinking_choice())
         self.worker = ChatWorker(self, engine, lambda: engine.continue_turn(options))
         self.stop_btn.Enable(True)
         self.worker.start()
@@ -1449,8 +1449,23 @@ class ChatWindow(wx.Dialog):
     # Session commands menu
     # ------------------------------------------------------------------
 
+    #: The last Thinking choice, so the next chat window starts with it. Kept
+    #: for the session only: thinking is a per-conversation mode, like web
+    #: search in IDT Chat.
+    _last_thinking: Optional[bool] = None
+
+    def _thinking_choice(self) -> Optional[bool]:
+        return getattr(self, "_thinking", ChatWindow._last_thinking)
+
+    def _set_thinking(self, value: Optional[bool], status: str):
+        self._thinking = value
+        ChatWindow._last_thinking = value
+        self.status_text.SetLabel(status)
+
     def on_commands_menu(self, event):
         """Show the Session commands popup menu."""
+        from idt_core.generation import CHAT_THINKING_CHOICES
+
         menu = wx.Menu()
         compact_item = menu.Append(wx.ID_ANY, "Summarize && Compact",
                                     "Ask AI to summarize, then replace context with summary")
@@ -1458,6 +1473,21 @@ class ChatWindow(wx.Dialog):
                                    "Save full conversation history to a text file")
         self.Bind(wx.EVT_MENU, self.on_summarize_compact, compact_item)
         self.Bind(wx.EVT_MENU, self.on_export_conversation, export_item)
+
+        # Radio items in a submenu: the checked one is what a screen reader
+        # reports, so the current choice is heard without opening anything else.
+        # Before issue #392 a thinking model always thought here, which made a
+        # question about a photo take minutes on qwen3-vl:32b.
+        thinking_menu = wx.Menu()
+        current = self._thinking_choice()
+        for value, label, status in CHAT_THINKING_CHOICES:
+            item = thinking_menu.AppendRadioItem(wx.ID_ANY, label)
+            item.Check(value is current)
+            self.Bind(wx.EVT_MENU,
+                      lambda e, v=value, s=status: self._set_thinking(v, s), item)
+        menu.AppendSeparator()
+        menu.AppendSubMenu(thinking_menu, "&Thinking",
+                           "Whether a reasoning model thinks before answering")
         self.PopupMenu(menu)
         menu.Destroy()
 

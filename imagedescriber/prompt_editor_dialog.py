@@ -84,11 +84,6 @@ except ImportError as e:
     CLAUDE_MODEL_METADATA = {}
     print(f"Warning: AI providers not available: {e}")
 
-try:
-    from idt_core.config import DEFAULT_OLLAMA_MODEL
-except ImportError:
-    DEFAULT_OLLAMA_MODEL = "minicpm-v4.6"
-
 
 # "claude-code" -> "Claude Code". idt_core imports the same way in dev and
 # frozen builds, so no try/except fallback is needed.
@@ -385,13 +380,8 @@ class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
                 "artistic": "Analyze this image from an artistic perspective, describing composition, colors, mood, and visual technique.",
                 "technical": "Provide a technical analysis of this image including photographic technique, lighting, and image quality."
             },
-            "model_settings": {
-                "model": DEFAULT_OLLAMA_MODEL,
-                "temperature": 0.1,
-                "num_predict": 600,
-                "top_k": 40,
-                "top_p": 0.9
-            }
+            # No model_settings: nothing reads them. Generation settings live
+            # per provider under "generation" (issue #392).
         }
     
     def populate_prompt_list(self):

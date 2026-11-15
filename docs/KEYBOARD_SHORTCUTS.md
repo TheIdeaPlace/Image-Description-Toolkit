@@ -74,6 +74,7 @@ window, menu, or dialog.
 | Change Model… | `Ctrl+Shift+M` | `Cmd+Shift+M` | Not `Cmd+M` — that minimises on macOS |
 | Set System Prompt… | `Ctrl+Shift+P` | `Cmd+Shift+P` | |
 | Use Web Search | `Ctrl+Shift+K` | `Cmd+Shift+K` | Check item. Not `Cmd+Shift+W` — close-window family on macOS |
+| Thinking ▸ Automatic / On / Off | — | — | Radio items in a submenu (letter H, as T is Stop Response's). Applies from the next message |
 | **View** |
 | Read Last Response | `Ctrl+Shift+R` | `Cmd+Shift+R` | |
 | Token Usage | `Ctrl+T` | `Cmd+T` | |

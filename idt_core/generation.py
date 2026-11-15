@@ -183,6 +183,16 @@ def _coerce(key: str, value: Any) -> Any:
     return value
 
 
+#: The chat windows' Thinking menu: (ChatOptions.thinking value, label,
+#: status-bar text). Shared so IDT Chat and ImageDescriber's chat window offer
+#: the same three choices in the same words.
+CHAT_THINKING_CHOICES = (
+    (None, "&Automatic", "Thinking: automatic (the model decides)"),
+    (True, "&On", "Thinking: on"),
+    (False, "O&ff", "Thinking: off (faster; for Claude and OpenAI, low effort)"),
+)
+
+
 def think_flag(mode: Optional[str]) -> Optional[bool]:
     """THINKING_* (or None) as the tri-state bool chat requests carry."""
     if mode == THINKING_ON:

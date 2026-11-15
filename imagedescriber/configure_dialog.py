@@ -41,6 +41,157 @@ def _choice_label(setting_info: Dict[str, Any], value: Any) -> Any:
     return setting_info.get("choice_labels", {}).get(value, value)
 
 
+#: Setting types whose empty value means "automatic": IDT's default for the
+#: provider and model (issue #392). Stored by removing the key.
+_AUTO_TYPES = ("float_or_auto", "int_or_auto", "choice_or_auto")
+AUTOMATIC_LABEL = "Automatic"
+
+
+def _display_value(setting_info: Dict[str, Any], value: Any) -> Any:
+    """What the settings list shows for ``value``."""
+    if setting_info.get("type") in _AUTO_TYPES and value in (None, ""):
+        return setting_info.get("choice_labels", {}).get("", AUTOMATIC_LABEL)
+    return _choice_label(setting_info, value)
+
+
+def _validate_auto_number(setting_info: Dict[str, Any], text: str):
+    """``(value, error)`` for a float/int_or_auto entry. Empty is automatic."""
+    text = text.strip()
+    if text == "" or text.lower() in ("auto", "automatic"):
+        return None, None
+    kind = setting_info.get("type")
+    low, high = setting_info.get("range", (None, None))
+    span = f" from {low} to {high}" if low is not None else ""
+    try:
+        value = int(text) if kind == "int_or_auto" else float(text)
+    except ValueError:
+        word = "a whole number" if kind == "int_or_auto" else "a number"
+        return None, f"Enter {word}{span}, or leave it empty for Automatic."
+    if low is not None and not (low <= value <= high):
+        return None, f"Enter a value{span}, or leave it empty for Automatic."
+    return value, None
+
+
+_AUTO_NOTE = ("Leave it on Automatic to use IDT's default for the model you pick. "
+              "A setting a model cannot take is skipped, and the run log says so.")
+
+#: (provider key in the settings file, name shown, settings it takes). Only
+#: what each provider can use is offered (issue #392): a toolkit, not one form
+#: with every knob for every provider.
+_GENERATION_PROVIDERS = (
+    ("ollama", "Ollama", ("thinking", "temperature", "top_p", "top_k",
+                          "repeat_penalty", "max_output_tokens")),
+    ("openai", "OpenAI", ("thinking", "effort", "temperature", "top_p",
+                          "max_output_tokens")),
+    ("claude", "Claude", ("thinking", "effort", "max_output_tokens")),
+    ("claude-code", "Claude Code", ("thinking", "effort", "max_output_tokens")),
+    ("apple", "Apple Intelligence", ("temperature", "max_output_tokens")),
+    ("mlx", "MLX", ("max_output_tokens",)),
+)
+
+
+def _generation_entry(provider: str, label: str, setting: str) -> Dict[str, Any]:
+    entry: Dict[str, Any] = {"file": "image_describer", "path": ["generation", provider, setting]}
+    if setting == "thinking":
+        if provider == "ollama":
+            entry.update(
+                type="choice_or_auto", choices=["", "off", "on", "auto"],
+                choice_labels={"": "Automatic (off)", "off": "Off", "on": "On",
+                               "auto": "The model's own default"},
+                description=("Whether a thinking model reasons before it describes. "
+                             "Automatic turns thinking off for descriptions: the "
+                             "reasoning is thrown away, and on a thinking model it is "
+                             "most of the time per image. Some models keep thinking "
+                             "anyway (every qwen3-vl thinking tag does); for those, "
+                             "choose the model's '-instruct' tag instead."))
+        elif provider == "claude-code":
+            entry.update(
+                type="choice_or_auto", choices=["", "off"],
+                choice_labels={"": AUTOMATIC_LABEL, "off": "Off (low effort)"},
+                description=("Claude decides when to think. Off asks for low effort, "
+                             "the closest it allows. For more thinking, raise the effort."))
+        else:
+            entry.update(
+                type="choice_or_auto", choices=["", "off", "on"],
+                choice_labels={"": AUTOMATIC_LABEL, "off": "Off (low effort)", "on": "On"},
+                description=(f"Whether {label} reasons before it describes. Its current "
+                             "models cannot switch reasoning off entirely, so Off asks "
+                             "for low effort instead."))
+    elif setting == "effort":
+        levels = ["", "minimal", "low", "medium", "high"] if provider == "openai" \
+            else ["", "low", "medium", "high"]
+        entry.update(
+            type="choice_or_auto", choices=levels,
+            choice_labels={"": AUTOMATIC_LABEL},
+            description=(f"How hard {label} reasons before answering. Lower is faster "
+                         "and cheaper; descriptions rarely need high. Overrides Thinking."
+                         + (" Minimal exists only on the original GPT-5 models; "
+                            "elsewhere it means low." if provider == "openai" else "")))
+    elif setting == "temperature":
+        entry.update(
+            type="float_or_auto", range=[0.0, 2.0],
+            description=("How varied the wording is: lower is more consistent, higher "
+                         "more varied. Automatic uses the model's own setting."
+                         + (" OpenAI's reasoning models accept only their own, so it is "
+                            "skipped for them." if provider == "openai" else "")))
+    elif setting == "top_p":
+        entry.update(type="float_or_auto", range=[0.0, 1.0],
+                     description="Nucleus sampling cutoff. Lower is more focused.")
+    elif setting == "top_k":
+        entry.update(type="int_or_auto", range=[1, 500],
+                     description="How many candidate words are considered at each step. "
+                                 "Lower is more focused.")
+    elif setting == "repeat_penalty":
+        entry.update(type="float_or_auto", range=[0.0, 2.0],
+                     description="How strongly repeated words are discouraged. 1 is none.")
+    elif setting == "max_output_tokens":
+        entry.update(
+            type="int_or_auto", range=[50, 32000],
+            description=("The most a description may be, in tokens (about three quarters "
+                         "of a word each). Too low cuts descriptions off; the run log "
+                         "says when that happens."
+                         + (" Thinking counts against it." if provider in
+                            ("openai", "claude", "claude-code") else "")))
+    entry["description"] = f"{entry['description']} {_AUTO_NOTE}"
+    return entry
+
+
+_SETTING_NAMES = {
+    "thinking": "thinking", "effort": "effort", "temperature": "temperature",
+    # Spaces, not underscores: a screen reader says "top underscore p".
+    "top_p": "top p", "top_k": "top k", "repeat_penalty": "repeat penalty",
+    "max_output_tokens": "output limit",
+}
+
+
+def generation_settings_metadata() -> Dict[str, Dict[str, Any]]:
+    """The Generation tab: "<provider> <setting>" for each setting it takes."""
+    settings: Dict[str, Dict[str, Any]] = {}
+    for provider, label, names in _GENERATION_PROVIDERS:
+        for setting in names:
+            settings[f"{label} {_SETTING_NAMES[setting]}"] = _generation_entry(
+                provider, label, setting)
+    return settings
+
+
+def _remove_path(config: Dict[str, Any], path: List[str]) -> None:
+    """Delete ``path`` from nested dicts, then any parents it leaves empty."""
+    parents = []
+    node = config
+    for key in path[:-1]:
+        if not isinstance(node, dict) or key not in node:
+            return
+        parents.append((node, key))
+        node = node[key]
+    if isinstance(node, dict):
+        node.pop(path[-1], None)
+    for parent, key in reversed(parents):
+        if isinstance(parent.get(key), dict) and not parent[key]:
+            del parent[key]
+        else:
+            break
+
+
 def _choice_value(setting_info: Dict[str, Any], label: str) -> str:
     """The value a shown choice stands for: the reverse of :func:`_choice_label`."""
     for value, shown in setting_info.get("choice_labels", {}).items():
@@ -271,6 +422,21 @@ class SettingEditDialog(wx.Dialog):
                     self.editor.SetValue(str(int(self.current_value)))
                 form_sizer.Add(self.editor, 0, wx.EXPAND)
                 
+            elif setting_type in ("float_or_auto", "int_or_auto"):
+                # Empty means Automatic; checked on OK (see _on_ok).
+                self.editor = wx.TextCtrl(panel)
+                self.editor.SetValue("" if self.current_value is None else str(self.current_value))
+                self.editor.SetHint(AUTOMATIC_LABEL)
+                form_sizer.Add(self.editor, 0, wx.EXPAND)
+
+            elif setting_type == "choice_or_auto":
+                self.editor = wx.Choice(panel)
+                choices = self.setting_info.get("choices", [])
+                self.editor.Append([str(_display_value(self.setting_info, c)) for c in choices])
+                current = "" if self.current_value is None else self.current_value
+                self.editor.SetSelection(choices.index(current) if current in choices else 0)
+                form_sizer.Add(self.editor, 0, wx.EXPAND)
+
             elif setting_type == "choice":
                 self.editor = wx.Choice(panel)
                 choices = self.setting_info.get("choices", [])
@@ -316,6 +482,7 @@ class SettingEditDialog(wx.Dialog):
             logger.info("setup_ui: Creating button sizer (as dialog children)")
             # Buttons - CreateButtonSizer creates buttons as children of the DIALOG, not panel
             btn_sizer = self.CreateButtonSizer(wx.OK | wx.CANCEL)
+            self.Bind(wx.EVT_BUTTON, self._on_ok, id=wx.ID_OK)
             logger.info("setup_ui: Button sizer created")
             
             # Dialog-level sizer (manages panel + buttons)
@@ -333,6 +500,21 @@ class SettingEditDialog(wx.Dialog):
             logger.error("Exception in setup_ui: %s", e, exc_info=True)
             raise
     
+    def _on_ok(self, event):
+        """Refuse a value that cannot be used, saying why, and keep the dialog open.
+
+        A message box rather than help text: JAWS does not read help text on
+        focus, and a value silently replaced by a default is worse than none.
+        """
+        if self.setting_info.get("type") in ("float_or_auto", "int_or_auto"):
+            _value, error = _validate_auto_number(self.setting_info, self.editor.GetValue())
+            if error:
+                wx.MessageBox(error, f"{self.setting_name}", wx.OK | wx.ICON_WARNING, self)
+                self.editor.SetFocus()
+                self.editor.SelectAll()
+                return
+        event.Skip()
+
     def _on_show(self, event):
         """Handle dialog show event - set focus when dialog becomes visible"""
         event.Skip()  # Allow normal processing
@@ -365,6 +547,14 @@ class SettingEditDialog(wx.Dialog):
                 return float(self.editor.GetValue())
             except ValueError:
                 return 0.0
+        elif setting_type in ("float_or_auto", "int_or_auto"):
+            value, _error = _validate_auto_number(self.setting_info, self.editor.GetValue())
+            return value
+        elif setting_type == "choice_or_auto":
+            choices = self.setting_info.get("choices", [])
+            index = self.editor.GetSelection()
+            value = choices[index] if 0 <= index < len(choices) else ""
+            return value or None
         elif setting_type == "int_or_null":
             value = self.editor.GetValue().strip()
             if value == "" or value.lower() == "null" or value.lower() == "none":
@@ -533,42 +723,11 @@ class ConfigureDialog(wx.Dialog):
                     "choices": ollama_models,
                     "description": "Default Ollama model to use for image descriptions. Select from detected models or refresh models from Process menu. This is used when default_provider is set to 'ollama'."
                 },
-                "temperature": {
-                    "file": "image_describer",
-                    "path": ["model_settings", "temperature"],
-                    "type": "float",
-                    "range": [0.0, 2.0],
-                    "description": "Controls randomness in AI responses (0.0 = deterministic/consistent, 2.0 = very creative/random). Recommended: 0.1-0.3 for consistent image descriptions."
-                },
-                "max_tokens": {
-                    "file": "image_describer",
-                    "path": ["model_settings", "num_predict"],
-                    "type": "int",
-                    "range": [50, 1000],
-                    "description": "Maximum length of generated descriptions in tokens. Higher = longer descriptions. Recommended: 200-600 for balanced detail."
-                },
-                "top_k": {
-                    "file": "image_describer",
-                    "path": ["model_settings", "top_k"],
-                    "type": "int",
-                    "range": [1, 100],
-                    "description": "Number of top tokens to consider. Lower = more focused, higher = more diverse. Recommended: 40."
-                },
-                "top_p": {
-                    "file": "image_describer",
-                    "path": ["model_settings", "top_p"],
-                    "type": "float",
-                    "range": [0.0, 1.0],
-                    "description": "Cumulative probability cutoff for nucleus sampling. Lower = more focused, higher = more diverse. Recommended: 0.9."
-                },
-                "repeat_penalty": {
-                    "file": "image_describer",
-                    "path": ["model_settings", "repeat_penalty"],
-                    "type": "float",
-                    "range": [1.0, 2.0],
-                    "description": "Penalty for repeating words/phrases. Higher = less repetition. Recommended: 1.1-1.3."
-                }
             },
+            # The old temperature/max_tokens/top_k/top_p/repeat_penalty entries
+            # here edited model_settings, which nothing has read since June
+            # 2026 (issue #392). These replace them, per provider.
+            "Generation": generation_settings_metadata(),
             "Prompt Styles": {
                 "default_prompt_style": {
                     "file": "image_describer",
@@ -1034,8 +1193,8 @@ class ConfigureDialog(wx.Dialog):
             current_value = self.get_setting_value(setting_info)
             
             # Format display text: "Setting Name: current_value"
-            display_text = f"{setting_name}: {_choice_label(setting_info, current_value)}"
-            
+            display_text = f"{setting_name}: {_display_value(setting_info, current_value)}"
+
             settings_list.Append(display_text, setting_name)
         
         # Select first item if available
@@ -1101,7 +1260,13 @@ class ConfigureDialog(wx.Dialog):
         path = setting_info["path"]
         
         config = self.configs.get(config_name, {})
-        
+
+        if new_value is None and setting_info.get("type") in _AUTO_TYPES:
+            # Automatic is stored as absence, and empty sections are pruned, so
+            # the file only ever holds what the user chose.
+            _remove_path(config, path)
+            return
+
         # Navigate to the parent of the target key
         current = config
         for key in path[:-1]:
@@ -1156,7 +1321,7 @@ class ConfigureDialog(wx.Dialog):
             self.set_setting_value(setting_info, new_value)
             
             # Update the list item text to show new value
-            display_text = f"{setting_name}: {_choice_label(setting_info, new_value)}"
+            display_text = f"{setting_name}: {_display_value(setting_info, new_value)}"
             settings_list.SetString(selection, display_text)
             
             # Refresh the display

@@ -317,6 +317,48 @@ class ApiKeyDialog(wx.Dialog):
 # model dropdown.
 # ---------------------------------------------------------------------------
 
+def _ollama_installed() -> list:
+    try:
+        from ai_providers import get_available_providers
+        provider = get_available_providers().get('ollama')
+        return provider.get_available_models() if provider else []
+    except Exception:                                               # noqa: BLE001
+        return []
+
+
+def _ollama_thinking_hint(model_id: str) -> str:
+    """Why a thinking model is slow, and the faster edition if installed (#392)."""
+    try:
+        from idt_core.providers.ollama import thinking_hint
+        return thinking_hint(model_id, _ollama_installed())
+    except Exception:                                               # noqa: BLE001
+        return ""
+
+
+def _append_ollama_models(combo, models) -> None:
+    """Fill a describe picker: thinking models flagged, the model name as data."""
+    try:
+        from idt_core.providers.ollama import picker_label
+    except Exception:                                               # noqa: BLE001
+        picker_label = None
+    for model in sorted(models):
+        label = model
+        if picker_label is not None:
+            try:
+                label = picker_label(model)
+            except Exception:                                       # noqa: BLE001
+                label = model
+        combo.Append(label, model)
+
+
+def _select_by_data(combo, value) -> bool:
+    for i in range(combo.GetCount()):
+        if combo.GetClientData(i) == value:
+            combo.SetSelection(i)
+            return True
+    return False
+
+
 def _get_model_description_text(provider: str, model_id: str) -> str:
     """Return a one-or-two-line guidance string for the selected model.
 
@@ -389,7 +431,9 @@ def _get_model_description_text(provider: str, model_id: str) -> str:
     if provider == "ollama":
         if not model_id:
             return "Local Ollama models have no API cost. Requires Ollama running locally."
-        return f"{model_id} — Local AI model running via Ollama. No API key or cloud cost."
+        text = f"{model_id} — Local AI model running via Ollama. No API key or cloud cost."
+        hint = _ollama_thinking_hint(model_id)
+        return f"{text}\n{hint}" if hint else text
 
     if provider == "apple":
         from idt_core.providers import catalog
@@ -695,8 +739,7 @@ class FollowupQuestionDialog(wx.Dialog):
                         pass
 
                 if models:
-                    for model in sorted(models):
-                        self.model_combo.Append(model)
+                    _append_ollama_models(self.model_combo, models)
                 else:
                     # Last-resort static fallback when Ollama is unreachable
                     for model in [DEFAULT_OLLAMA_MODEL, "llava", "llama3.2-vision", "moondream"]:
@@ -1171,14 +1214,11 @@ class ProcessingOptionsDialog(wx.Dialog):
                         self.cached_ollama_models = models
                 
                 if models:
-                    # Sort models alphabetically for easier navigation
-                    for model in sorted(models):
-                        self.model_combo.Append(model)
+                    # Sorted, thinking models flagged; the name is the item's data.
+                    _append_ollama_models(self.model_combo, models)
                     # Set default if in list
                     default_model = self.config.get('default_model', 'minicpm-v4.6')
-                    if default_model in models:
-                        self.model_combo.SetStringSelection(default_model)
-                    elif models:
+                    if not _select_by_data(self.model_combo, default_model):
                         self.model_combo.SetSelection(0)
                 else:
                     self.model_combo.Append(DEFAULT_OLLAMA_MODEL)

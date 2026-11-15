@@ -102,6 +102,8 @@ class ClaudeCodeChatProvider(ChatProvider):
         runner = run_claude(
             blocks, request.model or self._model, system,
             partial=True, max_output_tokens=request.max_output_tokens, claude=claude,
+            # Thinking off = low effort, as for descriptions (issue #392).
+            effort="low" if request.think is False else None,
         )
         try:
             for kind, value in runner:

@@ -291,6 +291,17 @@ idt describe <source> [options]
 | `--prompt NAME` | `detailed` | Named prompt style (see `idt prompts`) |
 | `--prompt-text TEXT` | — | Custom prompt text; overrides `--prompt` |
 
+**Generation Settings**
+
+Leave these out and IDT uses sensible defaults for the provider and model you picked, plus anything saved in ImageDescriber's [Generation settings](#generation-settings). A setting the provider or model can't take is skipped, and the run log says so.
+
+| Option | Default | Description |
+|---|---|---|
+| `--no-think` | On for Ollama | Ask a reasoning model not to think. For Claude and OpenAI, which can't switch reasoning off, it means low effort |
+| `--think` | Off | Let a reasoning model think before describing (slower) |
+| `--temperature F` | The model's own | How varied the wording is, 0 or more |
+| `--max-tokens N` | Automatic | Cap on the length of each description, in tokens |
+
 **Metadata and Location**
 
 | Option | Default | Description |
@@ -651,7 +662,7 @@ Multi-turn conversation from the terminal. Unrelated to images: this is a genera
 ```
 idt chat [--provider NAME] [--model ID] [--system TEXT] [--message TEXT]
          [--resume ID] [--list] [--no-save] [--max-tokens N]
-         [--temperature F] [--quiet]
+         [--temperature F] [--think | --no-think] [--show-thinking] [--quiet]
 ```
 
 **Options**
@@ -667,7 +678,9 @@ idt chat [--provider NAME] [--model ID] [--system TEXT] [--message TEXT]
 | `--list` | List saved conversations and exit |
 | `--no-save` | Do not write the conversation to disk |
 | `--max-tokens N` | Cap the reply length |
-| `--temperature F` | Sampling temperature |
+| `--temperature F` | Sampling temperature. Skipped for Claude and for OpenAI's reasoning models, which don't take it |
+| `--think`, `--no-think` | Turn a reasoning model's thinking on or off. Without either, the model decides. For Claude and OpenAI, off means low effort |
+| `--show-thinking` | Print the model's thinking to stderr as it arrives (Ollama) |
 | `--quiet`, `-q` | Suppress status notes on stderr |
 
 **Examples**
@@ -1061,6 +1074,30 @@ Videos in the folder are automatically extracted to frames before the AI step. T
 
 ---
 
+### Generation Settings
+
+**Tools → Configure Settings → Generation** controls what IDT asks a model for besides the prompt. Every setting starts on **Automatic**, which uses IDT's default for the provider and model you pick, so most people never need this tab. The command line uses the same saved settings.
+
+Each provider lists only the settings it can use:
+
+| Provider | Settings |
+|---|---|
+| Ollama | Thinking, temperature, top p, top k, repeat penalty, output limit |
+| OpenAI | Thinking, effort, temperature, top p, output limit |
+| Claude | Thinking, effort, output limit |
+| Claude Code | Thinking, effort, output limit |
+| Apple Intelligence | Temperature, output limit |
+| MLX | Output limit |
+
+Things worth knowing:
+
+- **Thinking models are slow for descriptions.** They reason before answering, and the reasoning is thrown away. For Ollama, Automatic turns thinking off for descriptions. Some models keep thinking anyway; every `qwen3-vl` thinking tag does. For those, pick the model's `-instruct` tag, such as `qwen3-vl:8b-instruct` instead of `qwen3-vl:8b`. The model list marks thinking models "(thinks, slower)".
+- **Claude and OpenAI can't switch reasoning off.** Thinking Off asks for low effort instead.
+- **Too low an output limit cuts descriptions off.** The run log says when it happens, and when a model spent its whole allowance thinking.
+- **The run log records what was skipped.** If a setting doesn't apply to a model, it isn't sent, and the log in the workspace's `logs` folder says so. It also records how much hidden reasoning each picture took, which explains a slow run.
+
+To change a setting, select it and press **Change Setting**. Leave a number empty, or choose Automatic, to go back to the default.
+
 ### The Chat Window
 
 Open with **Process → Chat with AI Model** (`Ctrl+T`). Choose a provider and model in the prompt dialog.
@@ -1080,6 +1117,7 @@ The chat window is a general-purpose, multi-turn conversation with the AI model 
 - **Attach Files** — Attach images to the conversation. Shown only for providers that accept attachments; Claude also accepts PDFs. You can also paste an image straight from the clipboard with `Ctrl+V`.
 - **Change Model** — Switch provider or model mid-conversation. History is kept.
 - **Token usage** — Shows how much of the model's context window the conversation is using.
+- **Session → Thinking** — Automatic, On or Off. Off makes a reasoning model answer faster: a question about a photo on a large thinking model can otherwise take minutes. For Claude and OpenAI, Off means low effort. The choice applies from your next message, and new chat windows start with the last one you picked.
 
 **Starting a chat does not attach the image you have selected.** Every chat begins empty. To ask about a specific image, attach it with **Attach Files** or paste it from the clipboard.
 
@@ -1819,6 +1857,16 @@ attachments, `Alt+S` Send, `Alt+T` Stop, `Alt+A` Attach, `Alt+R` Remove.
 ### Switching models mid-conversation
 
 **Chat → Change Model** (`Ctrl+Shift+M`) switches provider or model without losing history. The new model receives everything said so far, and each turn records which model produced it, so the history shows who said what.
+
+### Thinking
+
+**Chat → Thinking** chooses whether a reasoning model thinks before it answers:
+
+- **Automatic** (the default): the model decides.
+- **On**: it thinks.
+- **Off**: it answers straight away, which is much faster on a thinking model. Claude and OpenAI can't switch reasoning off, so for them Off means low effort.
+
+While a model thinks, the status bar says "Model is thinking…". The choice applies from your next message and lasts until IDT Chat closes.
 
 ### Stopping a response
 
