@@ -4843,7 +4843,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         snap_seq = self._checkpointer.snapshot_seq()
         ws_dict = self.workspace.to_dict()
         self._run_with_progress(
-            "Saving workspace", len(ws_dict.get("items") or {}),
+            # Changed items only, matching what _save_bundle writes.
+            "Saving workspace", len(self._items_needing_save(ws_dict.get("items") or {})),
             lambda cb: self._save_bundle(progress=cb, ws_dict=ws_dict, snap_seq=snap_seq),
         )
 
@@ -5006,10 +5007,13 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # item, so it is done on a worker thread reporting into the progress
         # dialog — inline it froze the UI with no repaint for the whole save.
         if self.workspace_file:
-            self._begin_stage("Saving workspace", len(self.workspace.items), can_stop=True)
             # Snapshot on the main thread — see _save_bundle's ws_dict docstring.
             pre_save_seq = self._checkpointer.snapshot_seq()
             pre_save_dict = self.workspace.to_dict()
+            # Changed items only, matching what _save_bundle writes.
+            self._begin_stage("Saving workspace",
+                              len(self._items_needing_save(pre_save_dict.get("items") or {})),
+                              can_stop=True)
 
             def _do_save():
                 try:
@@ -5178,6 +5182,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self.workspace = ImageWorkspace.from_dict(data)
             self.workspace_file = Path(file_path)
             self.workspace.saved = True
+            # What is on disk now, so a save writes only what changes from here.
+            self._remember_saved(self.workspace.to_dict().get("items") or {}, replace=True)
             self.cached_ollama_models = self.workspace.cached_ollama_models
 
             # Seed geocode preference from the workspace so the ProcessingOptionsDialog
@@ -5232,7 +5238,18 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             # could iterate the items mapping mid-mutation.
             snap_seq = self._checkpointer.snapshot_seq()
             ws_dict = self.workspace.to_dict() if self.workspace else {}
-            total = len((ws_dict.get("items") or {}))
+            # Only the items that changed are written (see _items_needing_save).
+            total = len(self._items_needing_save(ws_dict.get("items") or {}))
+            try:
+                from idt_core.workspace import Workspace
+                bundle_there = Workspace.is_bundle(Path(self.workspace_file))
+            except Exception:                                       # noqa: BLE001
+                bundle_there = False
+            if total == 0 and bundle_there:
+                # Nothing to write but the manifest: quick, so no progress dialog
+                # (one with a total of 0 reads as "unknown" to a screen reader).
+                self._save_bundle(ws_dict=ws_dict, snap_seq=snap_seq)
+                return
             self._run_with_progress(
                 "Saving workspace", total,
                 lambda cb: self._save_bundle(progress=cb, ws_dict=ws_dict,
@@ -5240,6 +5257,39 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             )
         else:
             self._prompt_and_create_bundle("Save Workspace")
+
+    # ---- Saving only what changed -------------------------------------------
+    #
+    # A save used to rewrite one sidecar per item for the whole workspace: on a
+    # 12,911-item photo library, adding two descriptions meant thousands of file
+    # writes behind a progress dialog. Each item's dict is fingerprinted when the
+    # workspace is opened or written, and a save writes only items whose
+    # fingerprint changed (measured: 0.18 s to fingerprint 12,911 items).
+
+    @staticmethod
+    def _item_fingerprint(item: dict) -> str:
+        import hashlib
+        return hashlib.sha1(json.dumps(item, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+    def _remember_saved(self, items: dict, replace: bool = False) -> None:
+        """Record ``items`` (file path -> item dict) as what is on disk now."""
+        owner = (str(self.workspace_file), id(self.workspace))
+        if replace or getattr(self, "_saved_owner", None) != owner:
+            self._saved_fingerprints = {}
+            self._saved_owner = owner
+        for key, item in items.items():
+            self._saved_fingerprints[key] = self._item_fingerprint(item)
+
+    def _items_needing_save(self, items: dict) -> dict:
+        """The items whose saved copy is out of date: all of them when nothing has
+        been recorded for this workspace and bundle (a different workspace, or one
+        never opened or written in this session)."""
+        owner = (str(self.workspace_file), id(self.workspace))
+        known = getattr(self, "_saved_fingerprints", {})
+        if getattr(self, "_saved_owner", None) != owner:
+            return dict(items)
+        return {key: item for key, item in items.items()
+                if known.get(key) != self._item_fingerprint(item)}
 
     def _save_bundle(self, progress=None, ws_dict=None, snap_seq=None) -> None:
         """Persist the current workspace to its open .idtw bundle.
@@ -5276,6 +5326,10 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             from idt_core.gui_bridge import gui_item_to_ws_item, sidecar_name_index
         except ImportError:
             return
+        # Before Workspace.open, which quietly creates an empty bundle when the
+        # folder is gone (renamed or deleted in Explorer, a OneDrive conflict):
+        # then nothing is on disk, and every item must be written.
+        bundle_was_there = Workspace.is_bundle(bundle_path)
         try:
             # Hold the checkpoint lock across this read-modify-write of the
             # manifest: the batch writer refreshes the same file, and an
@@ -5319,11 +5373,26 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 # Unnumbered snapshot: treat it as older than any checkpoint
                 # so it never overwrites a description the writer has saved.
                 snap_seq = 0
-            gui_items = ws_dict.get("items") or {}
-            total_items = len(gui_items)
-            checkpointer = self._checkpointer
+            all_items = ws_dict.get("items") or {}
             # One walk of descriptions/ instead of one per item without a sidecar.
             index = sidecar_name_index(ws)
+            gui_items = (self._items_needing_save(all_items) if bundle_was_there
+                         else dict(all_items))
+            checkpointer = self._checkpointer
+            for file_path, gui_item in all_items.items():
+                if file_path in gui_items or str(file_path).startswith("chat:"):
+                    continue
+                if f"{Path(file_path).name}.json" not in index:
+                    # Unchanged here, but its sidecar is gone from disk (deleted
+                    # outside the app): write it, as the old full save would have.
+                    gui_items[file_path] = gui_item
+                    continue
+                # Unchanged and on disk: claim it without writing, so a batch
+                # checkpoint queued before this snapshot cannot land after it with
+                # an older copy -- what the full save's claim of every item did.
+                with checkpointer.lock:
+                    checkpointer.claim(bundle_path, file_path, snap_seq)
+            total_items = len(gui_items)
             for done, (file_path, gui_item) in enumerate(gui_items.items(), start=1):
                 if str(file_path).startswith("chat:"):
                     if progress:
@@ -5338,9 +5407,10 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     progress(done, total_items, Path(file_path).name)
 
             self.workspace.saved = True
+            _ui(self._remember_saved, gui_items)
             _ui(self.clear_modified)
             _ui(self.SetStatusText, f"Saved: {bundle_path.name}", 0)
-            logger.info(f"Saved bundle: {bundle_path}")
+            logger.info(f"Saved bundle: {bundle_path} ({total_items} changed items written)")
         except Exception as exc:
             logger.error(f"Bundle save failed: {exc}", exc_info=True)
             _ui(show_error, self, f"Error saving workspace bundle:\n{exc}")
@@ -5482,6 +5552,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 ),
             )
             self.workspace_file = bundle.path
+            # Every item was just written: record them, so the next save writes only changes.
+            self._remember_saved(ws_dict.get("items") or {}, replace=True)
             self._recheckpoint_since(snap_seq)
             self.update_window_title("ImageDescriber", bundle.path.name)
             self.clear_modified()
@@ -5560,6 +5632,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 ),
             )
             self.workspace_file = bundle.path
+            # Every item was just written: record them, so the next save writes only changes.
+            self._remember_saved(ws_dict.get("items") or {}, replace=True)
             self._recheckpoint_since(snap_seq)
             self.update_window_title("ImageDescriber", bundle.path.name)
             self.clear_modified()
