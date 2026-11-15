@@ -526,6 +526,12 @@ def raise_provider_error_from_exception(exc: BaseException, provider: str,
     ) from exc
 
 
+#: Retries inside the OpenAI and Anthropic SDK clients. None: describe_image is
+#: wrapped in retry_on_api_error, and the SDK's own 3 retries inside its 3 made
+#: up to 16 attempts per failing image (issue #392 inventory).
+_SDK_RETRIES = 0
+
+
 def retry_on_api_error(max_retries=3, base_delay=1.0, max_delay=60.0, backoff_multiplier=2.0):
     """
     Retry decorator for API calls with exponential backoff.
@@ -810,7 +816,7 @@ class OpenAIProvider(AIProvider):
                 self.client = openai.OpenAI(
                     api_key=self.api_key,
                     timeout=self.timeout,
-                    max_retries=3  # Automatic retry with exponential backoff
+                    max_retries=_SDK_RETRIES
                 )
             except Exception as e:
                 print(f"Warning: Failed to initialize OpenAI client: {e}")
@@ -911,7 +917,7 @@ class OpenAIProvider(AIProvider):
                 self.client = openai.OpenAI(
                     api_key=self.api_key,
                     timeout=self.timeout,
-                    max_retries=3
+                    max_retries=_SDK_RETRIES
                 )
             except Exception as e:
                 print(f"Warning: Failed to reinitialize OpenAI client: {e}")
@@ -1001,45 +1007,33 @@ class OpenAIProvider(AIProvider):
                 with open(image_path, 'rb') as image_file:
                     image_data = base64.b64encode(image_file.read()).decode('utf-8')
             
-            # Use official SDK - handles retry logic, rate limits, and errors automatically
-            # Build request parameters with optimized settings
-            request_params = {
-                "model": model,
-                # NOTE: gpt-5-nano does NOT support custom temperature (only default=1)
-                # ChatGPT recommended temperature=0.2 but this causes 400 error:
-                # "Unsupported value: 'temperature' does not support 0.2 with this model."
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image_data}"
-                                }
+            # The request's settings come from idt_core, shared with the CLI
+            # (issue #392). This used to cap non-reasoning models at 300
+            # tokens, cutting detailed descriptions off, and decided "reasoning
+            # model" with a startswith list that missed newer families.
+            from idt_core.generation import send_with_fallback, user_options
+            from idt_core.providers.openai_provider import (
+                OPTIONAL_PARAMS as _OPENAI_OPTIONAL, describe_request_params,
+                reasoning_tokens as _reasoning_tokens,
+            )
+            request_params = describe_request_params(model, user_options("openai"))
+            request_params["messages"] = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_data}"
                             }
-                        ]
-                    }
-                ]
-            }
-            
-            # GPT-5 and reasoning models (o1, o3, o4, gpt-5) use max_completion_tokens
-            # Older models (GPT-4, GPT-3.5) use max_tokens
-            #
-            # IMPORTANT: Reasoning models consume tokens internally before producing
-            # visible output. At 300, reasoning models (gpt-5, gpt-5-mini, gpt-5-nano,
-            # o4-mini, o1) exhaust their budget on reasoning and return empty content
-            # with finish_reason=length. Verified 2026-02-23: gpt-5 used 192 reasoning
-            # tokens + 63 visible = 255 total — 300 left no room for visible output.
-            # 1500 gives ~1200 headroom after typical reasoning budgets.
-            if (model.startswith('gpt-5') or model.startswith('o1') or
-                    model.startswith('o3') or model.startswith('o4')):
-                request_params["max_completion_tokens"] = 1500
-            else:
-                request_params["max_tokens"] = 300
-            
-            response = self.client.chat.completions.create(**request_params)
+                        }
+                    ]
+                }
+            ]
+
+            response = send_with_fallback(self.client.chat.completions.create,
+                                          request_params, _OPENAI_OPTIONAL, "openai", model)
             
             # Extract response details for comprehensive logging
             content = response.choices[0].message.content or ""
@@ -1187,7 +1181,7 @@ class ClaudeProvider(AIProvider):
                 self.client = anthropic.Anthropic(
                     api_key=self.api_key,
                     timeout=self.timeout,
-                    max_retries=3  # Automatic retry with exponential backoff
+                    max_retries=_SDK_RETRIES
                 )
             except Exception as e:
                 print(f"Warning: Failed to initialize Anthropic client: {e}")
@@ -1288,7 +1282,7 @@ class ClaudeProvider(AIProvider):
                 self.client = anthropic.Anthropic(
                     api_key=self.api_key,
                     timeout=self.timeout,
-                    max_retries=3
+                    max_retries=_SDK_RETRIES
                 )
             except Exception as e:
                 print(f"Warning: Failed to reinitialize Anthropic client: {e}")
@@ -1340,45 +1334,57 @@ class ClaudeProvider(AIProvider):
             }
             media_type = media_type_map.get(ext, 'image/jpeg')
             
-            # Use official SDK - handles retry logic, rate limits, and errors automatically
-            message = self.client.messages.create(
-                model=model,
-                max_tokens=1024,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": media_type,
-                                    "data": image_data
-                                }
-                            },
-                            {
-                                "type": "text",
-                                "text": prompt
-                            }
-                        ]
-                    }
-                ]
+            # The request's settings come from idt_core, shared with the CLI
+            # (issue #392).
+            from idt_core.generation import send_with_fallback, user_options
+            from idt_core.providers.claude import (
+                OPTIONAL_PARAMS as _CLAUDE_OPTIONAL, describe_request_params,
+                response_text as _claude_text,
             )
-            
+            request_params = describe_request_params(model, user_options("claude"))
+            request_params["messages"] = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": image_data
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt
+                        }
+                    ]
+                }
+            ]
+            message = send_with_fallback(self.client.messages.create, request_params,
+                                         _CLAUDE_OPTIONAL, "claude", model)
+
+            stop_reason = getattr(message, "stop_reason", None)
             # Store token usage for cost tracking and logging
             self.last_usage = {
                 'prompt_tokens': message.usage.input_tokens,
                 'completion_tokens': message.usage.output_tokens,
                 'total_tokens': message.usage.input_tokens + message.usage.output_tokens,
+                'finish_reason': 'length' if stop_reason == 'max_tokens' else None,
                 'model': model
             }
-            
-            # Extract text from content
-            if message.content and len(message.content) > 0:
-                return message.content[0].text
+
+            # The text blocks, not content[0]: with thinking on -- the default
+            # on current models -- the first block is a thinking block.
+            text = _claude_text(message)
+            if text.strip():
+                return text
             raise_provider_error(
                 provider="Claude API", kind=ErrorKind.UNKNOWN,
-                message="no content in response")
+                message=("used its whole output allowance thinking"
+                         if stop_reason == "max_tokens"
+                         else "declined to describe the image" if stop_reason == "refusal"
+                         else "no content in response"))
                 
         except ProviderError:
             # Raised by this method's own body. Re-raise unchanged;
@@ -1703,13 +1709,21 @@ class MLXProvider(AIProvider):
             )
 
             # ---- run inference on Metal ----
+            # The user's output cap applies; MLX takes nothing else from the
+            # generation settings (issue #392), and says so once in the log.
+            from idt_core.generation import note_dropped, user_options
+            mlx_opts = user_options("mlx")
+            for setting in ("temperature", "top_p", "top_k", "repeat_penalty",
+                            "thinking", "effort"):
+                if getattr(mlx_opts, setting) is not None:
+                    note_dropped("mlx", model, setting, "not supported for MLX descriptions")
             t0 = time.time()
             output = _mlx_generate(
                 self._model,
                 self._processor,
                 formatted_prompt,
                 image=[use_path],
-                max_tokens=self.MAX_TOKENS,
+                max_tokens=mlx_opts.max_output_tokens or self.MAX_TOKENS,
                 verbose=False,
             )
             elapsed = time.time() - t0
@@ -1894,8 +1908,11 @@ class ClaudeCodeProvider(AIProvider):
             ClaudeCodeSignInError,
         )
 
+        from idt_core.generation import user_options
+
         try:
-            core = _CoreProvider(model=model or DEFAULT_MODEL)
+            core = _CoreProvider(model=model or DEFAULT_MODEL,
+                                 options=user_options("claude-code"))
             image_bytes, mime_type = load_for_api(Path(image_path))
             result = core.describe(image_bytes, mime_type, prompt)
         except ClaudeCodeSignInError as exc:
@@ -1975,8 +1992,11 @@ class AppleProvider(AIProvider):
             DEFAULT_MODEL, AppleFMError, AppleProvider as _CoreProvider,
         )
 
+        from idt_core.generation import user_options
+
         try:
-            core = _CoreProvider(model=model or DEFAULT_MODEL)
+            core = _CoreProvider(model=model or DEFAULT_MODEL,
+                                 options=user_options("apple"))
             image_bytes, mime_type = load_for_api(Path(image_path))
             result = core.describe(image_bytes, mime_type, prompt)
         except AppleFMError as exc:

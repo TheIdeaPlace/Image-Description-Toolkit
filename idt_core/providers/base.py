@@ -38,6 +38,9 @@ class DescriptionResult:
     #: None when the provider cannot tell. Explains slow images (issue #392):
     #: on a thinking model this is often most of ``output_tokens``.
     thinking_chars: Optional[int] = None
+    #: The same, counted in tokens, where the provider reports that instead
+    #: (OpenAI's reasoning_tokens). Hidden reasoning is billed as output.
+    thinking_tokens: Optional[int] = None
     #: True when the model stopped at the output cap, so the text is cut off.
     truncated: bool = False
 

@@ -196,6 +196,8 @@ class WorkspaceEvent:
     #: Characters of hidden reasoning the model produced for this image (issue
     #: #392), when the provider can tell. Logged so a slow run can be explained.
     thinking_chars: Optional[int] = None
+    #: The same in tokens, for providers that count it that way (OpenAI).
+    thinking_tokens: Optional[int] = None
     #: The description stopped at the output cap and is cut off.
     truncated: bool = False
 
@@ -575,6 +577,9 @@ class WorkspacePipeline:
                     if event.thinking_chars:
                         tokens += (f"  {event.thinking_chars:,} characters of hidden "
                                    f"reasoning, discarded")
+                    elif event.thinking_tokens:
+                        tokens += (f"  {event.thinking_tokens:,} of the output tokens "
+                                   f"were hidden reasoning")
                     if event.truncated:
                         tokens += "  CUT OFF at the output limit"
                     log.info(f"{index}/{total}  {item.image}: described{tokens}")
@@ -676,6 +681,7 @@ class WorkspacePipeline:
             self.workspace.save_item(item)
             return WorkspaceEvent(item=item, index=index, total=total, metadata=meta,
                                   thinking_chars=getattr(result, "thinking_chars", None),
+                                  thinking_tokens=getattr(result, "thinking_tokens", None),
                                   truncated=bool(getattr(result, "truncated", False)))
 
         except Exception as exc:

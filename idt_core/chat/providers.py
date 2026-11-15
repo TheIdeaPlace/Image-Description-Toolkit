@@ -431,9 +431,20 @@ class OpenAIChatProvider(ChatProvider):
         if request.max_output_tokens:
             kwargs["max_completion_tokens"] = request.max_output_tokens
         if request.temperature is not None:
-            kwargs["temperature"] = request.temperature
+            from ..generation import note_dropped
+            from ..providers.openai_provider import is_reasoning_model
 
-        stream = client.chat.completions.create(**kwargs)
+            if is_reasoning_model(kwargs["model"]):
+                # Reasoning models reject a non-default temperature with a 400,
+                # which failed the whole turn (issue #392).
+                note_dropped("openai", kwargs["model"], "temperature",
+                             "reasoning models accept only their default")
+            else:
+                kwargs["temperature"] = request.temperature
+
+        from ..generation import send_with_fallback
+        stream = send_with_fallback(client.chat.completions.create, kwargs,
+                                    ("temperature",), "openai", kwargs["model"])
         usage = None
         try:
             for chunk in stream:

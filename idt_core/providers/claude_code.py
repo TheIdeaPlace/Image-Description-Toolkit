@@ -227,7 +227,7 @@ def check_subscription(claude: Optional[str] = None, force: bool = False) -> Non
 
 
 def build_command(claude: str, model: str, system_prompt_file: str,
-                  partial: bool = False) -> List[str]:
+                  partial: bool = False, effort: Optional[str] = None) -> List[str]:
     """The ``claude -p`` command line.
 
     The system prompt travels in a file, never as an argument: an npm install
@@ -257,7 +257,33 @@ def build_command(claude: str, model: str, system_prompt_file: str,
     ]
     if partial:
         cmd.append("--include-partial-messages")
+    if effort:
+        cmd += ["--effort", effort]
     return cmd
+
+
+_EFFORT_MAP = {"minimal": "low", "low": "low", "medium": "medium", "high": "high"}
+
+
+def describe_settings(model: str, opts) -> Tuple[Optional[str], Optional[int]]:
+    """``(effort, max_output_tokens)`` for a description, from GenerationOptions.
+
+    Claude Code takes an effort level and an output cap (through
+    CLAUDE_CODE_MAX_OUTPUT_TOKENS); no sampling settings. As for the Claude
+    API, "thinking off" means low effort, the closest every model accepts.
+    Measured on a Surface Laptop 7: effort barely changed time per photo
+    (6-9 s on Haiku, Sonnet and Opus), so automatic leaves it alone.
+    """
+    from ..generation import THINKING_OFF, GenerationOptions, note_dropped
+
+    opts = opts or GenerationOptions()
+    for setting in ("temperature", "top_p", "top_k", "repeat_penalty"):
+        if getattr(opts, setting) is not None:
+            note_dropped("claude-code", model, setting, "Claude Code takes no sampling settings")
+    effort = _EFFORT_MAP.get(opts.effort) if opts.effort else None
+    if effort is None and opts.thinking == THINKING_OFF:
+        effort = "low"
+    return effort, opts.max_output_tokens
 
 
 def _record_stats(data: dict) -> None:
@@ -308,6 +334,7 @@ def run_claude(
     timeout: Optional[float] = None,
     max_output_tokens: Optional[int] = None,
     claude: Optional[str] = None,
+    effort: Optional[str] = None,
 ) -> Iterator[Tuple[str, object]]:
     """Run one ``claude -p`` request and yield what comes back.
 
@@ -336,7 +363,7 @@ def run_claude(
     try:
         prompt_file.write_text(system_prompt, encoding="utf-8")
         proc = subprocess.Popen(
-            build_command(claude, model, str(prompt_file), partial),
+            build_command(claude, model, str(prompt_file), partial, effort=effort),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace",
             cwd=scratch, env=_child_env(extra_env), creationflags=_no_window(),
@@ -450,8 +477,11 @@ def image_block(image_bytes: bytes, mime_type: str) -> dict:
 class ClaudeCodeProvider(BaseProvider):
     """One image, one prompt, one description, through the subscription."""
 
-    def __init__(self, model: str = DEFAULT_MODEL, check_auth: bool = True):
+    def __init__(self, model: str = DEFAULT_MODEL, check_auth: bool = True,
+                 options=None):
         self._model = model or DEFAULT_MODEL
+        #: GenerationOptions; None means automatic.
+        self._options = options
         self._claude = find_claude()
         if not self._claude:
             raise ClaudeCodeError(_INSTALL_HINT)
@@ -470,9 +500,11 @@ class ClaudeCodeProvider(BaseProvider):
         image_bytes, mime_type = fit_image(image_bytes, mime_type)
         content = [image_block(image_bytes, mime_type), {"type": "text", "text": prompt}]
         data = None
+        effort, max_output_tokens = describe_settings(self._model, self._options)
         for kind, value in run_claude(
             content, self._model, DESCRIBE_SYSTEM_PROMPT,
             timeout=DESCRIBE_TIMEOUT_SECONDS, claude=self._claude,
+            effort=effort, max_output_tokens=max_output_tokens,
         ):
             if kind == "result":
                 data = value

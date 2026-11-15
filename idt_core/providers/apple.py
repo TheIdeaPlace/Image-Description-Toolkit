@@ -822,11 +822,29 @@ def describe_messages(image_bytes: bytes, mime_type: str, prompt: str,
 # ---------------------------------------------------------------------------
 
 
+def describe_settings(model: str, opts) -> Tuple[int, Optional[float]]:
+    """``(max_output_tokens, temperature)`` for a description (issue #392).
+
+    The on-device model takes a length cap and a temperature. It has no
+    reasoning to control and no other sampling settings, so those are dropped
+    with a note.
+    """
+    from ..generation import GenerationOptions, note_dropped
+
+    opts = opts or GenerationOptions()
+    for setting in ("top_p", "top_k", "repeat_penalty", "thinking", "effort"):
+        if getattr(opts, setting) is not None:
+            note_dropped("apple", model, setting, "Apple Intelligence has no such setting")
+    return opts.max_output_tokens or DESCRIBE_MAX_OUTPUT_TOKENS, opts.temperature
+
+
 class AppleProvider(BaseProvider):
     """One image, one prompt, one description, entirely on this Mac."""
 
-    def __init__(self, model: str = DEFAULT_MODEL, check: bool = True):
+    def __init__(self, model: str = DEFAULT_MODEL, check: bool = True, options=None):
         self._model = model or DEFAULT_MODEL
+        #: GenerationOptions; None means automatic.
+        self._options = options
         if check:
             check_ready()
 
@@ -839,10 +857,12 @@ class AppleProvider(BaseProvider):
         return self._model
 
     def describe(self, image_bytes: bytes, mime_type: str, prompt: str) -> DescriptionResult:
+        max_output_tokens, temperature = describe_settings(self._model, self._options)
         payload = build_payload(
             describe_messages(image_bytes, mime_type, prompt),
             self._model, stream=False,
-            max_output_tokens=DESCRIBE_MAX_OUTPUT_TOKENS,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
         )
         data = post_chat(payload)
         input_tokens, output_tokens = usage_tokens(data)

@@ -71,6 +71,88 @@ def get_openai_model_info(model_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Generation settings (issue #392)
+# ---------------------------------------------------------------------------
+
+def is_reasoning_model(model_id: str) -> bool:
+    """True for OpenAI's reasoning families: the o-series and GPT-5 onward.
+
+    They reason before answering, count that against the output cap, accept
+    ``reasoning_effort``, and reject a non-default ``temperature``/``top_p``.
+    A rule rather than a list, so gpt-6 and later models are covered on the
+    day they appear in the live catalog; send_with_fallback catches the cases
+    a rule gets wrong.
+    """
+    import re
+
+    name = (model_id or "").lower()
+    if re.match(r"o\d", name):
+        return True
+    match = re.match(r"gpt-(\d+)", name)
+    return bool(match) and int(match.group(1)) >= 5
+
+
+#: Description cap when the user sets none. Reasoning counts against it, so it
+#: has to leave room: ImageDescriber's old 300 cut descriptions off, and its
+#: 1500 was measured against a 192-token reasoning budget at default effort.
+DESCRIBE_MAX_OUTPUT_TOKENS = 4096
+
+#: Parameters dropped and retried without when the API rejects them.
+OPTIONAL_PARAMS = ("temperature", "top_p", "reasoning_effort")
+
+
+def describe_request_params(model: str, opts) -> dict:
+    """Chat-completions keyword arguments (all but ``messages``) for a description.
+
+    Shared by idt_core's provider and ImageDescriber's, so the two cannot drift
+    apart again: the CLI sent ``max_tokens`` -- which reasoning models reject --
+    while ImageDescriber capped other models at 300 tokens.
+    """
+    from ..generation import THINKING_OFF, GenerationOptions, note_dropped
+
+    opts = opts or GenerationOptions()
+    reasoning = is_reasoning_model(model)
+    # max_completion_tokens, never max_tokens: every current chat model takes
+    # it, and reasoning models reject max_tokens outright.
+    params = {"model": model,
+              "max_completion_tokens": opts.max_output_tokens or DESCRIBE_MAX_OUTPUT_TOKENS}
+    for setting in ("temperature", "top_p"):
+        value = getattr(opts, setting)
+        if value is None:
+            continue
+        if reasoning:
+            note_dropped("openai", model, setting,
+                         "reasoning models accept only their default")
+        else:
+            params[setting] = value
+    for setting in ("top_k", "repeat_penalty"):
+        if getattr(opts, setting) is not None:
+            note_dropped("openai", model, setting, "OpenAI has no such setting")
+
+    effort = opts.effort
+    if effort is None and opts.thinking == THINKING_OFF and reasoning:
+        # OpenAI reasoning cannot be switched off; "low" is the least every
+        # reasoning model accepts ("minimal" and "none" depend on the model).
+        effort = "low"
+    if effort is not None:
+        if reasoning:
+            params["reasoning_effort"] = effort
+        else:
+            note_dropped("openai", model, "effort", "the model does not reason")
+    elif opts.thinking is not None and not reasoning:
+        note_dropped("openai", model, "thinking", "the model does not reason")
+    params.update(opts.extra or {})
+    return params
+
+
+def reasoning_tokens(usage) -> Optional[int]:
+    """Hidden reasoning tokens from a chat-completions usage object, or None."""
+    details = getattr(usage, "completion_tokens_details", None)
+    value = getattr(details, "reasoning_tokens", None) if details is not None else None
+    return value if isinstance(value, int) else None
+
+
+# ---------------------------------------------------------------------------
 # Live listing
 # ---------------------------------------------------------------------------
 #
@@ -256,7 +338,8 @@ def list_models_live(client=None, api_key: Optional[str] = None,
 
 
 class OpenAIProvider(BaseProvider):
-    def __init__(self, model: str = DEFAULT_MODEL, api_key: Optional[str] = None):
+    def __init__(self, model: str = DEFAULT_MODEL, api_key: Optional[str] = None,
+                 options=None):
         try:
             from openai import OpenAI  # noqa: F401
         except ImportError:
@@ -265,6 +348,8 @@ class OpenAIProvider(BaseProvider):
             )
         from openai import OpenAI
         self._model = model
+        #: GenerationOptions; None means automatic.
+        self._options = options
         # api_key=None → SDK reads OPENAI_API_KEY from environment
         self._client = OpenAI(api_key=api_key)
 
@@ -277,28 +362,42 @@ class OpenAIProvider(BaseProvider):
         return self._model
 
     def describe(self, image_bytes: bytes, mime_type: str, prompt: str) -> DescriptionResult:
+        from ..generation import send_with_fallback
+
         b64 = base64.standard_b64encode(image_bytes).decode("ascii")
-        response = self._client.chat.completions.create(
-            model=self._model,
-            max_tokens=2048,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{mime_type};base64,{b64}"},
-                        },
-                        {"type": "text", "text": prompt},
-                    ],
-                }
-            ],
-        )
+        params = describe_request_params(self._model, self._options)
+        params["messages"] = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{b64}"},
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ]
+        response = send_with_fallback(self._client.chat.completions.create, params,
+                                      OPTIONAL_PARAMS, "openai", self._model)
         usage = response.usage
+        choice = response.choices[0]
+        text = choice.message.content or ""
+        truncated = getattr(choice, "finish_reason", None) == "length"
+        hidden = reasoning_tokens(usage)
+        if truncated and not text.strip():
+            raise RuntimeError(
+                f"{self._model} used its whole output allowance "
+                f"({params['max_completion_tokens']} tokens"
+                + (f", {hidden} of them reasoning" if hidden else "")
+                + ") before writing a description. Raise the output limit or lower "
+                  "the reasoning effort.")
         return DescriptionResult(
-            text=response.choices[0].message.content,
+            text=text,
             model=self._model,
             provider="openai",
             input_tokens=usage.prompt_tokens if usage else None,
             output_tokens=usage.completion_tokens if usage else None,
+            thinking_tokens=hidden,
+            truncated=truncated,
         )
