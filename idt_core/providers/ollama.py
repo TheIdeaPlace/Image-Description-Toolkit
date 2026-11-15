@@ -47,10 +47,17 @@ def normalize_host(host: Optional[str]) -> Optional[str]:
     with_scheme = text if "://" in text else f"http://{text}"
     from urllib.parse import urlsplit, urlunsplit
 
-    parts = urlsplit(with_scheme)
-    if (parts.hostname or "").lower() != "localhost":
+    try:
+        parts = urlsplit(with_scheme)
+        if (parts.hostname or "").lower().rstrip(".") != "localhost":
+            return host
+        port = parts.port
+    except ValueError:
+        # A malformed address (a port that isn't a number, or out of range):
+        # leave it alone, so the user gets the connection error that says so
+        # rather than a crash here.
         return host
-    netloc = "127.0.0.1" + (f":{parts.port}" if parts.port else "")
+    netloc = "127.0.0.1" + (f":{port}" if port is not None else "")
     if parts.username:
         netloc = f"{parts.username}{':' + parts.password if parts.password else ''}@{netloc}"
     fixed = urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))

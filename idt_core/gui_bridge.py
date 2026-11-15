@@ -485,6 +485,9 @@ def gui_item_to_ws_item(ws: Workspace, file_path: str, gui_item: dict,
         _keep_cli_marks(existing.extra, None, bool(existing.descriptions))
         # ImageDescriber 4.6.0 and earlier recorded extracted frames as copied into
         # images/ without copying them. Correct the record when it is rewritten.
+        # ImageDescriber saves only items that changed (#402), so for an untouched
+        # frame that is the next change or full save (Save As); both readers fall
+        # back to the frame in derived/ meanwhile, so nothing shows wrong.
         # Same scope as Workspace.image_path's fallback: only frames under this
         # bundle's derived/, never an image whose real copy has gone missing.
         if (existing.storage == "copy" and existing.item_type == "extracted_frame"

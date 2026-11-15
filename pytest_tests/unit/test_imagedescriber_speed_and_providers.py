@@ -209,3 +209,63 @@ def test_a_different_workspace_is_saved_in_full(frame, written):
     f.workspace = other
     f._save_bundle()
     assert len(written) == 3
+
+
+def test_opening_a_workspace_records_it(frame, written, monkeypatch):
+    """Through the real File > Open path: reopened from disk, nothing needs writing."""
+    import wx
+    f, src = frame
+    monkeypatch.setattr(f, "refresh_image_list", lambda *a, **k: None)
+    f.load_workspace(f.workspace_file)
+    wx.SafeYield()
+    written.clear()
+    f._save_bundle()
+    assert written == []
+    _describe(f.workspace, src / "a.jpg", "a red barn")
+    f._save_bundle()
+    assert len(written) == 1
+
+
+def test_a_save_with_a_progress_callback_records_too(frame, written):
+    """The File > Save path: the save runs off-thread and records via CallAfter."""
+    import wx
+    f, src = frame
+    _describe(f.workspace, src / "b.jpg", "a blue boat")
+    f._save_bundle(progress=lambda *a: None, ws_dict=f.workspace.to_dict(),
+                   snap_seq=f._checkpointer.snapshot_seq())
+    wx.SafeYield()
+    written.clear()
+    f._save_bundle()
+    assert written == []
+
+
+def test_a_deleted_bundle_is_written_in_full(frame, written):
+    """The folder disappeared while open (Explorer, a sync conflict): Workspace.open
+    makes a new empty bundle, so every item must be written, not just the changed one."""
+    import shutil
+    f, src = frame
+    shutil.rmtree(f.workspace_file)
+    _describe(f.workspace, src / "a.jpg", "a red barn")
+    f._save_bundle()
+    assert len(written) == 3
+
+
+def test_an_item_whose_sidecar_was_deleted_is_written(frame, written):
+    from idt_core.workspace import Workspace
+    f, src = frame
+    sidecar = Workspace(f.workspace_file)._sidecar_path("c.jpg", None)
+    assert sidecar.exists()
+    sidecar.unlink()
+    f._save_bundle()
+    assert len(written) == 1 and sidecar.exists()
+
+
+def test_skipped_items_are_claimed_so_an_older_checkpoint_cannot_land(frame, written):
+    """The full save claimed every item, blocking a checkpoint queued before it."""
+    f, src = frame
+    older = f._checkpointer.snapshot_seq()
+    f._checkpointer.snapshot_seq()          # the save's snapshot is newer
+    f._save_bundle()
+    assert written == []
+    with f._checkpointer.lock:
+        assert f._checkpointer.claim(f.workspace_file, str(src / "a.jpg"), older) is False
