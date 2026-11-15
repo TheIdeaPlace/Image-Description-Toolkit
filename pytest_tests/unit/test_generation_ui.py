@@ -22,8 +22,22 @@ from idt_core.generation import (  # noqa: E402
 )
 
 
+def _require_wx():
+    """The dialog modules import wx. Skip without it -- the macOS suite job
+    has none -- unless IDT_REQUIRE_WX=1, where a skip would hide the tests
+    (the convention from test_gui_smoke.py, issue #230)."""
+    import os
+    try:
+        import wx  # noqa: F401
+    except ImportError as exc:
+        if os.environ.get("IDT_REQUIRE_WX") == "1":
+            raise RuntimeError(f"IDT_REQUIRE_WX=1 but wxPython is missing: {exc}") from exc
+        pytest.skip("wxPython is not installed")
+
+
 @pytest.fixture
 def cfg(monkeypatch):
+    _require_wx()
     monkeypatch.syspath_prepend(str(_ROOT / "imagedescriber"))
     import configure_dialog
     return configure_dialog
@@ -379,6 +393,7 @@ def test_thinking_hint(caps):
 def test_pickers_make_no_requests(monkeypatch):
     """They run on the UI thread on every arrow press; one localhost request
     measured over 2 seconds. Only the cache from the listing probe is read."""
+    _require_wx()
     monkeypatch.syspath_prepend(str(_ROOT / "imagedescriber"))
     import ai_providers
     import dialogs_wx
@@ -427,6 +442,7 @@ def test_listing_probe_fills_the_thinking_cache(monkeypatch):
 
 
 def test_describe_picker_keeps_the_model_name_as_data(caps, monkeypatch):
+    _require_wx()
     monkeypatch.syspath_prepend(str(_ROOT / "imagedescriber"))
     import ai_providers
     import dialogs_wx
