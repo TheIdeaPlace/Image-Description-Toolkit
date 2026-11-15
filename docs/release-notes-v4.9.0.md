@@ -91,10 +91,11 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 
 ### Fixed
 
-- **`idt describe --provider openai` sent a request that OpenAI's reasoning models
-  reject.** It used `max_tokens`, and the default model is `gpt-5.2`. The request now
-  uses `max_completion_tokens`. *This has not been run against the live OpenAI API; see
-  Known limitations.*
+- **`idt describe --provider openai` failed on every image with the default model.** It
+  sent `max_tokens`, which `gpt-5.2` and OpenAI's other reasoning models reject ("Use
+  'max_completion_tokens' instead"). It now sends `max_completion_tokens`. Checked live
+  with `gpt-4o-mini`, `gpt-5-nano`, `gpt-5-mini` and `gpt-5.2`; with thinking off,
+  `gpt-5-nano` dropped from 384 reasoning tokens to none and answered twice as fast.
 - **ImageDescriber capped most OpenAI models at 300 tokens and Claude at 1,024,** which
   cut detailed descriptions short. Both caps are now 4,096 unless you set another in
   Generation settings, the same as the command line.
@@ -642,9 +643,6 @@ idt version     Version information
 
 ## Known limitations
 
-- **The OpenAI path was changed but not tried against the live API before release.** The
-  requests were checked against the current OpenAI SDK and by tests, not by describing a
-  picture. (Claude was tried live, with Haiku 5.5, Sonnet 5.5, Opus 5.5 and Haiku 4.5.)
 - **A Claude API key that isn't assigned to a workspace is refused by Anthropic** with a
   message asking for an `anthropic-workspace-id` header, which IDT has no setting for.
   Use a key assigned to a workspace (the Claude Console's default for new keys).

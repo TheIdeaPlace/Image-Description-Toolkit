@@ -28,6 +28,6 @@ Full suite 2,424 passed / 47 skipped on Windows; CI green on Windows and macOS f
 
 ## Not tested
 
-- OpenAI API live: the test account has no credits. (Claude was tested live once Kelly replaced the key: Haiku 5.5, Sonnet 5.5, Opus 5.5 and Haiku 4.5, automatic / thinking off / on / temperature, all described; Opus 5.5 replies start with a thinking block, confirming the `content[0]` bug. The first key wasn't assigned to a workspace and Anthropic refused it without an `anthropic-workspace-id` header.)
+- (Both APIs were tested live later, once Kelly added OpenAI credit: the old `max_tokens` request returns a 400 on `gpt-5.2`; `gpt-4o-mini`, `gpt-5-nano`, `gpt-5-mini` and `gpt-5.2` described with automatic, thinking off and temperature; `gpt-5-nano` reasoning went from 384 tokens to 0 with thinking off; `gpt-5.2` reasons 0 tokens by default, confirming "none" is its default; `o4-mini` is deprecated (404). Claude was tested live once Kelly replaced the key: Haiku 5.5, Sonnet 5.5, Opus 5.5 and Haiku 4.5, automatic / thinking off / on / temperature, all described; Opus 5.5 replies start with a thinking block, confirming the `content[0]` bug. The first key wasn't assigned to a workspace and Anthropic refused it without an `anthropic-workspace-id` header.)
 - JAWS / NVDA listening, macOS UI, frozen build.
 - `test_model_refresh.py::test_concurrent_refreshes_fetch_once` failed once under `-n 4` and passed alone; flaky, unrelated.
