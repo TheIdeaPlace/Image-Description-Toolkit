@@ -1,3 +1,42 @@
+## [4.9.0] - 2026-11-15
+
+### ✨ New
+
+**Generation settings for every provider (#392)**
+- A new **Generation** tab under Tools → Configure Settings in ImageDescriber sets, per provider, what IDT asks a model for besides the prompt. Ollama: thinking, temperature, top p, top k, repeat penalty and output limit. OpenAI: thinking, effort, temperature, top p and output limit. Claude and Claude Code: thinking, effort and output limit. Apple Intelligence (temperature, output limit) and MLX (output limit) appear only on a Mac. Every setting starts on Automatic, which uses IDT's default for the chosen model.
+- `idt describe`, `idt guideme` and the other describing commands take `--think`, `--no-think`, `--temperature` and `--max-tokens`, which override saved settings for that run. The command line and ImageDescriber read the same saved settings, under "generation" in the config file.
+- A setting a provider or model can't take is skipped, with one note in the run log. An optional setting a model rejects is dropped and the request sent again, and the rejection is remembered for that model.
+- IDT Chat has a **Chat → Thinking** menu and ImageDescriber's chat window has **Session → Thinking**, each with Automatic, On and Off. Before, a thinking model always thought in both, with no way to turn it off. The choice now reaches Claude, OpenAI reasoning models and Claude Code as well as Ollama. Where reasoning can't be switched off, Off asks for the least effort the model takes.
+- Ollama model pickers in ImageDescriber mark thinking models "(thinks, slower)" and name the installed `-instruct` edition when there is one.
+
+### ✨ Improvements
+
+**Ollama descriptions: thinking off by default, and no more blank answers (#392)**
+- Descriptions sent Ollama no options and no `think` setting, so thinking models reasoned at length on every picture and the reasoning was discarded (60 to 75 percent of the output, measured on an M5 Pro). Thinking is now off for descriptions unless you turn it on.
+- No `qwen3-vl` thinking tag (2B, 8B and 32B were measured) honours "thinking off". For those, use the `-instruct` tag, such as `qwen3-vl:8b-instruct`. IDT logs once when a model keeps thinking and suggests it.
+- An answer that is all reasoning is tried once more, then reported as a failure, instead of saved as a blank. One `qwen3-vl:2b` run had returned an empty description after 13,000 characters of reasoning. Reasoning text never reaches a description.
+- The output limit is withheld for Ollama cloud models and while a model is thinking.
+- Run logs, from the command line and ImageDescriber, record hidden reasoning and cut-off descriptions per image, and any provider notices. Timeouts from the HTTP library now count as transient.
+- ImageDescriber describes with Ollama through the same code as the command line. A request that waits out the 30-minute limit isn't retried. Ollama Cloud now reports token usage.
+
+### 🐛 Bug Fixes
+
+- `idt describe --provider openai` sent `max_tokens`, which OpenAI's reasoning models reject (the default model is `gpt-5.2`). It now sends `max_completion_tokens`. Not run against the live OpenAI API.
+- ImageDescriber capped most OpenAI models at 300 tokens and Claude at 1,024, cutting detailed descriptions short. Both are now 4,096, and what counts as an OpenAI reasoning model no longer depends on a list of name prefixes.
+- Both the command line and ImageDescriber read the first part of Claude's reply as text. On current models that can be a reasoning block with no text. They now join the text parts. Not run against the live Claude API.
+- An empty answer from OpenAI or Claude is now an error, not a saved blank that counted the picture as described. Refusals and content-filter declines mark that picture and the run carries on.
+- The command line's Claude path shrinks images over the API's size limit, as Claude Code already did.
+- ImageDescriber made up to 16 attempts per failing image; it is now at most 8, and dropped connections are still retried.
+- Chat no longer sends `temperature` to OpenAI reasoning models.
+- The five temperature, max tokens, top k, top p and repeat penalty entries are gone from the Configure dialog, along with `model_settings` and `prompt_model_settings` in the shipped config. Nothing has read them since the legacy scripts were removed in June, so changing them did nothing. Values already in a user's config file are left alone and ignored.
+
+### 🔧 Other
+
+- IDT's links, updater and user guide point at TheIdeaPlace/Image-Description-Toolkit (#381). Installed copies keep updating through GitHub's redirect.
+
+### Not tested
+- The OpenAI and Claude APIs live (the test OpenAI account has no credits; the Claude key needs an `anthropic-workspace-id` header IDT can't send). Listening to the new Generation tab and Thinking menus with JAWS or NVDA, the macOS interface, and a frozen build.
+
 ## [4.8.1] - 2026-10-09
 
 ### 🐛 Bug Fixes
