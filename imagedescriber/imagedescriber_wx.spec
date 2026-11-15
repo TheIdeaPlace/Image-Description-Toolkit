@@ -232,13 +232,7 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
-# onefile mode (PyInstaller warns it's deprecated with .app bundles, but it works)
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
-    [],
+_exe_options = dict(
     name='ImageDescriber',
     debug=False,
     bootloader_ignore_signals=False,
@@ -254,6 +248,20 @@ exe = EXE(
     entitlements_file=None,
 )
 
+if sys.platform == 'win32':
+    # Folder build on Windows: dist/ImageDescriber/ImageDescriber.exe plus
+    # ImageDescriber/imagedescriber-lib/. As a one-file exe it showed "Failed to
+    # remove temporary directory" on every close and left a %TEMP%\_MEIxxxxxx
+    # folder behind (see idt.spec).
+    exe = EXE(pyz, a.scripts, [], exclude_binaries=True,
+              contents_directory='imagedescriber-lib', **_exe_options)
+    coll = COLLECT(exe, a.binaries, a.datas,
+                   strip=False, upx=False, upx_exclude=[], name='ImageDescriber')
+else:
+    # onefile mode on macOS (PyInstaller warns it's deprecated with .app
+    # bundles, but it works, and the signing scripts expect it)
+    exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], **_exe_options)
+
 # Read version from VERSION file
 version_file = project_root / 'VERSION'
 version = '4.0.0'  # Fallback
@@ -266,16 +274,17 @@ if version_file.exists():
     version = match.group(0) if match else '4.0.0'
 
 # macOS .app bundle
-app = BUNDLE(
-    exe,
-    name='ImageDescriber.app',
-    icon=None,
-    bundle_identifier='com.imagedescriber.app',
-    version=version,
-    info_plist={
-        'CFBundleShortVersionString': version,
-        'CFBundleVersion': version_text if version_file.exists() else version,
-        'NSPrincipalClass': 'NSApplication',
-        'NSHighResolutionCapable': 'True',
-    },
-)
+if sys.platform == 'darwin':
+    app = BUNDLE(
+        exe,
+        name='ImageDescriber.app',
+        icon=None,
+        bundle_identifier='com.imagedescriber.app',
+        version=version,
+        info_plist={
+            'CFBundleShortVersionString': version,
+            'CFBundleVersion': version_text if version_file.exists() else version,
+            'NSPrincipalClass': 'NSApplication',
+            'NSHighResolutionCapable': 'True',
+        },
+    )

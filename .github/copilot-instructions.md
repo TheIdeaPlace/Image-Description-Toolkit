@@ -89,7 +89,7 @@ Follow these guidelines for all coding work on this project.
     - ✅ Syntax validation: `python -m py_compile <file>`
     - ✅ Development mode: Run actual command with test data
     - ✅ Build frozen exe: `cd idt && build_idt.bat`
-    - ✅ Test frozen exe: `dist/idt.exe <command> testimages`
+    - ✅ Test frozen exe: `dist/idt/idt.exe <command> testimages`
     - ✅ Check logs: `grep -i error wf_*/logs/*.log`
     - ❌ NEVER claim "fixed" without completing ALL of above
 
@@ -137,7 +137,7 @@ except ImportError:
 **Testing Protocol:**
 1. Make code changes
 2. Run `cd idt && build_idt.bat` (Windows) or full `builditall_wx.bat`
-3. Run `dist\idt.exe workflow testimages` with actual test data
+3. Run `dist\idt\idt.exe workflow testimages` with actual test data
 4. Verify it completes WITHOUT ERRORS (exit code 0)
 5. Check log files in `wf_*/logs/` for actual errors
 6. Read the workflow log AND the image_describer log
@@ -303,13 +303,13 @@ cd imagedescriber && build_imagedescriber_wx.bat
 **Windows:**
 ```batch
 REM Quick smoke test
-dist\idt.exe version
+dist\idt\idt.exe version
 
 REM Path debugging
-dist\idt.exe --debug-paths
+dist\idt\idt.exe --debug-paths
 
 REM Test GUI apps
-dist\ImageDescriber.exe
+dist\ImageDescriber\ImageDescriber.exe
 ```
 
 **macOS:**
@@ -328,10 +328,10 @@ cd imagedescriber && build_imagedescriber_wx.bat
 ### Testing Executable After Build
 ```bash
 # Quick smoke test
-dist\idt.exe version
+dist\idt\idt.exe version
 
 # Path debugging
-dist\idt.exe --debug-paths
+dist\idt\idt.exe --debug-paths
 ```
 
 ## Project-Specific Conventions

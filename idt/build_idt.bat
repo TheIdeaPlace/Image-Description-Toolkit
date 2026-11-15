@@ -35,5 +35,5 @@ if errorlevel 1 (
 echo.
 echo ========================================
 echo Build complete!
-echo Executable: dist\idt.exe
+echo Executable: dist\idt\idt.exe ^(with its idt-lib folder^)
 echo ========================================

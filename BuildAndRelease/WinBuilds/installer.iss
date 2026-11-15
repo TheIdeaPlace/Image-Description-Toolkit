@@ -286,17 +286,32 @@ Name: "addtopath"; Description: "Add to PATH (allows running 'idt' from any comm
 Name: "installollama"; Description: "Install Ollama and minicpm-v4.6 model via winget"; GroupDescription: "Dependencies:"; Flags: unchecked; Check: ShouldShowOllamaInstallTask
 Name: "windowsai"; Description: "Set up Windows AI, for descriptions on this PC if it is a Copilot+ PC"; GroupDescription: "Dependencies:"; Check: CanSetUpWindowsAI
 
+[InstallDelete]
+; Each app is a PyInstaller folder build: its exe plus a -lib folder holding
+; Python and every library. Clear the old -lib folders on upgrade so a file the
+; new build no longer has can't linger and be loaded by mistake.
+Type: filesandordirs; Name: "{app}\idt-lib"
+Type: filesandordirs; Name: "{app}\imagedescriber-lib"
+Type: filesandordirs; Name: "{app}\idtchat-lib"
+
 [Files]
-; Main I DT CLI executable
+; Up to 4.8 each exe was a single file that unpacked itself into
+; %TEMP%\_MEIxxxxxx on every start. On close the GUIs showed "Failed to remove
+; temporary directory" and left that folder behind, so they now ship as folders.
+
+; Main IDT CLI executable and its libraries
 Source: "dist_all\bin\idt.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist_all\bin\idt-lib\*"; DestDir: "{app}\idt-lib"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; GUI Applications
 ; Note: Viewer is now integrated into ImageDescriber as "Viewer Mode" tab
 Source: "dist_all\bin\ImageDescriber.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist_all\bin\imagedescriber-lib\*"; DestDir: "{app}\imagedescriber-lib"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Note: PromptEditor and Configure are now integrated into ImageDescriber (Tools menu)
 ; Standalone accessible chat client. Ships in the same installer so one update
 ; covers every app, per the update checker's single-feed design.
 Source: "dist_all\bin\IDTChat.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist_all\bin\idtchat-lib\*"; DestDir: "{app}\idtchat-lib"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 #ifdef WithWindowsAI
 ; Windows AI's helper, for this PC's architecture only, and the script that installs it.

@@ -106,8 +106,31 @@ def find_scripts_directory() -> Optional[Path]:
     for path in candidates:
         if path.exists() and path.is_dir():
             return path
-    
+
     return None
+
+
+def writable_scripts_directory() -> Optional[Path]:
+    """Where to WRITE config files: the scripts directory, unless that is the
+    bundled read-only copy inside the app.
+
+    In a Windows folder build _MEIPASS is <exe dir>\\<app>-lib, which persists
+    (it was a temp folder in one-file builds), and an update replaces the whole
+    folder. Writing there would lose the change on the next update, so the
+    user config dir is used instead -- config_loader reads it before the
+    bundled copy.
+    """
+    scripts_dir = find_scripts_directory()
+    meipass = getattr(sys, '_MEIPASS', None)
+    if scripts_dir is not None and meipass and scripts_dir.is_relative_to(Path(meipass)):
+        try:
+            from idt_core.config_loader import get_user_config_dir
+        except ImportError:
+            return None
+        user_dir = get_user_config_dir()
+        user_dir.mkdir(parents=True, exist_ok=True)
+        return user_dir
+    return scripts_dir
 
 
 def find_config_file(filename: str) -> Optional[Path]:

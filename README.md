@@ -21,8 +21,10 @@ Either one gives you all the applications:
 One install covers them all; you never update them separately.
 
 Standalone builds are also published if you want a single tool without an installer:
-`idt-4.8.0-windows-x64.exe`, `ImageDescriber-4.8.0-windows-x64.exe`,
-`IDTChat-4.8.0-windows-x64.exe`, and `idt-4.8.0-macos-arm64.tar.gz`.
+`idt-<version>-windows-x64.zip`, `ImageDescriber-<version>-windows-x64.zip`,
+`IDTChat-<version>-windows-x64.zip`, and `idt-<version>-macos-arm64.tar.gz`.
+Each Windows zip holds a folder: unzip it and run the exe inside, keeping the
+`-lib` folder beside it.
 `SHA256SUMS.txt` lets you verify any download.
 
 No Python required. The Windows installer is signed; the macOS build is signed and

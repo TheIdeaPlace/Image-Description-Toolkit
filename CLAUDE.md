@@ -40,8 +40,8 @@ cd chatapp && ./build_chatapp.sh
 
 ### Smoke Testing After Build
 ```bash
-dist/idt.exe version          # Windows
-dist/idt.exe --debug-paths
+dist/idt/idt.exe version          # Windows
+dist/idt/idt.exe --debug-paths
 ./dist/idt version            # macOS
 ```
 
@@ -137,7 +137,7 @@ Reproduce the action — the exception prints to stderr immediately. Do not inve
 For changes to `scripts/workflow.py`, `scripts/image_describer.py`, `idt/idt_cli.py`, or any file listed in `hiddenimports` in the per-app `.spec` files (e.g., `imagedescriber/imagedescriber_wx.spec`, `idt/idt.spec`):
 1. `python -m py_compile <file>`
 2. Build the exe
-3. Run with test data: `dist\idt.exe workflow testimages`
+3. Run with test data: `dist\idt\idt.exe workflow testimages`
 4. Check `wf_*/logs/*.log` for errors
 5. Only then claim the fix is complete
 

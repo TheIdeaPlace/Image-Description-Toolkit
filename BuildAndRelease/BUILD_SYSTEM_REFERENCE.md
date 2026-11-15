@@ -76,23 +76,29 @@ Located in `BuildAndRelease/MacBuilds/`:
 
 ### Windows
 
+Each Windows app is a PyInstaller **folder build** (since 4.9.0): the exe plus
+its own contents folder holding Python and every library. A one-file exe unpacked
+itself into `%TEMP%\_MEIxxxxxx` on every start, and on close the GUIs showed
+"Failed to remove temporary directory" and left that folder behind. Copy or ship
+the whole folder; the exe alone won't start.
+
 After `WinBuilds/builditall_wx.bat`:
 ```
-idt/dist/idt.exe
-viewer/dist/Viewer.exe
-prompt_editor/dist/PromptEditor.exe
-imagedescriber/dist/ImageDescriber.exe
-idtconfigure/dist/IDTConfigure.exe
+idt/dist/idt/idt.exe                         + idt/dist/idt/idt-lib/
+imagedescriber/dist/ImageDescriber/ImageDescriber.exe
+                                             + imagedescriber/dist/ImageDescriber/imagedescriber-lib/
+chatapp/dist/IDTChat/IDTChat.exe             + chatapp/dist/IDTChat/idtchat-lib/
 ```
 
-After `package_all_windows.bat`:
+After `package_all_windows.bat` (bin\ is emptied first):
 ```
-BuildAndRelease/dist_all/bin/
+BuildAndRelease/WinBuilds/dist_all/bin/
   ├── idt.exe
-  ├── Viewer.exe
-  ├── PromptEditor.exe
+  ├── idt-lib/
   ├── ImageDescriber.exe
-  └── IDTConfigure.exe
+  ├── imagedescriber-lib/
+  ├── IDTChat.exe
+  └── idtchat-lib/
 ```
 
 ### macOS

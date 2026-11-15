@@ -121,5 +121,5 @@ echo.
 echo ========================================================================
 echo BUILD SUCCESSFUL
 echo ========================================================================
-echo Executable created: dist\ImageDescriber.exe
+echo Executable created: dist\ImageDescriber\ImageDescriber.exe ^(with its imagedescriber-lib folder^)
 echo.

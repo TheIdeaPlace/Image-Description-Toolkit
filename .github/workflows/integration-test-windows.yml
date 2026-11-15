@@ -48,18 +48,18 @@ jobs:
       shell: pwsh
       run: |
         $missing = @()
-        if (-not (Test-Path "idt\dist\idt.exe"))                       { $missing += "idt\dist\idt.exe" }
-        if (-not (Test-Path "imagedescriber\dist\ImageDescriber.exe")) { $missing += "imagedescriber\dist\ImageDescriber.exe" }
-        if (-not (Test-Path "chatapp\dist\IDTChat.exe"))               { $missing += "chatapp\dist\IDTChat.exe" }
+        if (-not (Test-Path "idt\dist\idt\idt.exe"))                       { $missing += "idt\dist\idt\idt.exe" }
+        if (-not (Test-Path "imagedescriber\dist\ImageDescriber\ImageDescriber.exe")) { $missing += "imagedescriber\dist\ImageDescriber\ImageDescriber.exe" }
+        if (-not (Test-Path "chatapp\dist\IDTChat\IDTChat.exe"))               { $missing += "chatapp\dist\IDTChat\IDTChat.exe" }
         if ($missing.Count -gt 0) {
           Write-Host "ERROR: Expected build outputs not found:"
           $missing | ForEach-Object { Write-Host "  - $_" }
           exit 1
         }
         Write-Host "Build outputs confirmed:"
-        Write-Host "  idt.exe              $(((Get-Item 'idt\dist\idt.exe').Length / 1MB).ToString('0.0')) MB"
-        Write-Host "  ImageDescriber.exe   $(((Get-Item 'imagedescriber\dist\ImageDescriber.exe').Length / 1MB).ToString('0.0')) MB"
-        Write-Host "  IDTChat.exe          $(((Get-Item 'chatapp\dist\IDTChat.exe').Length / 1MB).ToString('0.0')) MB"
+        Write-Host "  idt.exe              $(((Get-Item 'idt\dist\idt\idt.exe').Length / 1MB).ToString('0.0')) MB"
+        Write-Host "  ImageDescriber.exe   $(((Get-Item 'imagedescriber\dist\ImageDescriber\ImageDescriber.exe').Length / 1MB).ToString('0.0')) MB"
+        Write-Host "  IDTChat.exe          $(((Get-Item 'chatapp\dist\IDTChat\IDTChat.exe').Length / 1MB).ToString('0.0')) MB"
 
     # ------------------------------------------------------------------ #
     #  3. Install Ollama via winget                                        #
@@ -155,7 +155,7 @@ jobs:
       run: |
         Write-Host "Running: idt.exe describe testimages --copy-originals --provider ollama --model minicpm-v4.6"
         Write-Host ""
-        .\idt\dist\idt.exe describe testimages --copy-originals --provider ollama --model minicpm-v4.6
+        .\idt\dist\idt\idt.exe describe testimages --copy-originals --provider ollama --model minicpm-v4.6
         $exitCode = $LASTEXITCODE
         Write-Host ""
         Write-Host "idt describe exit code: $exitCode"
@@ -308,7 +308,7 @@ jobs:
       shell: pwsh
       run: |
         Write-Host "Running: idt.exe status testimages"
-        $output = .\idt\dist\idt.exe status testimages 2>&1
+        $output = .\idt\dist\idt\idt.exe status testimages 2>&1
         Write-Host $output
         if ($LASTEXITCODE -ne 0) {
           Write-Host "ERROR: idt status returned exit code $LASTEXITCODE"
@@ -337,7 +337,7 @@ jobs:
       shell: pwsh
       run: |
         Write-Host "Launching ImageDescriber.exe (15-second survival test)..."
-        $proc = Start-Process -FilePath ".\imagedescriber\dist\ImageDescriber.exe" -PassThru
+        $proc = Start-Process -FilePath ".\imagedescriber\dist\ImageDescriber\ImageDescriber.exe" -PassThru
         Start-Sleep -Seconds 15
 
         if ($proc.HasExited) {
@@ -361,7 +361,7 @@ jobs:
       shell: pwsh
       run: |
         Write-Host "Launching IDTChat.exe (15-second survival test)..."
-        $proc = Start-Process -FilePath ".\chatapp\dist\IDTChat.exe" -PassThru
+        $proc = Start-Process -FilePath ".\chatapp\dist\IDTChat\IDTChat.exe" -PassThru
         Start-Sleep -Seconds 15
 
         if ($proc.HasExited) {
@@ -381,7 +381,7 @@ jobs:
       if: always()
       with:
         name: idt-windows
-        path: idt/dist/idt.exe
+        path: idt/dist/idt/
         retention-days: 14
 
     - name: Upload ImageDescriber executable
@@ -389,7 +389,7 @@ jobs:
       if: always()
       with:
         name: imagedescriber-windows
-        path: imagedescriber/dist/ImageDescriber.exe
+        path: imagedescriber/dist/ImageDescriber/
         retention-days: 14
 
     - name: Upload IDT Chat executable
@@ -397,7 +397,7 @@ jobs:
       if: always()
       with:
         name: idtchat-windows
-        path: chatapp/dist/IDTChat.exe
+        path: chatapp/dist/IDTChat/
         retention-days: 14
 
     - name: Upload workspace bundle (descriptions + report)

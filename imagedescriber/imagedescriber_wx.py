@@ -67,6 +67,7 @@ import wx.lib.newevent
 try:
     from shared.wx_common import (
         find_scripts_directory,
+        writable_scripts_directory,
         ConfigManager,
         ModifiedStateMixin,
         show_error,
@@ -9715,8 +9716,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             if not ask_yes_no(self, "This will replace your current configuration files.\n\nContinue?", "Import Configuration"):
                 return
 
-            # Find scripts directory
-            scripts_dir = find_scripts_directory()
+            # Where to write: never the bundled copy inside the app's -lib folder
+            scripts_dir = writable_scripts_directory()
             if not scripts_dir or not scripts_dir.exists():
                 show_error(self, "Could not find scripts directory.")
                 return

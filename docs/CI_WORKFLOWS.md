@@ -28,16 +28,27 @@ configuration that is already committed to the workflow files.
 
 Builds both applications, signs everything, and produces the installer.
 
-1. Build `idt.exe` and `ImageDescriber.exe` via `builditall_wx.bat`
-2. **Sign both** with Azure Trusted Signing
-3. `package_all_windows.bat` copies them into `dist_all/bin`
+1. Build `idt`, `ImageDescriber` and `IDTChat` via `builditall_wx.bat`
+2. **Sign the three exes** with Azure Trusted Signing
+3. `package_all_windows.bat` copies each app's folder into `dist_all/bin`
 4. Inno Setup builds the installer
 5. **Sign the installer**
 6. Verify every signature with `Get-AuthenticodeSignature`
+7. Zip each app's folder for the standalone downloads
+
+**Each app is a PyInstaller folder build** (since 4.9.0): `dist/<App>/<App>.exe`
+plus its own contents folder, `idt-lib`, `imagedescriber-lib` or `idtchat-lib`.
+The different names let all three share the install folder. A one-file exe
+unpacks itself into `%TEMP%\_MEIxxxxxx` on every start; ImageDescriber and IDT
+Chat still held a file there on exit, so the bootloader showed "Failed to remove
+temporary directory" and left the folder behind. The installer's
+`[InstallDelete]` clears the old `-lib` folders on upgrade. macOS builds are
+still single files.
 
 **Signing happens before packaging on purpose.** The copies inside the
-installer and the standalone `idt-windows` / `imagedescriber-windows` artifacts
-all descend from `idt/dist` and `imagedescriber/dist`. Signing after packaging
+installer and the standalone `idt-windows` / `imagedescriber-windows` /
+`idtchat-windows` zips all descend from each app's `dist` folder. Only the
+top-level exe in each folder is signed. Signing after packaging
 would sign only the installer and leave the standalone artifacts unsigned. The
 installer is then signed separately, because signatures on files inside an
 installer do not cover the installer itself. That final step is non-recursive
@@ -49,7 +60,7 @@ release cannot ship silently.
 Signing is skipped on `pull_request` (fork PRs cannot read secrets) and skips
 entirely if the Azure secrets are absent.
 
-**Artifacts:** `idt-installer-windows`, `idt-windows`, `imagedescriber-windows`
+**Artifacts:** `idt-installer-windows`, `idt-windows`, `imagedescriber-windows`, `idtchat-windows` (the last three each hold a zip of the app's folder)
 
 ---
 
@@ -131,8 +142,9 @@ Renamed to platform-explicit names, since the raw artifacts would put a bare
 `idt.exe` beside a macOS `idt` tarball.
 
 - `ImageDescriptionToolkitSetup-<version>-windows.exe`
-- `idt-<version>-windows-x64.exe`
-- `ImageDescriber-<version>-windows-x64.exe`
+- `idt-<version>-windows-x64.zip`
+- `ImageDescriber-<version>-windows-x64.zip`
+- `IDTChat-<version>-windows-x64.zip`
 - `IDT-<version>-macos-arm64.dmg`
 - `idt-<version>-macos-arm64.tar.gz`
 - `SHA256SUMS.txt`

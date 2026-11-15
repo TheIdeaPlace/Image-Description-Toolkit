@@ -398,9 +398,9 @@ cd imagedescriber && ./build_imagedescriber_wx.sh
 ### Smoke Test
 
 ```bash
-dist/idt.exe version                          # Windows
+dist/idt/idt.exe version                          # Windows
 ./dist/idt version                            # macOS
-dist/idt.exe --debug-paths                    # Show import resolution
+dist/idt/idt.exe --debug-paths                    # Show import resolution
 ```
 
 ### Post-Build Validation
@@ -513,7 +513,7 @@ For changes to `idt_core/`, `cli/main.py`, `imagedescriber/imagedescriber_wx.py`
 
 1. `python -m py_compile <file>` — syntax check
 2. Build the executable
-3. Run with test data: `dist\idt.exe describe testimages/`
+3. Run with test data: `dist\idt\idt.exe describe testimages/`
 4. Check logs in `wf_*/logs/` for errors
 5. Only then claim the fix is complete
 

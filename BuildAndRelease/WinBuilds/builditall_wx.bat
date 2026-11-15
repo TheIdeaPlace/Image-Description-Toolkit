@@ -30,7 +30,12 @@ REM ============================================================================
 REM Delete last build's executables first. Without this, a failed build leaves
 REM the previous run's exe in dist\ and the packaging step below happily ships
 REM it -- a stale binary in an installer that reports success.
+REM Each app is a folder build (dist\<app>\<app>.exe plus its -lib folder);
+REM the del lines remove one-file exes left by builds before 4.9.0.
 REM ============================================================================
+if exist "idt\dist\idt" rmdir /S /Q "idt\dist\idt"
+if exist "imagedescriber\dist\ImageDescriber" rmdir /S /Q "imagedescriber\dist\ImageDescriber"
+if exist "chatapp\dist\IDTChat" rmdir /S /Q "chatapp\dist\IDTChat"
 if exist "idt\dist\idt.exe" del /Q "idt\dist\idt.exe"
 if exist "imagedescriber\dist\ImageDescriber.exe" del /Q "imagedescriber\dist\ImageDescriber.exe"
 if exist "chatapp\dist\IDTChat.exe" del /Q "chatapp\dist\IDTChat.exe"
@@ -123,32 +128,40 @@ echo.
 
 REM Create distribution directory in BuildAndRelease\WinBuilds
 if not exist "BuildAndRelease\WinBuilds\dist_all" mkdir BuildAndRelease\WinBuilds\dist_all
-if not exist "BuildAndRelease\WinBuilds\dist_all\bin" mkdir BuildAndRelease\WinBuilds\dist_all\bin
 
-REM Clean old files
+REM Clean old files. bin\ goes entirely: it holds each app's -lib folder, and
+REM a library left from the last build must not ship in this one.
 echo Cleaning old package...
-del /Q BuildAndRelease\WinBuilds\dist_all\bin\*.exe 2>nul
+if exist "BuildAndRelease\WinBuilds\dist_all\bin" rmdir /S /Q BuildAndRelease\WinBuilds\dist_all\bin
+mkdir BuildAndRelease\WinBuilds\dist_all\bin
 del /Q BuildAndRelease\WinBuilds\dist_all\*.md 2>nul
 del /Q BuildAndRelease\WinBuilds\dist_all\*.txt 2>nul
 
 echo Packaging applications...
 echo.
 
-REM Copy IDT CLI. A missing exe is fatal: never package a partial build.
-if not exist "idt\dist\idt.exe" goto :missing_idt
-copy /Y "idt\dist\idt.exe" "BuildAndRelease\WinBuilds\dist_all\bin\" >nul
+REM Each app is a folder: copy all of it (the exe plus its -lib folder), not
+REM just the exe. A missing exe or library folder is fatal: never package a
+REM partial build.
+
+REM Copy IDT CLI.
+if not exist "idt\dist\idt\idt.exe" goto :missing_idt
+if not exist "idt\dist\idt\idt-lib" goto :missing_idt
+xcopy /E /I /Q /Y "idt\dist\idt" "BuildAndRelease\WinBuilds\dist_all\bin" >nul
 if errorlevel 1 goto :copy_failed_idt
 echo   ✓ idt.exe
 
 REM Copy ImageDescriber (includes Viewer Mode, PromptEditor and IDTConfigure)
-if not exist "imagedescriber\dist\ImageDescriber.exe" goto :missing_describer
-copy /Y "imagedescriber\dist\ImageDescriber.exe" "BuildAndRelease\WinBuilds\dist_all\bin\" >nul
+if not exist "imagedescriber\dist\ImageDescriber\ImageDescriber.exe" goto :missing_describer
+if not exist "imagedescriber\dist\ImageDescriber\imagedescriber-lib" goto :missing_describer
+xcopy /E /I /Q /Y "imagedescriber\dist\ImageDescriber" "BuildAndRelease\WinBuilds\dist_all\bin" >nul
 if errorlevel 1 goto :copy_failed_describer
 echo   ✓ ImageDescriber.exe ^(with integrated Viewer Mode and tools^)
 
 REM Copy IDT Chat (standalone accessible chat client)
-if not exist "chatapp\dist\IDTChat.exe" goto :missing_chat
-copy /Y "chatapp\dist\IDTChat.exe" "BuildAndRelease\WinBuilds\dist_all\bin\" >nul
+if not exist "chatapp\dist\IDTChat\IDTChat.exe" goto :missing_chat
+if not exist "chatapp\dist\IDTChat\idtchat-lib" goto :missing_chat
+xcopy /E /I /Q /Y "chatapp\dist\IDTChat" "BuildAndRelease\WinBuilds\dist_all\bin" >nul
 if errorlevel 1 goto :copy_failed_chat
 echo   ✓ IDTChat.exe
 

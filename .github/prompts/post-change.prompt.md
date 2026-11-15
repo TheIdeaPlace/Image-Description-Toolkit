@@ -79,8 +79,8 @@ BuildAndRelease\WinBuilds\builditall_wx.bat
 
 After building, run smoke tests:
 ```batch
-dist\idt.exe version
-dist\idt.exe --debug-paths
+dist\idt\idt.exe version
+dist\idt\idt.exe --debug-paths
 ```
 
 ### Step 5 — Log review
