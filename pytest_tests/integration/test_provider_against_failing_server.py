@@ -7,8 +7,8 @@ because ollama.com's cloud vision backend started failing about half the time
 in production.
 
 The tests here stand up a socket-level HTTP server that returns 500 then 200
-and assert a description comes back. Everything between requests.post and the
-retry decorator is real: the socket, the status line, the JSON body, the
+and assert a description comes back. Everything between the Ollama client and
+the retry decorator is real: the socket, the status line, the JSON body, the
 backoff loop. The only thing stubbed is the sleep.
 """
 
@@ -43,20 +43,34 @@ class _ScriptedHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         self.rfile.read(length)
 
+        if self.path == "/api/show":
+            # The capability probe that decides whether to send `think`
+            # (issue #392). Not scripted and not counted: the tests are about
+            # the describe request.
+            self._send(200, {"capabilities": ["completion", "vision"]})
+            return
+
         with self.server.lock:
             self.server.requests += 1
             index = min(self.server.requests - 1, len(self.server.script) - 1)
             status = self.server.script[index]
 
         if status == 200:
-            body = json.dumps({
-                "response": DESCRIPTION,
+            # /api/chat's shape: ImageDescriber describes through idt_core's
+            # provider now, not its own /api/generate call.
+            self._send(200, {
+                "model": "gemma4:31b-cloud",
+                "message": {"role": "assistant", "content": DESCRIPTION},
+                "done": True,
+                "done_reason": "stop",
                 "prompt_eval_count": 12,
                 "eval_count": 9,
-            }).encode("utf-8")
+            })
         else:
-            body = json.dumps({"error": f"synthetic {status}"}).encode("utf-8")
+            self._send(status, {"error": f"synthetic {status}"})
 
+    def _send(self, status, payload):
+        body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))

@@ -314,20 +314,13 @@ class OllamaChatProvider(ChatProvider):
         thinking, and if the model cannot do it the API error saying so is
         the honest answer.
         """
-        if request.think is True:
-            return True
-        try:
-            from ..providers.ollama import model_capabilities
+        # One policy for chat and descriptions (issue #392): see resolve_think.
+        from ..generation import thinking_mode
+        from ..providers.ollama import resolve_think
 
-            caps = model_capabilities(
-                request.model or self._model, host=self._host
-            )
-        except Exception:
-            caps = None
-        has_thinking = bool(caps) and "thinking" in caps
-        if request.think is False:
-            return False if has_thinking else None
-        return True if has_thinking else None
+        return resolve_think(
+            thinking_mode(request.think), request.model or self._model, host=self._host
+        )
 
     def chat(self, request: ChatRequest) -> Iterator[ChatYield]:
         import ollama

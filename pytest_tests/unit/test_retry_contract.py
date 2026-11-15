@@ -162,13 +162,37 @@ def test_decorator_does_not_retry_a_successful_description(monkeypatch):
 # The real Ollama path -- the exact regression
 # --------------------------------------------------------------------------
 
-class _FakeResponse:
-    def __init__(self, status_code, payload=""):
-        self.status_code = status_code
-        self.text = payload
+def _fake_ollama(monkeypatch, outcomes):
+    """Replace the ollama SDK client (ImageDescriber describes through
+    idt_core's provider since issue #392). ``outcomes`` is a list of HTTP
+    statuses or description strings, one per describe call; the last repeats.
+    Returns the list the calls are counted in."""
+    from types import SimpleNamespace
 
-    def json(self):
-        return {"response": self.text}
+    import ollama
+
+    calls = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def show(self, _name):
+            return SimpleNamespace(capabilities=["completion", "vision"],
+                                   model_info={"general.architecture": "x"},
+                                   parameters="")
+
+        def chat(self, **_kwargs):
+            calls.append(1)
+            outcome = outcomes[min(len(calls), len(outcomes)) - 1]
+            if isinstance(outcome, int):
+                raise ollama.ResponseError("Internal Server Error", outcome)
+            return SimpleNamespace(
+                message=SimpleNamespace(content=outcome, thinking=None),
+                done_reason="stop", prompt_eval_count=10, eval_count=5)
+
+    monkeypatch.setattr(ollama, "Client", FakeClient)
+    return calls
 
 
 def test_ollama_http_500_is_raised_as_a_retryable_failure(tmp_path, monkeypatch):
@@ -184,10 +208,7 @@ def test_ollama_http_500_is_raised_as_a_retryable_failure(tmp_path, monkeypatch)
     image = tmp_path / "img.jpg"
     image.write_bytes(b"\xff\xd8\xff\xe0not-a-real-jpeg")
 
-    monkeypatch.setattr(
-        "ai_providers.requests.post",
-        lambda *a, **k: _FakeResponse(500, '{"error":"Internal Server Error"}'),
-    )
+    _fake_ollama(monkeypatch, [500])
 
     provider = OllamaProvider()
     # describe_image is wrapped by the decorator, so this exhausts the retries
@@ -213,15 +234,7 @@ def test_ollama_retries_and_recovers(tmp_path, monkeypatch):
     image = tmp_path / "img.jpg"
     image.write_bytes(b"\xff\xd8\xff\xe0not-a-real-jpeg")
 
-    calls = []
-
-    def fake_post(*a, **k):
-        calls.append(1)
-        if len(calls) == 1:
-            return _FakeResponse(500, '{"error":"Internal Server Error"}')
-        return _FakeResponse(200, "a cluttered desk")
-
-    monkeypatch.setattr("ai_providers.requests.post", fake_post)
+    calls = _fake_ollama(monkeypatch, [500, "a cluttered desk"])
 
     provider = OllamaProvider()
     result = provider.describe_image(str(image), "describe", "gemma4:31b-cloud")

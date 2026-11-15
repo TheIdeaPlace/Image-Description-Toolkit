@@ -121,8 +121,17 @@ def _resolve_model(provider: str, model: Optional[str],
     return model
 
 
-def _make_provider(provider: str, model: Optional[str], ollama_host: str):
-    """Instantiate the requested provider with a clear error if deps are missing."""
+def _make_provider(provider: str, model: Optional[str], ollama_host: str,
+                   options=None):
+    """Instantiate the requested provider with a clear error if deps are missing.
+
+    ``options`` is a GenerationOptions (saved settings plus command flags).
+    """
+    if options is not None and provider != "ollama" and not options.is_automatic():
+        # Ollama is the first provider wired to generation settings (#392).
+        print(f"Note: generation settings are not applied to {provider} yet; "
+              f"using its defaults.", file=sys.stderr)
+
     if provider == "anthropic":
         from idt_core.providers.claude import ClaudeProvider, DEFAULT_MODEL
         return ClaudeProvider(model=model or DEFAULT_MODEL)
@@ -165,7 +174,8 @@ def _make_provider(provider: str, model: Optional[str], ollama_host: str):
 
     if provider == "ollama":
         from idt_core.providers.ollama import OllamaProvider, DEFAULT_MODEL
-        return OllamaProvider(model=model or DEFAULT_MODEL, host=ollama_host)
+        return OllamaProvider(model=model or DEFAULT_MODEL, host=ollama_host,
+                              options=options)
 
     if provider == "openai":
         from idt_core.providers.openai_provider import OpenAIProvider, DEFAULT_MODEL
@@ -275,6 +285,39 @@ def _provider_args(p: argparse.ArgumentParser) -> None:
         "--ollama-host", metavar="URL", default="http://localhost:11434",
         help="Ollama server URL (default: http://localhost:11434)",
     )
+    _generation_args(p)
+
+
+def _generation_args(p: argparse.ArgumentParser) -> None:
+    """Optional generation overrides. Unset means automatic: IDT's defaults for
+    the provider and model, then any saved settings (issue #392)."""
+    g = p.add_argument_group(
+        "generation settings",
+        "Leave these out to use IDT's defaults for the chosen model. A setting the "
+        "provider or model cannot take is skipped, and the log says so.")
+    g.add_argument("--think", dest="thinking", action="store_const", const="on",
+                   default=None,
+                   help="Let a reasoning model think before describing (slower)")
+    g.add_argument("--no-think", dest="thinking", action="store_const", const="off",
+                   help="Ask a reasoning model not to think (the default for descriptions)")
+    g.add_argument("--temperature", type=float, metavar="F",
+                   help="Sampling temperature")
+    g.add_argument("--max-tokens", type=int, metavar="N",
+                   help="Cap on the length of each description, in tokens")
+
+
+def _generation_options(args, provider_name: str):
+    """Saved settings for the provider, with this command's flags on top."""
+    from idt_core.generation import GenerationOptions, user_options
+
+    overrides = GenerationOptions.from_dict({
+        "thinking": getattr(args, "thinking", None),
+        "temperature": getattr(args, "temperature", None),
+        "max_output_tokens": getattr(args, "max_tokens", None),
+    })
+    # The CLI calls Claude "anthropic" internally; settings use the public name.
+    key = "claude" if provider_name == "anthropic" else provider_name
+    return user_options(key).merged(overrides)
 
 
 def _prompt_args(p: argparse.ArgumentParser) -> None:
@@ -564,7 +607,8 @@ def cmd_describe(args):
     ws.geocode_enabled = bool(args.geocode)
     ws.save_manifest()
 
-    provider = _make_provider(provider_name, model, args.ollama_host)
+    provider = _make_provider(provider_name, model, args.ollama_host,
+                              options=_generation_options(args, provider_name))
 
     options = RunOptions(
         prompt_name=prompt_name,
@@ -1003,7 +1047,8 @@ def _cmd_describe_stdin(args):
                                    args.model or _ws_model or user_cfg.default_model,
                                    explicit=args.model)
     prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
-    provider = _make_provider(provider_name, model, args.ollama_host)
+    provider = _make_provider(provider_name, model, args.ollama_host,
+                              options=_generation_options(args, provider_name))
 
     # Add each stdin image to the workspace (idempotent), mirroring its position
     # under the common source root as a subfolder. copy_originals decides copy vs
@@ -1166,7 +1211,8 @@ def cmd_download(args):
                                args.model or _ws_model or cfg.default_model,
                                explicit=args.model)
         prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
-        provider = _make_provider(provider_name, model, args.ollama_host)
+        provider = _make_provider(provider_name, model, args.ollama_host,
+                              options=_generation_options(args, provider_name))
 
         if not args.quiet:
             print(f"Describing {result.downloaded} images with {provider_name} / {model}...")
@@ -1306,7 +1352,8 @@ def cmd_video(args):
                                    args.model or _ws_model or user_cfg.default_model,
                                    explicit=args.model)
         prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
-        provider = _make_provider(provider_name, model, args.ollama_host)
+        provider = _make_provider(provider_name, model, args.ollama_host,
+                              options=_generation_options(args, provider_name))
 
         if not args.quiet:
             print(f"Describing {total_frames} frames with {provider_name} / {model}...")
@@ -2308,7 +2355,8 @@ def cmd_watch(args):
                                    args.model or _ws_model or user_cfg.default_model,
                                    explicit=args.model)
     prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
-    provider = _make_provider(provider_name, model, args.ollama_host)
+    provider = _make_provider(provider_name, model, args.ollama_host,
+                              options=_generation_options(args, provider_name))
 
     if not args.quiet:
         print(f"Watching:  {source}")

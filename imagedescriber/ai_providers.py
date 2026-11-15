@@ -385,7 +385,10 @@ def classify_provider_exception(exc: BaseException):
         return ErrorKind.INVALID_REQUEST, status_code
     if status_code is not None and status_code >= 500:
         return ErrorKind.SERVER_ERROR, status_code
-    if 'TimeoutError' in error_type or 'timeout' in error_msg.lower():
+    # 'Timeout' in the type covers httpx's ReadTimeout/ConnectTimeout, whose
+    # message is just "timed out" -- the ollama SDK raises those (issue #392).
+    if 'Timeout' in error_type or 'timeout' in error_msg.lower() \
+            or 'timed out' in error_msg.lower():
         return ErrorKind.TIMEOUT, status_code
     return ErrorKind.UNKNOWN, status_code
 
@@ -649,7 +652,8 @@ class OllamaProvider(AIProvider):
     
     def __init__(self, base_url: str = "http://localhost:11434"):
         self.base_url = base_url
-        self.timeout = 300  # 5 minutes timeout
+        # Describe requests time out in idt_core's provider
+        # (OllamaProvider.DESCRIBE_TIMEOUT_SECONDS); listing uses its own.
         self._models_cache = None
         self._models_cache_time = 0
         self._cache_duration = 30  # Cache for 30 seconds
@@ -730,118 +734,41 @@ class OllamaProvider(AIProvider):
     
     @retry_on_api_error(max_retries=3, base_delay=2.0, max_delay=30.0)
     def describe_image(self, image_path: str, prompt: str, model: str) -> str:
-        """Generate description using Ollama with automatic retry"""
-        try:
-            # Read and encode image
-            with open(image_path, 'rb') as image_file:
-                image_data = base64.b64encode(image_file.read()).decode('utf-8')
-            
-            # Prepare request
-            payload = {
-                "model": model,
-                "prompt": prompt,
-                "images": [image_data],
-                "stream": False
-            }
-            
-            # Make request
-            response = requests.post(
-                f"{self.base_url}/api/generate",
-                json=payload,
-                timeout=self.timeout
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                
-                # Extract token usage if available (for cost/performance tracking)
-                if 'prompt_eval_count' in result or 'eval_count' in result:
-                    self.last_usage = {
-                        'prompt_tokens': result.get('prompt_eval_count', 0),
-                        'completion_tokens': result.get('eval_count', 0),
-                        'total_tokens': result.get('prompt_eval_count', 0) + result.get('eval_count', 0),
-                        'model': model
-                    }
-                
-                return result.get('response', 'No description generated')
-            else:
-                # Enhanced error logging for Ollama HTTP errors
-                from datetime import datetime
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
-                
-                # Log detailed error information
-                print(f"[ERROR] Ollama API failure - {timestamp}")
-                print(f"  Image: {Path(image_path).name}")
-                print(f"  Model: {model}")
-                print(f"  Status Code: {response.status_code}")
-                print(f"  Response: {response.text[:500] if hasattr(response, 'text') else 'No response text'}")
-                
-                # Also log to file if possible
-                try:
-                    import json
-                    error_details = {
-                        'timestamp': timestamp,
-                        'provider': 'Ollama',
-                        'model': model,
-                        'image_path': image_path,
-                        'status_code': response.status_code,
-                        'response_text': response.text if hasattr(response, 'text') else None,
-                        'error_type': 'HTTP_ERROR'
-                    }
-                    log_file = Path('api_errors.log')
-                    with open(log_file, 'a', encoding='utf-8') as f:
-                        f.write(json.dumps(error_details) + '\n')
-                except Exception as log_error:
-                    print(f"  Warning: Could not write to error log: {log_error}")
-                
-                # Never hand-write this string: the older "Error: HTTP 500"
-                # wording carried no "(status code: NNN)", so retry_on_api_error
-                # treated every 5xx as permanent for nine months.
-                raise_provider_error(
-                    provider="Ollama",
-                    kind=kind_for_status(response.status_code),
-                    status_code=response.status_code,
-                    message=(response.text or "")[:200],
-                    timestamp=timestamp,
-                )
+        """Describe an image through idt_core's Ollama provider.
 
+        This used to post to /api/generate itself, a second implementation
+        that had drifted from the CLI's: it sent no generation options and no
+        ``think``, so thinking models reasoned at their default on every image
+        (issue #392). Now ImageDescriber, the CLI and the workspace pipeline
+        share one Ollama code path, with the user's saved generation settings.
+        """
+        from idt_core.converter import load_for_api
+        from idt_core.generation import user_options
+        from idt_core.providers.ollama import OllamaProvider as _CoreProvider
+
+        try:
+            core = _CoreProvider(model=model, host=self.base_url,
+                                 options=user_options("ollama"))
+            image_bytes, mime_type = load_for_api(Path(image_path))
+            result = core.describe(image_bytes, mime_type, prompt)
         except ProviderError:
-            # Raised by this method's own body. Re-raise unchanged;
-            # the generic handler below would re-wrap it and lose the
-            # kind and status_code it already carries.
             raise
         except Exception as e:
-            # Enhanced error logging for Ollama exceptions
-            from datetime import datetime
-            import traceback
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
-            
-            # Log comprehensive error details
-            print(f"[ERROR] Ollama exception - {timestamp}")
-            print(f"  Image: {Path(image_path).name}")
-            print(f"  Model: {model}")
-            print(f"  Error Type: {type(e).__name__}")
-            print(f"  Error Message: {str(e)}")
-            
-            # Also log to file if possible
-            try:
-                import json
-                error_details = {
-                    'timestamp': timestamp,
-                    'provider': 'Ollama',
-                    'model': model,
-                    'image_path': image_path,
-                    'error_type': type(e).__name__,
-                    'error_message': str(e),
-                    'traceback': traceback.format_exc()
-                }
-                log_file = Path('api_errors.log')
-                with open(log_file, 'a', encoding='utf-8') as f:
-                    f.write(json.dumps(error_details) + '\n')
-            except Exception as log_error:
-                print(f"  Warning: Could not write to error log: {log_error}")
+            logging.error("Ollama describe failed for %s with %s: %s: %s",
+                          Path(image_path).name, model, type(e).__name__, e)
+            raise_provider_error_from_exception(e, "Ollama")
 
-            raise_provider_error_from_exception(e, "Ollama", timestamp)
+        self.last_usage = {
+            'prompt_tokens': result.input_tokens or 0,
+            'completion_tokens': result.output_tokens or 0,
+            'total_tokens': (result.input_tokens or 0) + (result.output_tokens or 0),
+            'thinking_chars': result.thinking_chars or 0,
+            # None, not 'stop', when not truncated: the worker allows one
+            # retry of an empty reply only when the reason is unknown.
+            'finish_reason': 'length' if result.truncated else None,
+            'model': model,
+        }
+        return result.text
 
     def get_last_token_usage(self) -> Optional[Dict]:
         """Return token usage from last API call (if available)"""

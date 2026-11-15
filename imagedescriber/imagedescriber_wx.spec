@@ -142,6 +142,7 @@ a = Analysis(
         'idt_core.chat.tokens',
         'idt_core.chat.tools',
         'idt_core.keys',
+        'idt_core.generation',
         # Shared wx bridge between the engine and the UI thread, used by both
         # this app and the standalone chat client.
         'shared.chat_worker_wx',

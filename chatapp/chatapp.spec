@@ -72,6 +72,7 @@ a = Analysis(
         'idt_core.config',
         'idt_core.config_loader',
         'idt_core.keys',
+        'idt_core.generation',
         'idt_core.logger',
         'idt_core.updater',
         'idt_core.workspace',

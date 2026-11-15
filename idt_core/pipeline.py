@@ -193,6 +193,11 @@ class WorkspaceEvent:
     #: Not tried: a video frame whose video's earlier frames failed the same way. Neither
     #: a success nor a failure; ``error`` holds the reason.
     skipped: bool = False
+    #: Characters of hidden reasoning the model produced for this image (issue
+    #: #392), when the provider can tell. Logged so a slow run can be explained.
+    thinking_chars: Optional[int] = None
+    #: The description stopped at the output cap and is cut off.
+    truncated: bool = False
 
     @property
     def success(self) -> bool:
@@ -567,6 +572,11 @@ class WorkspacePipeline:
                         last = item.descriptions[-1]
                         if last.input_tokens or last.output_tokens:
                             tokens = f"  ({last.input_tokens} in, {last.output_tokens} out)"
+                    if event.thinking_chars:
+                        tokens += (f"  {event.thinking_chars:,} characters of hidden "
+                                   f"reasoning, discarded")
+                    if event.truncated:
+                        tokens += "  CUT OFF at the output limit"
                     log.info(f"{index}/{total}  {item.image}: described{tokens}")
                 else:
                     errors += 1
@@ -664,7 +674,9 @@ class WorkspacePipeline:
                 item.extra.pop("declined", None)
                 item.extra.pop("failed", None)
             self.workspace.save_item(item)
-            return WorkspaceEvent(item=item, index=index, total=total, metadata=meta)
+            return WorkspaceEvent(item=item, index=index, total=total, metadata=meta,
+                                  thinking_chars=getattr(result, "thinking_chars", None),
+                                  truncated=bool(getattr(result, "truncated", False)))
 
         except Exception as exc:
             return _failure_event(item, index, total, exc)

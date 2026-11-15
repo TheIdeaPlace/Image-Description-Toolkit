@@ -93,6 +93,7 @@ a = Analysis(
         'idt_core.updater',
         'idt_core.gallery_exporter',
         'idt_core.keys',
+        'idt_core.generation',
 
         # ---- chat engine (powers `idt chat`) ----
         # Enumerated one by one to match this file's convention. A missing
