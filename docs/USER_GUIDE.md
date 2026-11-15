@@ -297,8 +297,8 @@ Leave these out and IDT uses sensible defaults for the provider and model you pi
 
 | Option | Default | Description |
 |---|---|---|
-| `--no-think` | On for Ollama | Ask a reasoning model not to think. For Claude and OpenAI, which can't switch reasoning off, it means low effort |
-| `--think` | Off | Let a reasoning model think before describing (slower) |
+| `--no-think` | — | Ask a reasoning model not to think. Ollama descriptions already don't, unless you change that; for Claude and OpenAI, which can't switch reasoning off, it means the least effort the model takes |
+| `--think` | — | Let a reasoning model think before describing (slower). Without either flag, Ollama descriptions don't think and other providers use the model's own default |
 | `--temperature F` | The model's own | How varied the wording is, 0 or more |
 | `--max-tokens N` | Automatic | Cap on the length of each description, in tokens |
 
@@ -679,7 +679,7 @@ idt chat [--provider NAME] [--model ID] [--system TEXT] [--message TEXT]
 | `--no-save` | Do not write the conversation to disk |
 | `--max-tokens N` | Cap the reply length |
 | `--temperature F` | Sampling temperature. Skipped for Claude and for OpenAI's reasoning models, which don't take it |
-| `--think`, `--no-think` | Turn a reasoning model's thinking on or off. Without either, the model decides. For Claude and OpenAI, off means low effort |
+| `--think`, `--no-think` | Turn a reasoning model's thinking on or off. Without either, the model decides. For Claude and OpenAI, off means the least effort the model takes |
 | `--show-thinking` | Print the model's thinking to stderr as it arrives (Ollama) |
 | `--quiet`, `-q` | Suppress status notes on stderr |
 
@@ -1086,13 +1086,13 @@ Each provider lists only the settings it can use:
 | OpenAI | Thinking, effort, temperature, top p, output limit |
 | Claude | Thinking, effort, output limit |
 | Claude Code | Thinking, effort, output limit |
-| Apple Intelligence | Temperature, output limit |
-| MLX | Output limit |
+| Apple Intelligence (Mac only) | Temperature, output limit |
+| MLX (Mac only) | Output limit |
 
 Things worth knowing:
 
 - **Thinking models are slow for descriptions.** They reason before answering, and the reasoning is thrown away. For Ollama, Automatic turns thinking off for descriptions. Some models keep thinking anyway; every `qwen3-vl` thinking tag does. For those, pick the model's `-instruct` tag, such as `qwen3-vl:8b-instruct` instead of `qwen3-vl:8b`. The model list marks thinking models "(thinks, slower)".
-- **Claude and OpenAI can't switch reasoning off.** Thinking Off asks for low effort instead.
+- **Claude and OpenAI can't switch reasoning off.** Thinking Off asks for the least effort the model takes instead.
 - **Too low an output limit cuts descriptions off.** The run log says when it happens, and when a model spent its whole allowance thinking.
 - **The run log records what was skipped.** If a setting doesn't apply to a model, it isn't sent, and the log in the workspace's `logs` folder says so. It also records how much hidden reasoning each picture took, which explains a slow run.
 
@@ -1117,7 +1117,7 @@ The chat window is a general-purpose, multi-turn conversation with the AI model 
 - **Attach Files** — Attach images to the conversation. Shown only for providers that accept attachments; Claude also accepts PDFs. You can also paste an image straight from the clipboard with `Ctrl+V`.
 - **Change Model** — Switch provider or model mid-conversation. History is kept.
 - **Token usage** — Shows how much of the model's context window the conversation is using.
-- **Session → Thinking** — Automatic, On or Off. Off makes a reasoning model answer faster: a question about a photo on a large thinking model can otherwise take minutes. For Claude and OpenAI, Off means low effort. The choice applies from your next message, and new chat windows start with the last one you picked.
+- **Session → Thinking** — Automatic, On or Off. Off makes a reasoning model answer faster: a question about a photo on a large thinking model can otherwise take minutes. For Claude and OpenAI, Off means the least effort the model takes. The choice applies from your next message, and a new chat window starts with the last one you picked.
 
 **Starting a chat does not attach the image you have selected.** Every chat begins empty. To ask about a specific image, attach it with **Attach Files** or paste it from the clipboard.
 
@@ -1864,7 +1864,7 @@ attachments, `Alt+S` Send, `Alt+T` Stop, `Alt+A` Attach, `Alt+R` Remove.
 
 - **Automatic** (the default): the model decides.
 - **On**: it thinks.
-- **Off**: it answers straight away, which is much faster on a thinking model. Claude and OpenAI can't switch reasoning off, so for them Off means low effort.
+- **Off**: it answers straight away, which is much faster on a thinking model. Claude and OpenAI can't switch reasoning off, so for them Off means the least effort the model takes. On reaches Ollama, Claude and OpenAI; other providers decide for themselves.
 
 While a model thinks, the status bar says "Model is thinking…". The choice applies from your next message and lasts until IDT Chat closes.
 

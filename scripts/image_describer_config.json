@@ -185,13 +185,7 @@
       "process_documentation": "functional",
       "web_alt_text_drafting": "aialttext"
     },
-    "model_settings": {
-      "temperature": "Controls randomness (0.0-1.0). Lower = more consistent. Recommended: 0.1-0.35 depending on style.",
-      "num_predict": "Max tokens to generate. Detailed: 500, Concise: 200, Colorful: 350, Simple: 150",
-      "top_k": "Number of top tokens to consider. Concise uses 30 for tighter outputs, others use 40.",
-      "top_p": "Cumulative probability cutoff. Concise uses 0.85, others 0.9.",
-      "repeat_penalty": "1.2-1.3 recommended to reduce repetition"
-    },
+    "generation": "Optional per-provider settings under a top-level \"generation\" key, e.g. {\"ollama\": {\"thinking\": \"off\", \"temperature\": 0.2}}. Anything left out is automatic: IDT's default for the provider and model. Edit them in ImageDescriber under Tools > Configure Settings > Generation.",
     "deprecated_styles": [
       "clock-face spatial - FAILED testing, produces bounding box coordinates instead of descriptions"
     ],

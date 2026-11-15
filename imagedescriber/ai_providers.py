@@ -676,7 +676,14 @@ class OllamaProvider(AIProvider):
         # model name -> has vision. Outlives _models_cache: capabilities do not
         # change between runs of a model, and /api/show is one request each.
         self._vision_cache: Dict[str, bool] = {}
+        # model name -> reports the `thinking` capability; filled by the same probe.
+        self._thinking_cache: Dict[str, bool] = {}
         self.last_usage = None  # Token usage tracking (similar to OpenAI/Claude)
+
+    def known_thinking_model(self, name: str) -> bool:
+        """True if the last capability probe said ``name`` thinks. Never probes:
+        called from pickers on the UI thread, where a request can take seconds."""
+        return self._thinking_cache.get(name, False)
 
     def get_provider_name(self) -> str:
         return "Ollama"
@@ -739,10 +746,14 @@ class OllamaProvider(AIProvider):
             caps = resp.json().get("capabilities")
             if caps is None:
                 return True
-            result = "vision" in [str(c).lower() for c in caps]
+            lowered = [str(c).lower() for c in caps]
+            result = "vision" in lowered
         except Exception:
             return True
         self._vision_cache[name] = result
+        # Same answer, kept for the describe pickers' "(thinks, slower)" flag
+        # (issue #392), so they never make a request of their own on the UI thread.
+        self._thinking_cache[name] = "thinking" in lowered
         if not result:
             logging.info(f"Ollama model {name!r} has no vision capability — "
                          f"not offered for description")
@@ -1020,7 +1031,8 @@ class OpenAIProvider(AIProvider):
             # model" with a startswith list that missed newer families.
             from idt_core.generation import send_with_fallback, user_options, with_extra_body
             from idt_core.providers.openai_provider import (
-                OPTIONAL_PARAMS as _OPENAI_OPTIONAL, describe_request_params,
+                EFFORT_FALLBACK as _EFFORT_FALLBACK, OPTIONAL_PARAMS as _OPENAI_OPTIONAL,
+                describe_request_params,
             )
             request_params = describe_request_params(model, user_options("openai"))
             request_params["messages"] = [
@@ -1040,7 +1052,7 @@ class OpenAIProvider(AIProvider):
 
             response = send_with_fallback(self.client.chat.completions.create, request_params,
                                           with_extra_body(_OPENAI_OPTIONAL, request_params),
-                                          "openai", model)
+                                          "openai", model, _EFFORT_FALLBACK)
             
             # Extract response details for comprehensive logging
             content = response.choices[0].message.content or ""

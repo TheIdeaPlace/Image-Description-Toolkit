@@ -113,10 +113,10 @@ def _generation_entry(provider: str, label: str, setting: str) -> Dict[str, Any]
         else:
             entry.update(
                 type="choice_or_auto", choices=["", "off", "on"],
-                choice_labels={"": AUTOMATIC_LABEL, "off": "Off (low effort)", "on": "On"},
+                choice_labels={"": AUTOMATIC_LABEL, "off": "Off (least effort)", "on": "On"},
                 description=(f"Whether {label} reasons before it describes. Its current "
                              "models cannot switch reasoning off entirely, so Off asks "
-                             "for low effort instead."))
+                             "for the least effort the model takes instead."))
     elif setting == "effort":
         levels = ["", "minimal", "low", "medium", "high"] if provider == "openai" \
             else ["", "low", "medium", "high"]
@@ -125,8 +125,8 @@ def _generation_entry(provider: str, label: str, setting: str) -> Dict[str, Any]
             choice_labels={"": AUTOMATIC_LABEL},
             description=(f"How hard {label} reasons before answering. Lower is faster "
                          "and cheaper; descriptions rarely need high. Overrides Thinking."
-                         + (" Minimal exists only on the original GPT-5 models; "
-                            "elsewhere it means low." if provider == "openai" else "")))
+                         + (" Minimal means the least the model takes: none on GPT-5.1 "
+                            "and later, low on the o-series." if provider == "openai" else "")))
     elif setting == "temperature":
         entry.update(
             type="float_or_auto", range=[0.0, 2.0],
@@ -164,14 +164,55 @@ _SETTING_NAMES = {
 }
 
 
-def generation_settings_metadata() -> Dict[str, Dict[str, Any]]:
-    """The Generation tab: "<provider> <setting>" for each setting it takes."""
+#: Providers that only run on a Mac. Listing their settings elsewhere only adds
+#: entries a screen reader user has to pass that can never apply.
+_MAC_ONLY_PROVIDERS = ("apple", "mlx")
+
+
+def generation_settings_metadata(include_mac: Optional[bool] = None) -> Dict[str, Dict[str, Any]]:
+    """The Generation tab: "<provider> <setting>" for each setting it takes.
+
+    ``include_mac`` defaults to whether this is a Mac.
+    """
+    if include_mac is None:
+        include_mac = sys.platform == "darwin"
     settings: Dict[str, Dict[str, Any]] = {}
     for provider, label, names in _GENERATION_PROVIDERS:
+        if provider in _MAC_ONLY_PROVIDERS and not include_mac:
+            continue
         for setting in names:
             settings[f"{label} {_SETTING_NAMES[setting]}"] = _generation_entry(
                 provider, label, setting)
     return settings
+
+
+def normalise_generation_section(config: Optional[Dict[str, Any]]) -> None:
+    """Rewrite each provider's generation settings in their canonical form.
+
+    The settings file is hand-editable and idt_core reads it leniently:
+    ``"thinking": false``, ``"OFF"``, ``num_predict`` and ``max_tokens`` all
+    work. The dialog knows only canonical keys and values, so without this a
+    hand-edited value showed wrongly and was dropped on OK (issue #392
+    review). Unknown keys are kept, under "extra", which idt_core also reads.
+    """
+    try:
+        from idt_core.generation import CONFIG_KEY, GenerationOptions
+    except ImportError:                                             # pragma: no cover
+        return
+    if not isinstance(config, dict):
+        return
+    section = config.get(CONFIG_KEY)
+    if not isinstance(section, dict):
+        return
+    for provider, settings in list(section.items()):
+        if isinstance(settings, dict):
+            canonical = GenerationOptions.from_dict(settings).to_dict()
+            if canonical:
+                section[provider] = canonical
+            else:
+                del section[provider]
+    if not section:
+        del config[CONFIG_KEY]
 
 
 def _remove_path(config: Dict[str, Any], path: List[str]) -> None:
@@ -434,7 +475,14 @@ class SettingEditDialog(wx.Dialog):
                 choices = self.setting_info.get("choices", [])
                 self.editor.Append([str(_display_value(self.setting_info, c)) for c in choices])
                 current = "" if self.current_value is None else self.current_value
-                self.editor.SetSelection(choices.index(current) if current in choices else 0)
+                if current in choices:
+                    self.editor.SetSelection(choices.index(current))
+                else:
+                    # A value from a hand-edited file that this list does not
+                    # offer: kept and selected, as the plain choice type does,
+                    # so pressing OK does not silently change it.
+                    self.editor.Append(f"{current} (current)")
+                    self.editor.SetSelection(len(choices))
                 form_sizer.Add(self.editor, 0, wx.EXPAND)
 
             elif setting_type == "choice":
@@ -553,6 +601,8 @@ class SettingEditDialog(wx.Dialog):
         elif setting_type == "choice_or_auto":
             choices = self.setting_info.get("choices", [])
             index = self.editor.GetSelection()
+            if index == len(choices):            # the "(current)" entry
+                return self.current_value
             value = choices[index] if 0 <= index < len(choices) else ""
             return value or None
         elif setting_type == "int_or_null":
@@ -1171,7 +1221,8 @@ class ConfigureDialog(wx.Dialog):
             except Exception as e:
                 self.configs[name] = {}
                 show_warning(self, f"Error loading {path}:\n{str(e)}")
-    
+        normalise_generation_section(self.configs.get("image_describer"))
+
     def load_category_settings(self, category: str):
         """Load settings for a specific category into its tab"""
         widgets = self.category_widgets.get(category)

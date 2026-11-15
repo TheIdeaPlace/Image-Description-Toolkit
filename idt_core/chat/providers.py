@@ -441,18 +441,20 @@ class OpenAIChatProvider(ChatProvider):
                              "reasoning models accept only their default")
             else:
                 kwargs["temperature"] = request.temperature
+        from ..providers.openai_provider import EFFORT_FALLBACK, lowest_effort
+
         if request.think is False:
             from ..providers.openai_provider import is_reasoning_model
 
-            # Reasoning cannot be switched off; low effort is the closest every
-            # reasoning model accepts (issue #392). Non-reasoning models need nothing.
+            # The least reasoning each family takes (issue #392); retried at
+            # "low" if rejected. Non-reasoning models need nothing.
             if is_reasoning_model(kwargs["model"]):
-                kwargs["reasoning_effort"] = "low"
+                kwargs["reasoning_effort"] = lowest_effort(kwargs["model"])
 
         from ..generation import send_with_fallback
         stream = send_with_fallback(client.chat.completions.create, kwargs,
                                     ("temperature", "reasoning_effort"), "openai",
-                                    kwargs["model"])
+                                    kwargs["model"], EFFORT_FALLBACK)
         usage = None
         try:
             for chunk in stream:
@@ -530,14 +532,11 @@ class ClaudeChatProvider(ChatProvider):
             kwargs["output_config"] = {"effort": "low"}
         return kwargs
 
-    #: Dropped and sent again when a model rejects them (older models have no
-    #: effort or adaptive thinking).
-    _OPTIONAL = {"output_config": ("effort", "output_config"), "thinking": ("thinking",)}
-
     def chat(self, request: ChatRequest) -> Iterator[ChatYield]:
         import anthropic
 
-        from ..generation import _is_rejection_of, note_dropped
+        from .. import generation
+        from ..providers.claude import OPTIONAL_PARAMS
 
         client = (
             anthropic.Anthropic(api_key=self._api_key)
@@ -546,6 +545,13 @@ class ClaudeChatProvider(ChatProvider):
         )
         system, messages = format_for_claude(request.messages, request.system_prompt)
         kwargs = self._request_kwargs(request, messages, system)
+        model = kwargs["model"]
+        # Same memory as send_with_fallback (which cannot wrap a stream): a
+        # parameter this model rejected earlier is left out up front, so each
+        # turn does not start with a failed request.
+        for parameter in OPTIONAL_PARAMS:
+            if ("claude", model, parameter) in generation._REJECTED:
+                kwargs.pop(parameter, None)
 
         final = None
         while True:
@@ -562,11 +568,14 @@ class ClaudeChatProvider(ChatProvider):
                 # The request is made when the stream opens, so a rejected
                 # optional parameter arrives before any text.
                 culprit = None if started else next(
-                    (p for p, words in self._OPTIONAL.items()
-                     if p in kwargs and _is_rejection_of(exc, words)), None)
+                    (p for p, words in OPTIONAL_PARAMS.items()
+                     if p in kwargs and generation._is_rejection_of(exc, words)), None)
                 if culprit is None:
                     raise
-                note_dropped("claude", kwargs["model"], culprit, f"the model rejected it: {exc}")
+                if not any(w in str(exc).lower() for w in generation._VALUE_PROBLEM_WORDS):
+                    generation._REJECTED.add(("claude", model, culprit))
+                generation.note_dropped("claude", model, culprit,
+                                        f"the model rejected it: {exc}")
                 kwargs.pop(culprit)
 
         if final is not None:

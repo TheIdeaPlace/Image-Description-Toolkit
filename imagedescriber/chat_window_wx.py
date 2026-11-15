@@ -361,6 +361,10 @@ class ChatWindow(wx.Dialog):
         self.current_response_chunks = []  # Buffer for streaming response
         self.is_processing = False
         self.worker = None              # Live ChatWorker, so Stop can reach it
+        # This window's own Thinking choice, starting from the last one made
+        # (Session > Thinking). Its own copy, so another window changing it
+        # later does not change this one (issue #392 review).
+        self._thinking = ChatWindow._last_thinking
         self._streaming_index = None    # History row being written into live
         self.pending_attachments: List[Dict[str, str]] = []  # [{path, media_type}, ...]
         # Temp file tracking for HEIC conversion and clipboard paste cleanup
@@ -499,8 +503,9 @@ class ChatWindow(wx.Dialog):
         self.message_detail.SetMinSize((-1, 200))
         main_sizer.Add(self.message_detail, 0, wx.EXPAND | wx.ALL, 10)
 
-        # Status/typing indicator
-        self.status_text = wx.StaticText(panel, label="")
+        # Status/typing indicator. Says so when the window starts with a
+        # Thinking choice carried over from an earlier window.
+        self.status_text = wx.StaticText(panel, label=self._initial_thinking_status())
         main_sizer.Add(self.status_text, 0, wx.LEFT | wx.RIGHT, 10)
         
         # Input area
@@ -1455,7 +1460,14 @@ class ChatWindow(wx.Dialog):
     _last_thinking: Optional[bool] = None
 
     def _thinking_choice(self) -> Optional[bool]:
-        return getattr(self, "_thinking", ChatWindow._last_thinking)
+        return self._thinking
+
+    def _initial_thinking_status(self) -> str:
+        from idt_core.generation import CHAT_THINKING_CHOICES
+        if self._thinking is None:
+            return ""
+        return next(status for value, _label, status in CHAT_THINKING_CHOICES
+                    if value is self._thinking)
 
     def _set_thinking(self, value: Optional[bool], status: str):
         self._thinking = value

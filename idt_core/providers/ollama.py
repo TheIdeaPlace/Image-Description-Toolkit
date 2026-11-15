@@ -232,14 +232,18 @@ def model_can_think(name: str, host: Optional[str] = None, client=None) -> bool:
 THINKING_SUFFIX = " (thinks, slower)"
 
 
-def picker_label(name: str, host: Optional[str] = None) -> str:
+def picker_label(name: str, can_think: Optional[bool] = None,
+                 host: Optional[str] = None) -> str:
     """A model's entry in a describe picker: flagged when it is a thinking model.
 
     Thinking models spend most of each description on discarded reasoning, and
     some ignore being told not to (issue #392), so the choice matters enough to
     show where the model is chosen. The name itself stays the item's data.
+    Pass ``can_think`` from a cache on a UI thread; omitted, it probes.
     """
-    return f"{name}{THINKING_SUFFIX}" if model_can_think(name, host=host) else name
+    if can_think is None:
+        can_think = model_can_think(name, host=host)
+    return f"{name}{THINKING_SUFFIX}" if can_think else name
 
 
 def instruct_alternative(name: str, installed) -> Optional[str]:
@@ -258,9 +262,15 @@ def instruct_alternative(name: str, installed) -> Optional[str]:
     return None
 
 
-def thinking_hint(name: str, installed, host: Optional[str] = None) -> str:
-    """One or two sentences for a picker's model description, or ""."""
-    if not model_can_think(name, host=host):
+def thinking_hint(name: str, installed, can_think: Optional[bool] = None,
+                  host: Optional[str] = None) -> str:
+    """One or two sentences for a picker's model description, or "".
+
+    Pass ``can_think`` from a cache on a UI thread; omitted, it probes.
+    """
+    if can_think is None:
+        can_think = model_can_think(name, host=host)
+    if not can_think:
         return ""
     hint = ("This is a thinking model: it reasons before describing, which is slower, "
             "and some keep thinking even when told not to.")

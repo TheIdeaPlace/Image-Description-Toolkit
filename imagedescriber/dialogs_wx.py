@@ -317,20 +317,23 @@ class ApiKeyDialog(wx.Dialog):
 # model dropdown.
 # ---------------------------------------------------------------------------
 
-def _ollama_installed() -> list:
+def _known_thinking_model(model: str) -> bool:
+    """From the capability probe ImageDescriber already made when it listed the
+    models. Never a request of its own: these run on the UI thread on every
+    arrow press, where one localhost request measured over 2 seconds (#392)."""
     try:
-        from ai_providers import get_available_providers
-        provider = get_available_providers().get('ollama')
-        return provider.get_available_models() if provider else []
+        from ai_providers import _ollama_provider
+        return _ollama_provider.known_thinking_model(model)
     except Exception:                                               # noqa: BLE001
-        return []
+        return False
 
 
-def _ollama_thinking_hint(model_id: str) -> str:
+def _ollama_thinking_hint(model_id: str, installed=None) -> str:
     """Why a thinking model is slow, and the faster edition if installed (#392)."""
     try:
         from idt_core.providers.ollama import thinking_hint
-        return thinking_hint(model_id, _ollama_installed())
+        return thinking_hint(model_id, installed or [],
+                             can_think=_known_thinking_model(model_id))
     except Exception:                                               # noqa: BLE001
         return ""
 
@@ -344,10 +347,7 @@ def _append_ollama_models(combo, models) -> None:
     for model in sorted(models):
         label = model
         if picker_label is not None:
-            try:
-                label = picker_label(model)
-            except Exception:                                       # noqa: BLE001
-                label = model
+            label = picker_label(model, can_think=_known_thinking_model(model))
         combo.Append(label, model)
 
 
@@ -359,7 +359,7 @@ def _select_by_data(combo, value) -> bool:
     return False
 
 
-def _get_model_description_text(provider: str, model_id: str) -> str:
+def _get_model_description_text(provider: str, model_id: str, installed=None) -> str:
     """Return a one-or-two-line guidance string for the selected model.
 
     Format (paid providers):
@@ -432,7 +432,7 @@ def _get_model_description_text(provider: str, model_id: str) -> str:
         if not model_id:
             return "Local Ollama models have no API cost. Requires Ollama running locally."
         text = f"{model_id} — Local AI model running via Ollama. No API key or cloud cost."
-        hint = _ollama_thinking_hint(model_id)
+        hint = _ollama_thinking_hint(model_id, installed)
         return f"{text}\n{hint}" if hint else text
 
     if provider == "apple":
@@ -685,9 +685,10 @@ class FollowupQuestionDialog(wx.Dialog):
                 model_id = client_data if client_data is not None else self.model_combo.GetStringSelection()
             except Exception:
                 model_id = self.model_combo.GetStringSelection()
-        text = _get_model_description_text(provider, model_id)
+        text = _get_model_description_text(provider, model_id,
+                                           getattr(self, 'cached_ollama_models', None))
         self.model_desc_text.ChangeValue(text)
-    
+
     def populate_models(self):
         """Populate model choice based on selected provider - uses cached models to avoid blocking UI"""
         provider = self.provider_choice.GetStringSelection()
@@ -1148,7 +1149,8 @@ class ProcessingOptionsDialog(wx.Dialog):
                 model_id = client_data if client_data is not None else self.model_combo.GetStringSelection()
             except Exception:
                 model_id = self.model_combo.GetStringSelection()
-        text = _get_model_description_text(provider, model_id)
+        text = _get_model_description_text(provider, model_id,
+                                           getattr(self, 'cached_ollama_models', None))
         self.model_desc_text.ChangeValue(text)
         self._show_prompt_use(provider)
     
