@@ -130,14 +130,12 @@ def describe_request_params(model: str, opts) -> dict:
             note_dropped("openai", model, setting, "OpenAI has no such setting")
 
     effort = opts.effort
-    if effort is None and opts.thinking == THINKING_OFF and reasoning:
-        # OpenAI reasoning cannot be switched off; "low" is the least every
-        # reasoning model accepts ("minimal" and "none" depend on the model).
-        effort = "low"
-    if effort == "minimal" and not _takes_minimal_effort(model):
-        # Only the original GPT-5 models take "minimal". Elsewhere it would be
-        # rejected and the request resent at the default -- slower than asked.
-        effort = "low"
+    if reasoning and (effort == "minimal" or
+                      (effort is None and opts.thinking == THINKING_OFF)):
+        # "As little reasoning as possible", in each family's own word. Sending
+        # "low" to GPT-5.1+, whose default is "none", would make it reason
+        # *more*; "minimal" exists only on the original GPT-5 models.
+        effort = lowest_effort(model)
     if effort is not None:
         if reasoning:
             params["reasoning_effort"] = effort
@@ -156,11 +154,23 @@ def describe_request_params(model: str, opts) -> dict:
     return params
 
 
-def _takes_minimal_effort(model_id: str) -> bool:
-    """gpt-5, gpt-5-mini, gpt-5-nano and their dated snapshots."""
+def lowest_effort(model_id: str) -> str:
+    """The least reasoning a model takes: "minimal" on the original GPT-5
+    models, "none" on GPT-5.1 and later, "low" on the o-series. A model that
+    rejects it is retried at "low" (see EFFORT_FALLBACK)."""
     import re
 
-    return bool(re.match(r"gpt-5(-mini|-nano)?(-\d{4}-\d{2}-\d{2})?$", (model_id or "").lower()))
+    name = (model_id or "").lower()
+    if re.match(r"gpt-5(-mini|-nano)?(-\d{4}-\d{2}-\d{2})?$", name):
+        return "minimal"
+    if re.match(r"o\d", name):
+        return "low"
+    return "none"
+
+
+#: A rejected reasoning_effort value is retried at these before the parameter
+#: is dropped -- dropping it means the model's default, usually more reasoning.
+EFFORT_FALLBACK = {"reasoning_effort": ("low",)}
 
 
 def empty_answer_error(model: str, choice, cap: int, hidden: Optional[int]) -> Exception:
@@ -422,7 +432,7 @@ class OpenAIProvider(BaseProvider):
         ]
         response = send_with_fallback(self._client.chat.completions.create, params,
                                       with_extra_body(OPTIONAL_PARAMS, params),
-                                      "openai", self._model)
+                                      "openai", self._model, EFFORT_FALLBACK)
         usage = response.usage
         choice = response.choices[0]
         text = choice.message.content or ""

@@ -441,10 +441,20 @@ class OpenAIChatProvider(ChatProvider):
                              "reasoning models accept only their default")
             else:
                 kwargs["temperature"] = request.temperature
+        from ..providers.openai_provider import EFFORT_FALLBACK, lowest_effort
+
+        if request.think is False:
+            from ..providers.openai_provider import is_reasoning_model
+
+            # The least reasoning each family takes (issue #392); retried at
+            # "low" if rejected. Non-reasoning models need nothing.
+            if is_reasoning_model(kwargs["model"]):
+                kwargs["reasoning_effort"] = lowest_effort(kwargs["model"])
 
         from ..generation import send_with_fallback
         stream = send_with_fallback(client.chat.completions.create, kwargs,
-                                    ("temperature",), "openai", kwargs["model"])
+                                    ("temperature", "reasoning_effort"), "openai",
+                                    kwargs["model"], EFFORT_FALLBACK)
         usage = None
         try:
             for chunk in stream:
@@ -513,10 +523,20 @@ class ClaudeChatProvider(ChatProvider):
         }
         if system:
             kwargs["system"] = system
+        # Thinking (issue #392): on = adaptive; off = low effort, because
+        # current models reject {"type": "disabled"}. Auto leaves the model's
+        # default. Same mapping as descriptions (providers/claude.py).
+        if request.think is True:
+            kwargs["thinking"] = {"type": "adaptive"}
+        elif request.think is False:
+            kwargs["output_config"] = {"effort": "low"}
         return kwargs
 
     def chat(self, request: ChatRequest) -> Iterator[ChatYield]:
         import anthropic
+
+        from .. import generation
+        from ..providers.claude import OPTIONAL_PARAMS
 
         client = (
             anthropic.Anthropic(api_key=self._api_key)
@@ -524,15 +544,39 @@ class ClaudeChatProvider(ChatProvider):
             else anthropic.Anthropic()
         )
         system, messages = format_for_claude(request.messages, request.system_prompt)
+        kwargs = self._request_kwargs(request, messages, system)
+        model = kwargs["model"]
+        # Same memory as send_with_fallback (which cannot wrap a stream): a
+        # parameter this model rejected earlier is left out up front, so each
+        # turn does not start with a failed request.
+        for parameter in OPTIONAL_PARAMS:
+            if ("claude", model, parameter) in generation._REJECTED:
+                kwargs.pop(parameter, None)
 
         final = None
-        with client.messages.stream(
-            **self._request_kwargs(request, messages, system)
-        ) as stream:
-            for text in stream.text_stream:
-                if text:
-                    yield ChatDelta(text)
-            final = stream.get_final_message()
+        while True:
+            started = False
+            try:
+                with client.messages.stream(**kwargs) as stream:
+                    for text in stream.text_stream:
+                        if text:
+                            started = True
+                            yield ChatDelta(text)
+                    final = stream.get_final_message()
+                break
+            except Exception as exc:                             # noqa: BLE001
+                # The request is made when the stream opens, so a rejected
+                # optional parameter arrives before any text.
+                culprit = None if started else next(
+                    (p for p, words in OPTIONAL_PARAMS.items()
+                     if p in kwargs and generation._is_rejection_of(exc, words)), None)
+                if culprit is None:
+                    raise
+                if not any(w in str(exc).lower() for w in generation._VALUE_PROBLEM_WORDS):
+                    generation._REJECTED.add(("claude", model, culprit))
+                generation.note_dropped("claude", model, culprit,
+                                        f"the model rejected it: {exc}")
+                kwargs.pop(culprit)
 
         if final is not None:
             yield ChatUsage(

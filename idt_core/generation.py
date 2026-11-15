@@ -183,6 +183,17 @@ def _coerce(key: str, value: Any) -> Any:
     return value
 
 
+#: The chat windows' Thinking menu: (ChatOptions.thinking value, label,
+#: status-bar text). Shared so IDT Chat and ImageDescriber's chat window offer
+#: the same three choices in the same words.
+CHAT_THINKING_CHOICES = (
+    (None, "&Automatic", "Thinking: automatic (the model decides)"),
+    (True, "&On", "Thinking: on (Ollama, Claude and OpenAI; other providers decide "
+                  "for themselves)"),
+    (False, "O&ff", "Thinking: off (faster; for Claude and OpenAI, the least effort)"),
+)
+
+
 def think_flag(mode: Optional[str]) -> Optional[bool]:
     """THINKING_* (or None) as the tri-state bool chat requests carry."""
     if mode == THINKING_ON:
@@ -263,7 +274,8 @@ _VALUE_PROBLEM_WORDS = ("unsupported value", "invalid value", "must be", "less t
                         "greater than", "out of range", "between")
 
 
-def send_with_fallback(call, params: dict, optional, provider: str, model: str):
+def send_with_fallback(call, params: dict, optional, provider: str, model: str,
+                       fallback_values: Optional[Mapping[str, tuple]] = None):
     """``call(**params)``, retrying without any optional parameter the API rejects.
 
     Model capabilities change faster than IDT releases: OpenAI's reasoning
@@ -276,8 +288,13 @@ def send_with_fallback(call, params: dict, optional, provider: str, model: str):
     ``optional`` is either parameter names, or a mapping of parameter name to
     the words that identify it in an error (``{"output_config": ("effort",
     "output_config")}``), for APIs that name a nested field.
+
+    ``fallback_values`` gives values to try, in order, before a rejected
+    parameter is dropped: ``{"reasoning_effort": ("low",)}`` turns a rejected
+    "none" into "low" rather than the model's (higher) default.
     """
     needles = _as_needles(optional)
+    pending = {k: list(v) for k, v in (fallback_values or {}).items()}
     params = dict(params)
     for parameter in needles:
         if (provider, model, parameter) in _REJECTED and parameter in params:
@@ -290,6 +307,13 @@ def send_with_fallback(call, params: dict, optional, provider: str, model: str):
                             if p in params and _is_rejection_of(exc, words)), None)
             if culprit is None:
                 raise
+            alternatives = [v for v in pending.get(culprit, []) if v != params[culprit]]
+            if alternatives:
+                pending[culprit] = alternatives[1:]
+                _options_log.info("%s %s: %s=%r was rejected; trying %r",
+                                  provider, model, culprit, params[culprit], alternatives[0])
+                params[culprit] = alternatives[0]
+                continue
             text = str(exc).lower()
             if not any(word in text for word in _VALUE_PROBLEM_WORDS):
                 _REJECTED.add((provider, model, culprit))

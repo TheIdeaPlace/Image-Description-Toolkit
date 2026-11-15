@@ -4,14 +4,6 @@
   "default_prompt_style": "narrative",
   "version": "3.1",
   "last_updated": "2026-04-08",
-  "model_settings": {
-    "model": "minicpm-v4.6",
-    "temperature": 0.1,
-    "num_predict": 600,
-    "top_k": 40,
-    "top_p": 0.9,
-    "repeat_penalty": 1.3
-  },
   "prompt_template": "Provide a narrative description including objects, colors and detail. Avoid interpretation, just describe.",
   "prompt_variations": {
     "narrative": "Describe this image in a narrative style. Start with the overall scene, then describe specific objects and people from left to right. Include colors, clothing details, and spatial relationships. Mention what's in the foreground, middle ground, and background. Use concrete, specific language without metaphor or interpretation.",
@@ -26,92 +18,6 @@
     "mood": "Describe the emotional atmosphere and mood of this image. What feelings does it evoke? What is the psychological tone? Describe the emotional quality of the lighting, the mood conveyed by the composition, and the overall feeling or atmosphere in rich, evocative language.",
     "functional": "Describe what is happening in this image by focusing on function, purpose, and action. What are the objects FOR? What are they DOING? What is their utility or role? Describe actions, processes, relationships of use, and functional meaning. Focus on verbs: illuminates, supports, connects, transforms, protects, enables.",
     "aialttext": "Generate three instances of website alt text for this image of differing lengths:\n- 25 words\n- 50 words\n- 100 words"
-  },
-  "prompt_model_settings": {
-    "narrative": {
-      "temperature": 0.15,
-      "num_predict": 500,
-      "top_k": 40,
-      "top_p": 0.9,
-      "repeat_penalty": 1.3
-    },
-    "detailed": {
-      "temperature": 0.15,
-      "num_predict": 500,
-      "top_k": 40,
-      "top_p": 0.9,
-      "repeat_penalty": 1.2
-    },
-    "concise": {
-      "temperature": 0.1,
-      "num_predict": 200,
-      "top_k": 30,
-      "top_p": 0.85,
-      "repeat_penalty": 1.3
-    },
-    "artistic": {
-      "temperature": 0.25,
-      "num_predict": 450,
-      "top_k": 40,
-      "top_p": 0.9,
-      "repeat_penalty": 1.2
-    },
-    "technical": {
-      "temperature": 0.15,
-      "num_predict": 500,
-      "top_k": 40,
-      "top_p": 0.9,
-      "repeat_penalty": 1.3
-    },
-    "colorful": {
-      "temperature": 0.2,
-      "num_predict": 350,
-      "top_k": 40,
-      "top_p": 0.9,
-      "repeat_penalty": 1.3
-    },
-    "simple": {
-      "temperature": 0.1,
-      "num_predict": 150,
-      "top_k": 30,
-      "top_p": 0.85,
-      "repeat_penalty": 1.3
-    },
-    "accessibility": {
-      "temperature": 0.1,
-      "num_predict": 550,
-      "top_k": 40,
-      "top_p": 0.9,
-      "repeat_penalty": 1.3
-    },
-    "comparison": {
-      "temperature": 0.25,
-      "num_predict": 500,
-      "top_k": 40,
-      "top_p": 0.9,
-      "repeat_penalty": 1.3
-    },
-    "mood": {
-      "temperature": 0.35,
-      "num_predict": 450,
-      "top_k": 50,
-      "top_p": 0.95,
-      "repeat_penalty": 1.2
-    },
-    "functional": {
-      "temperature": 0.15,
-      "num_predict": 500,
-      "top_k": 40,
-      "top_p": 0.9,
-      "repeat_penalty": 1.3
-    },
-    "aialttext": {
-      "temperature": 0.1,
-      "num_predict": 750,
-      "top_k": 40,
-      "top_p": 0.9,
-      "repeat_penalty": 1.3
-    }
   },
   "output_format": {
     "include_timestamp": true,
@@ -279,13 +185,7 @@
       "process_documentation": "functional",
       "web_alt_text_drafting": "aialttext"
     },
-    "model_settings": {
-      "temperature": "Controls randomness (0.0-1.0). Lower = more consistent. Recommended: 0.1-0.35 depending on style.",
-      "num_predict": "Max tokens to generate. Detailed: 500, Concise: 200, Colorful: 350, Simple: 150",
-      "top_k": "Number of top tokens to consider. Concise uses 30 for tighter outputs, others use 40.",
-      "top_p": "Cumulative probability cutoff. Concise uses 0.85, others 0.9.",
-      "repeat_penalty": "1.2-1.3 recommended to reduce repetition"
-    },
+    "generation": "Optional per-provider settings under a top-level \"generation\" key, e.g. {\"ollama\": {\"thinking\": \"off\", \"temperature\": 0.2}}. Anything left out is automatic: IDT's default for the provider and model. Edit them in ImageDescriber under Tools > Configure Settings > Generation.",
     "deprecated_styles": [
       "clock-face spatial - FAILED testing, produces bounding box coordinates instead of descriptions"
     ],

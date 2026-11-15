@@ -184,10 +184,32 @@ class TestOpenAIParams:
         assert "temperature" not in params and "top_p" not in params
         assert "not sending temperature" in caplog.text
 
-    def test_thinking_off_means_low_effort_on_reasoning_models(self):
+    @pytest.mark.parametrize("model, sent", [
+        ("gpt-5.2", "none"), ("gpt-6-sol", "none"),     # default "none": low would add reasoning
+        ("gpt-5-mini", "minimal"), ("o3", "low"),
+    ])
+    def test_thinking_off_is_the_least_effort_each_family_takes(self, model, sent):
         opts = GenerationOptions(thinking=THINKING_OFF)
-        assert oai.describe_request_params("gpt-5.2", opts)["reasoning_effort"] == "low"
+        assert oai.describe_request_params(model, opts)["reasoning_effort"] == sent
+
+    def test_thinking_off_sends_nothing_to_classic_models(self):
+        opts = GenerationOptions(thinking=THINKING_OFF)
         assert "reasoning_effort" not in oai.describe_request_params("gpt-4o", opts)
+
+    def test_a_rejected_none_is_retried_at_low_before_dropping(self):
+        calls = []
+
+        def create(**kw):
+            calls.append(dict(kw))
+            if kw.get("reasoning_effort") == "none":
+                raise BadRequest("Unsupported value: 'reasoning_effort' does not support 'none'")
+            return _openai_response("A desk.")
+
+        provider, _ = _core_openai([], options=GenerationOptions(thinking=THINKING_OFF))
+        provider._client = SimpleNamespace(chat=SimpleNamespace(
+            completions=SimpleNamespace(create=create)))
+        assert provider.describe(b"x", "image/jpeg", "Describe.").text == "A desk."
+        assert [c.get("reasoning_effort") for c in calls] == ["none", "low"]
 
     def test_explicit_effort_wins(self):
         opts = GenerationOptions(thinking=THINKING_OFF, effort="high")
@@ -204,9 +226,9 @@ class TestOpenAIParams:
 
     @pytest.mark.parametrize("model, sent", [
         ("gpt-5", "minimal"), ("gpt-5-mini", "minimal"), ("gpt-5-nano-2025-08-07", "minimal"),
-        ("gpt-5.2", "low"), ("o3", "low"), ("gpt-6-sol", "low"),
+        ("gpt-5.2", "none"), ("o3", "low"), ("gpt-6-sol", "none"),
     ])
-    def test_minimal_effort_only_where_it_exists(self, model, sent):
+    def test_minimal_effort_is_the_least_each_family_takes(self, model, sent):
         opts = GenerationOptions(effort="minimal")
         assert oai.describe_request_params(model, opts)["reasoning_effort"] == sent
 

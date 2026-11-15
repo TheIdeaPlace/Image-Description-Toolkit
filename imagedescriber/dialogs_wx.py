@@ -317,7 +317,49 @@ class ApiKeyDialog(wx.Dialog):
 # model dropdown.
 # ---------------------------------------------------------------------------
 
-def _get_model_description_text(provider: str, model_id: str) -> str:
+def _known_thinking_model(model: str) -> bool:
+    """From the capability probe ImageDescriber already made when it listed the
+    models. Never a request of its own: these run on the UI thread on every
+    arrow press, where one localhost request measured over 2 seconds (#392)."""
+    try:
+        from ai_providers import _ollama_provider
+        return _ollama_provider.known_thinking_model(model)
+    except Exception:                                               # noqa: BLE001
+        return False
+
+
+def _ollama_thinking_hint(model_id: str, installed=None) -> str:
+    """Why a thinking model is slow, and the faster edition if installed (#392)."""
+    try:
+        from idt_core.providers.ollama import thinking_hint
+        return thinking_hint(model_id, installed or [],
+                             can_think=_known_thinking_model(model_id))
+    except Exception:                                               # noqa: BLE001
+        return ""
+
+
+def _append_ollama_models(combo, models) -> None:
+    """Fill a describe picker: thinking models flagged, the model name as data."""
+    try:
+        from idt_core.providers.ollama import picker_label
+    except Exception:                                               # noqa: BLE001
+        picker_label = None
+    for model in sorted(models):
+        label = model
+        if picker_label is not None:
+            label = picker_label(model, can_think=_known_thinking_model(model))
+        combo.Append(label, model)
+
+
+def _select_by_data(combo, value) -> bool:
+    for i in range(combo.GetCount()):
+        if combo.GetClientData(i) == value:
+            combo.SetSelection(i)
+            return True
+    return False
+
+
+def _get_model_description_text(provider: str, model_id: str, installed=None) -> str:
     """Return a one-or-two-line guidance string for the selected model.
 
     Format (paid providers):
@@ -389,7 +431,9 @@ def _get_model_description_text(provider: str, model_id: str) -> str:
     if provider == "ollama":
         if not model_id:
             return "Local Ollama models have no API cost. Requires Ollama running locally."
-        return f"{model_id} — Local AI model running via Ollama. No API key or cloud cost."
+        text = f"{model_id} — Local AI model running via Ollama. No API key or cloud cost."
+        hint = _ollama_thinking_hint(model_id, installed)
+        return f"{text}\n{hint}" if hint else text
 
     if provider == "apple":
         from idt_core.providers import catalog
@@ -641,9 +685,10 @@ class FollowupQuestionDialog(wx.Dialog):
                 model_id = client_data if client_data is not None else self.model_combo.GetStringSelection()
             except Exception:
                 model_id = self.model_combo.GetStringSelection()
-        text = _get_model_description_text(provider, model_id)
+        text = _get_model_description_text(provider, model_id,
+                                           getattr(self, 'cached_ollama_models', None))
         self.model_desc_text.ChangeValue(text)
-    
+
     def populate_models(self):
         """Populate model choice based on selected provider - uses cached models to avoid blocking UI"""
         provider = self.provider_choice.GetStringSelection()
@@ -695,8 +740,7 @@ class FollowupQuestionDialog(wx.Dialog):
                         pass
 
                 if models:
-                    for model in sorted(models):
-                        self.model_combo.Append(model)
+                    _append_ollama_models(self.model_combo, models)
                 else:
                     # Last-resort static fallback when Ollama is unreachable
                     for model in [DEFAULT_OLLAMA_MODEL, "llava", "llama3.2-vision", "moondream"]:
@@ -1105,7 +1149,8 @@ class ProcessingOptionsDialog(wx.Dialog):
                 model_id = client_data if client_data is not None else self.model_combo.GetStringSelection()
             except Exception:
                 model_id = self.model_combo.GetStringSelection()
-        text = _get_model_description_text(provider, model_id)
+        text = _get_model_description_text(provider, model_id,
+                                           getattr(self, 'cached_ollama_models', None))
         self.model_desc_text.ChangeValue(text)
         self._show_prompt_use(provider)
     
@@ -1171,14 +1216,11 @@ class ProcessingOptionsDialog(wx.Dialog):
                         self.cached_ollama_models = models
                 
                 if models:
-                    # Sort models alphabetically for easier navigation
-                    for model in sorted(models):
-                        self.model_combo.Append(model)
+                    # Sorted, thinking models flagged; the name is the item's data.
+                    _append_ollama_models(self.model_combo, models)
                     # Set default if in list
                     default_model = self.config.get('default_model', 'minicpm-v4.6')
-                    if default_model in models:
-                        self.model_combo.SetStringSelection(default_model)
-                    elif models:
+                    if not _select_by_data(self.model_combo, default_model):
                         self.model_combo.SetSelection(0)
                 else:
                     self.model_combo.Append(DEFAULT_OLLAMA_MODEL)

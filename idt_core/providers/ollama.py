@@ -227,6 +227,59 @@ def model_can_think(name: str, host: Optional[str] = None, client=None) -> bool:
     return bool(caps) and "thinking" in caps
 
 
+#: Shown after a thinking model's name in describe pickers. Short on purpose:
+#: a screen reader reads it on every such entry.
+THINKING_SUFFIX = " (thinks, slower)"
+
+
+def picker_label(name: str, can_think: Optional[bool] = None,
+                 host: Optional[str] = None) -> str:
+    """A model's entry in a describe picker: flagged when it is a thinking model.
+
+    Thinking models spend most of each description on discarded reasoning, and
+    some ignore being told not to (issue #392), so the choice matters enough to
+    show where the model is chosen. The name itself stays the item's data.
+    Pass ``can_think`` from a cache on a UI thread; omitted, it probes.
+    """
+    if can_think is None:
+        can_think = model_can_think(name, host=host)
+    return f"{name}{THINKING_SUFFIX}" if can_think else name
+
+
+def instruct_alternative(name: str, installed) -> Optional[str]:
+    """The installed non-thinking edition of ``name``, if there is one.
+
+    Ollama tags the editions ``qwen3-vl:8b`` / ``qwen3-vl:8b-thinking`` and
+    ``qwen3-vl:8b-instruct``.
+    """
+    base, _, tag = name.partition(":")
+    tag = tag or "latest"
+    stem = tag[: -len("-thinking")] if tag.endswith("-thinking") else tag
+    installed = set(installed or ())
+    for candidate in (f"{base}:{stem}-instruct", f"{base}:instruct"):
+        if candidate != name and candidate in installed:
+            return candidate
+    return None
+
+
+def thinking_hint(name: str, installed, can_think: Optional[bool] = None,
+                  host: Optional[str] = None) -> str:
+    """One or two sentences for a picker's model description, or "".
+
+    Pass ``can_think`` from a cache on a UI thread; omitted, it probes.
+    """
+    if can_think is None:
+        can_think = model_can_think(name, host=host)
+    if not can_think:
+        return ""
+    hint = ("This is a thinking model: it reasons before describing, which is slower, "
+            "and some keep thinking even when told not to.")
+    alternative = instruct_alternative(name, installed)
+    if alternative:
+        return f"{hint} {alternative} is installed and does not think."
+    return f"{hint} If there is an '-instruct' tag of this model, it does not think."
+
+
 def resolve_think(mode: Optional[str], name: str, host: Optional[str] = None,
                   client=None) -> Optional[bool]:
     """The ``think`` value to send for a THINKING_* mode, or None to omit it.
