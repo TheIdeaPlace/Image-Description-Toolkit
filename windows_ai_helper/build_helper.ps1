@@ -28,7 +28,16 @@ commit into them), so a release build passes a number unique to the build (the w
 number). 0 to 65535.
 
 .PARAMETER Register
-Install the built layout for the current user (needs Developer Mode).
+Install the built layout for the current user (needs Developer Mode). The package then runs
+from out\<arch> itself. If no installed IDT helper had the idt-windows-ai command yet (a new
+development PC), this registration gets it, and keeps it even after IDT is installed later.
+Run -Unregister when you are done, and always before deleting this folder or the worktree it
+is in: a registration whose folder is gone stays behind, and if it owns the command, every
+Windows AI request fails with "The system cannot find the path specified".
+
+.PARAMETER Unregister
+Remove development registrations of the helper (the ones -Register makes), then check that
+idt-windows-ai still answers. Builds nothing. Installed, signed copies are left alone.
 
 .PARAMETER Pack
 Also pack the layout into dist\IdtWindowsAI_<arch>.msix.
@@ -36,6 +45,9 @@ Also pack the layout into dist\IdtWindowsAI_<arch>.msix.
 .EXAMPLE
 .\build_helper.ps1 -Register
 idt-windows-ai --check
+
+.EXAMPLE
+.\build_helper.ps1 -Unregister
 #>
 param(
     [ValidateSet('x64', 'arm64')]
@@ -46,9 +58,48 @@ param(
     [int]$Revision = 0,
     [string]$Configuration = 'Release',
     [switch]$Register,
+    [switch]$Unregister,
     [switch]$Pack
 )
 $ErrorActionPreference = 'Stop'
+
+# The package name in IdtWindowsAI\AppxManifest.xml.
+$packageName = 'ImageDescriptionToolkit.WindowsAI'
+
+if ($Unregister) {
+    if ($Register -or $Pack) { throw '-Unregister builds nothing; use it on its own.' }
+    # Development registrations only: -Register makes them in Developer Mode, from a folder.
+    # An installed IDT's helper is a signed package in WindowsApps and is left alone.
+    $dev = @(Get-AppxPackage -Name $packageName | Where-Object { $_.IsDevelopmentMode })
+    if (-not $dev) {
+        Write-Host "No development registration of $packageName to remove."
+    }
+    foreach ($package in $dev) {
+        $where = if ($package.InstallLocation) { $package.InstallLocation } else { '(its folder no longer exists)' }
+        Remove-AppxPackage -Package $package.PackageFullName
+        Write-Host "Removed the development registration $($package.PackageFullName) from $where"
+    }
+    # Check rather than assume: the command belongs to whichever package registered it first.
+    $alias = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\idt-windows-ai.exe'
+    $state = $null
+    if (Test-Path -LiteralPath $alias) {
+        try {
+            $report = & $alias --check 2>$null | Select-Object -Last 1
+            $state = ($report | ConvertFrom-Json).state
+        } catch { $state = $null }
+    }
+    if ($state) {
+        $installed = @(Get-AppxPackage -Name $packageName)
+        $version = if ($installed) { " $($installed[0].Version)" } else { '' }
+        Write-Host "idt-windows-ai answers ($state), from the installed helper$version."
+    } elseif (Get-AppxPackage -Name $packageName) {
+        Write-Warning ('An installed helper remains but idt-windows-ai does not answer. Reinstall ' +
+            'IDT with "Set up Windows AI" ticked, or remove and reinstall its helper package.')
+    } else {
+        Write-Host 'No helper is installed now; install IDT to get one.'
+    }
+    return
+}
 
 $project = Join-Path $PSScriptRoot 'IdtWindowsAI\IdtWindowsAI.csproj'
 $out = Join-Path $PSScriptRoot "out\$Arch"
@@ -99,5 +150,16 @@ if ($Pack) {
 
 if ($Register) {
     Add-AppxPackage -Register (Join-Path $out 'AppxManifest.xml') -ForceUpdateFromAnyVersion
-    Write-Host 'Registered for this user. Try: idt-windows-ai --check'
+    Write-Host "Registered $packageVersion for this user."
+    # The command belongs to whichever package registered it first, so say which one answers:
+    # with IDT already installed, it is still the installed helper, not this build.
+    $alias = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\idt-windows-ai.exe'
+    try { $answer = (& $alias --check 2>$null | Select-Object -Last 1 | ConvertFrom-Json).version } catch { $answer = $null }
+    if ($answer) {
+        Write-Host "idt-windows-ai answers with version $answer$(if ($packageVersion -notlike "$answer*") { ' (an installed helper, not this build)' })."
+    }
+    Write-Warning ("$out is now registered as a Windows AI helper. Run .\build_helper.ps1 " +
+        "-Unregister when you are done, and before deleting this folder or its worktree: if this " +
+        "registration owns the idt-windows-ai command, Windows AI stops working for every IDT on " +
+        "this PC once the folder is gone.")
 }

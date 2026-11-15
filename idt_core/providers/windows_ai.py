@@ -126,6 +126,32 @@ _NO_HELPER_HINT = (
     "The Windows AI helper isn't installed. IDT's installer adds it on a Copilot+ PC; "
     "reinstall IDT, or install the helper package that came with it."
 )
+_STALE_REGISTRATION_HINT = (
+    "Windows AI couldn't start, because the command that runs its helper points at a folder "
+    "that no longer exists. On a PC where IDT is developed, that is a development build of the "
+    "helper whose folder was deleted. Remove it by running windows_ai_helper\\build_helper.ps1 "
+    "-Unregister from IDT's source code."
+)
+
+
+def _start_failure(exc: OSError, verb: str) -> "WindowsAIError":
+    """The error for an OSError starting the helper.
+
+    A path that isn't there (Windows errors 2 and 3, which Python raises as FileNotFoundError)
+    while the command still exists means the command points nowhere: in practice a development
+    registration (build_helper.ps1 -Register) whose folder was deleted. Registered before any
+    installed helper, it owns the command and keeps it, so every request fails; on a development
+    PC in November 2026 that read only "[WinError 3] The system cannot find the path specified".
+    If the command itself is gone (uninstalled between the lookup and the start), the helper
+    simply isn't installed, and that is what the user is told.
+    """
+    if getattr(exc, "winerror", None) in (2, 3) or isinstance(exc, FileNotFoundError):
+        if find_helper() is None:
+            return WindowsAIError(_NO_HELPER_HINT, setup=True)
+        return WindowsAIError(_STALE_REGISTRATION_HINT, setup=True)
+    return WindowsAIError(f"Couldn't {verb} the Windows AI helper: {exc}", setup=True)
+
+
 _NO_IDENTITY_HINT = (
     "The Windows AI helper is present but isn't installed as a package, and Windows only lets "
     "a package use its model. Reinstall IDT to install it properly."
@@ -242,7 +268,7 @@ def _run_helper(option: str, timeout: float) -> dict:
         raise WindowsAIError(f"The Windows AI helper didn't answer {option} within {timeout:.0f} seconds.",
                              timeout=True)
     except OSError as exc:
-        raise WindowsAIError(f"Couldn't run the Windows AI helper: {exc}", setup=True)
+        raise _start_failure(exc, "run")
     for line in (result.stdout or "").splitlines():
         line = line.strip()
         if line.startswith("{"):
@@ -389,7 +415,7 @@ class HelperProcess:
                 bufsize=1, creationflags=_CREATE_NO_WINDOW,
             )
         except OSError as exc:
-            raise WindowsAIError(f"Couldn't start the Windows AI helper: {exc}", setup=True)
+            raise _start_failure(exc, "start")
         self._proc = proc
         self._answers = queue.Queue()
         threading.Thread(target=self._read_answers, args=(proc, self._answers),

@@ -49,11 +49,30 @@ SILENT = "silent"      # exit 0, emit nothing -- looks like success
 
 _WIN_ORCHESTRATOR = _ROOT / "BuildAndRelease" / "WinBuilds" / "builditall_wx.bat"
 
+# Each app is a PyInstaller folder build: dist\<App>\<App>.exe plus its own
+# contents folder dist\<App>\<lib>\ (4.9.0; one-file exes left %TEMP%\_MEI
+# folders behind and showed a warning on close).
+_WIN_APPS = (
+    # (app dir, build script, folder/exe name, contents folder)
+    ("idt", "build_idt.bat", "idt", "idt-lib"),
+    ("imagedescriber", "build_imagedescriber_wx.bat", "ImageDescriber",
+     "imagedescriber-lib"),
+    ("chatapp", "build_chatapp.bat", "IDTChat", "idtchat-lib"),
+)
+
+LIB_ONLY = "lib-only"  # exit 0, emit the -lib folder but no exe
+EXE_ONLY = "exe-only"  # exit 0, emit the exe but no -lib folder
+
 _BAT_STUB = {
-    OK: '@echo off\r\nif not exist dist mkdir dist\r\n'
-        '>{artifact} echo {content}\r\nexit /b 0\r\n',
+    OK: '@echo off\r\nmkdir dist\\{name}\\{lib} 2>nul\r\n'
+        '>dist\\{name}\\{name}.exe echo {content}\r\n'
+        '>dist\\{name}\\{lib}\\python312.dll echo {content}\r\nexit /b 0\r\n',
     FAILS: '@echo off\r\necho simulated compiler failure\r\nexit /b 1\r\n',
     SILENT: '@echo off\r\necho done.\r\nexit /b 0\r\n',
+    LIB_ONLY: '@echo off\r\nmkdir dist\\{name}\\{lib} 2>nul\r\n'
+              '>dist\\{name}\\{lib}\\python312.dll echo {content}\r\nexit /b 0\r\n',
+    EXE_ONLY: '@echo off\r\nmkdir dist\\{name} 2>nul\r\n'
+              '>dist\\{name}\\{name}.exe echo {content}\r\nexit /b 0\r\n',
 }
 
 
@@ -63,20 +82,18 @@ def _scaffold_windows(tmp_path, idt=OK, describer=OK, chat=OK, stale=False):
     shutil.copy2(_WIN_ORCHESTRATOR,
                  root / "BuildAndRelease" / "WinBuilds" / "builditall_wx.bat")
 
-    for app, behaviour, script, artifact in (
-        ("idt", idt, "build_idt.bat", "dist\\idt.exe"),
-        ("imagedescriber", describer, "build_imagedescriber_wx.bat",
-         "dist\\ImageDescriber.exe"),
-        ("chatapp", chat, "build_chatapp.bat", "dist\\IDTChat.exe"),
-    ):
+    for (app, script, name, lib), behaviour in zip(_WIN_APPS, (idt, describer, chat)):
         (root / app).mkdir(exist_ok=True)
         (root / app / script).write_text(
-            _BAT_STUB[behaviour].format(artifact=artifact, content=FRESH),
+            _BAT_STUB[behaviour].format(name=name, lib=lib, content=FRESH),
             encoding="ascii", newline="")
         if stale:
-            dist = root / app / "dist"
-            dist.mkdir(exist_ok=True)
-            (dist / Path(artifact).name).write_text(STALE, encoding="ascii")
+            folder = root / app / "dist" / name
+            (folder / lib).mkdir(parents=True, exist_ok=True)
+            (folder / f"{name}.exe").write_text(STALE, encoding="ascii")
+            (folder / lib / "python312.dll").write_text(STALE, encoding="ascii")
+            # and a one-file exe from before 4.9.0
+            (root / app / "dist" / f"{name}.exe").write_text(STALE, encoding="ascii")
 
     (root / "README.md").write_text("readme", encoding="utf-8")
     (root / "LICENSE").write_text("license", encoding="utf-8")
@@ -108,10 +125,39 @@ def test_windows_success_exits_zero_and_packages_fresh_binaries(tmp_path):
     proc = _run_windows(root)
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    for name in ("idt.exe", "ImageDescriber.exe", "IDTChat.exe"):
-        packaged = _packaged(root) / name
-        assert packaged.exists(), f"{name} was not packaged\n{proc.stdout}"
+    for _app, _script, name, lib in _WIN_APPS:
+        packaged = _packaged(root) / f"{name}.exe"
+        assert packaged.exists(), f"{name}.exe was not packaged\n{proc.stdout}"
         assert FRESH in packaged.read_text(encoding="ascii")
+        # The exe can't start without its contents folder beside it.
+        library = _packaged(root) / lib / "python312.dll"
+        assert library.exists(), f"{lib} was not packaged\n{proc.stdout}"
+        assert FRESH in library.read_text(encoding="ascii")
+
+
+@windows_only
+def test_windows_package_drops_libraries_from_the_last_package(tmp_path):
+    """bin\\ is rebuilt from nothing: a library the new build no longer has must not ship."""
+    root = _scaffold_windows(tmp_path)
+    leftover = _packaged(root) / "imagedescriber-lib" / "removed_in_this_build.pyd"
+    leftover.parent.mkdir(parents=True)
+    leftover.write_text(STALE, encoding="ascii")
+
+    proc = _run_windows(root)
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert not leftover.exists()
+
+
+@windows_only
+@pytest.mark.parametrize("behaviour", [LIB_ONLY, EXE_ONLY])
+def test_windows_a_half_built_app_is_not_packaged(tmp_path, behaviour):
+    """An exe without its -lib folder (or the reverse) is not a build."""
+    root = _scaffold_windows(tmp_path, describer=behaviour)
+
+    proc = _run_windows(root)
+
+    assert proc.returncode != 0, proc.stdout
 
 
 @windows_only
@@ -163,7 +209,7 @@ def test_windows_never_packages_the_previous_runs_binary(tmp_path, idt,
 
     bin_dir = _packaged(root)
     if bin_dir.exists():
-        for exe in bin_dir.glob("*.exe"):
+        for exe in (f for f in bin_dir.rglob("*") if f.is_file()):
             assert STALE not in exe.read_text(encoding="ascii"), (
                 f"{exe.name} from a previous run was packaged as if it were "
                 "built by this one"

@@ -40,6 +40,7 @@ DIALOG_FILES = [
     _ROOT / "chatapp" / "chat_app_wx.py",
     _ROOT / "imagedescriber" / "dialogs_wx.py",
     _ROOT / "imagedescriber" / "download_dialog.py",
+    _ROOT / "imagedescriber" / "configure_dialog.py",
 ]
 
 _MNEMONIC = re.compile(r"&([A-Za-z0-9])")

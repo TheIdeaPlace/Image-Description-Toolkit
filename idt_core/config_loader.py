@@ -115,12 +115,15 @@ def resolve_config(
 
     for c in candidates:
         if _exists_file(c):
+            # _MEIPASS first: in a Windows folder build it is <exe dir>\<app>-lib,
+            # INSIDE the exe dir, and its read-only defaults must still be
+            # labelled 'bundled' so edits are written to the user config dir.
+            if meipass_dir and c.is_relative_to(meipass_dir):
+                return c, 'bundled'
             if exe_dir and c.is_relative_to(exe_dir):
                 if 'scripts' in c.parts:
                     return c, 'exe_scripts'
                 return c, 'exe_dir'
-            if meipass_dir and c.is_relative_to(meipass_dir):
-                return c, 'bundled'
             if c.parent == user_config_dir:
                 return c, 'user_config'
             if c.parent == Path.cwd():

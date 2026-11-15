@@ -449,8 +449,10 @@ class TestCli:
                                     options=GenerationOptions(thinking=THINKING_OFF))
         except Exception:
             pass   # no Windows AI on the test machine; only the note matters
-        note = capsys.readouterr().err.splitlines()[0]
-        assert note == "Note: Windows-AI takes no generation settings; they were ignored."
+        # Any line, not the first: on a PC with Windows AI, starting the provider
+        # can log its own lines, and under xdist other output can come first.
+        lines = capsys.readouterr().err.splitlines()
+        assert "Note: Windows-AI takes no generation settings; they were ignored." in lines
 
     def test_no_note_for_providers_that_take_settings(self, capsys, monkeypatch):
         from cli import main as cli_main

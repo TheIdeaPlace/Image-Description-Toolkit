@@ -207,8 +207,11 @@ class OllamaChatProvider(ChatProvider):
         return cls.DEFAULT_NUM_CTX_CEILING
 
     def __init__(self, model: str, host: Optional[str] = None):
+        from ..providers.ollama import normalize_host
+
         self._model = model
-        self._host = host
+        # localhost -> 127.0.0.1: on Windows "localhost" cost 2 s per request.
+        self._host = normalize_host(host)
 
     @property
     def provider_name(self) -> str:

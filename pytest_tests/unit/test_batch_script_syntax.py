@@ -171,7 +171,9 @@ def test_builditall_refuses_to_package_a_missing_executable():
     lines = _read(Path("BuildAndRelease/WinBuilds/builditall_wx.bat"))
     text = "\n".join(lines)
 
-    for exe in ("idt\\dist\\idt.exe", "imagedescriber\\dist\\ImageDescriber.exe"):
+    for exe in ("idt\\dist\\idt\\idt.exe",
+                "imagedescriber\\dist\\ImageDescriber\\ImageDescriber.exe",
+                "chatapp\\dist\\IDTChat\\IDTChat.exe"):
         assert f'if not exist "{exe}"' in text, (
             f"builditall_wx.bat must check for {exe} and abort when it is absent"
         )
@@ -185,8 +187,9 @@ def test_builditall_refuses_to_package_a_missing_executable():
 def test_builditall_clears_stale_executables_before_building():
     """Otherwise 'the exe exists' proves nothing about THIS build."""
     text = "\n".join(_read(Path("BuildAndRelease/WinBuilds/builditall_wx.bat")))
-    assert 'del /Q "idt\\dist\\idt.exe"' in text
-    assert 'del /Q "imagedescriber\\dist\\ImageDescriber.exe"' in text
+    assert 'rmdir /S /Q "idt\\dist\\idt"' in text
+    assert 'rmdir /S /Q "imagedescriber\\dist\\ImageDescriber"' in text
+    assert 'rmdir /S /Q "chatapp\\dist\\IDTChat"' in text
 
 
 def test_installer_success_message_names_the_real_artifact():

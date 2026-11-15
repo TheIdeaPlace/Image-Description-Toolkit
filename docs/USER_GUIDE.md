@@ -196,7 +196,7 @@ telemetry, no data sent.
 **Installing an update by hand**
 
 1. Download the latest installer (Windows) or disk image (macOS) from the [releases page](https://github.com/TheIdeaPlace/Image-Description-Toolkit/releases).
-2. Run the installer, or drag the new `ImageDescriber.app` to `/Applications`. If you use the standalone executables instead, replace the old `idt.exe` and `ImageDescriber.exe` in your folder.
+2. Run the installer, or drag the new `ImageDescriber.app` to `/Applications`. If you use the standalone Windows downloads instead, unzip the new one and replace the whole old folder, not just the exe: each app's `.exe` needs the `-lib` folder that comes with it.
 3. Your existing `.idtw` workspace bundles and `~/.idt/config.json` settings are preserved — no migration needed.
 
 **From source**
@@ -1100,7 +1100,9 @@ Things worth knowing:
 - **Too low an output limit cuts descriptions off.** The run log says when it happens, and when a model spent its whole allowance thinking.
 - **The run log records what was skipped.** If a setting doesn't apply to a model, it isn't sent, and the log in the workspace's `logs` folder says so. It also records how much hidden reasoning each picture took, which explains a slow run.
 
-To change a setting, select it and press **Change Setting**. Leave a number empty, or choose Automatic, to go back to the default.
+To change a setting, select it and press Enter, or press **Change Setting**. Leave a number empty, or choose Automatic, to go back to the default.
+
+On every tab of the Configure dialog, Tab from the settings list goes to an **Explanation** box for the selected setting. You can read it with the cursor, and it changes as you move through the list. Tab again for Change Setting.
 
 ### The Chat Window
 

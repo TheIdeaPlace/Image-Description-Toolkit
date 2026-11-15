@@ -34,7 +34,7 @@ def run_command(cmd, description):
 def get_executable_path():
     project_root = Path(__file__).parent.parent
     if platform.system() == 'Windows':
-        return project_root / 'idt' / 'dist' / 'idt.exe'
+        return project_root / 'idt' / 'dist' / 'idt' / 'idt.exe'   # folder build
     else:
         return project_root / 'idt' / 'dist' / 'idt'
 
@@ -138,7 +138,7 @@ def main():
         print()
         print("Common fixes:")
         print("  - Import error: check idt.spec hiddenimports for missing idt_core.* modules")
-        print("  - Wrong exe:    confirm idt/dist/idt.exe was rebuilt with --clean")
+        print("  - Wrong exe:    confirm idt/dist/idt/idt.exe was rebuilt with --clean")
         return 1
 
 
