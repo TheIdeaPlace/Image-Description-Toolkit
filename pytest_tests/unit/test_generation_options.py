@@ -345,6 +345,7 @@ class TestDescribe:
 
         class Recording(_ScriptedClient):
             def __init__(self, host=None, **kwargs):
+                super().__init__(host, **kwargs)
                 seen.update(kwargs)
 
         import ollama
@@ -386,7 +387,7 @@ class TestCli:
 
     def test_flags_override_saved_settings(self, monkeypatch):
         from cli import main as cli_main
-        import idt_core.generation as gen
+        gen = sys.modules["idt_core.generation"]
         monkeypatch.setattr(gen, "_load_config", lambda: {
             "generation": {"ollama": {"thinking": "on", "temperature": 0.5}}})
         opts = cli_main._generation_options(self._args(thinking="off"), "ollama")
@@ -395,7 +396,7 @@ class TestCli:
 
     def test_claude_settings_use_the_public_name(self, monkeypatch):
         from cli import main as cli_main
-        import idt_core.generation as gen
+        gen = sys.modules["idt_core.generation"]
         monkeypatch.setattr(gen, "_load_config", lambda: {
             "generation": {"claude": {"effort": "low"}}})
         assert cli_main._generation_options(self._args(), "anthropic").effort == "low"
@@ -456,14 +457,15 @@ class TestCli:
 class TestImageDescriberRouting:
     def test_describe_image_uses_the_core_provider(self, client, caps, tmp_path, monkeypatch):
         sys.path.insert(0, str(_ROOT / "imagedescriber"))
-        import idt_core.generation as gen
+        gen = sys.modules["idt_core.generation"]
         monkeypatch.setattr(gen, "_load_config", lambda: {
             "generation": {"ollama": {"temperature": 0.3}}})
         from PIL import Image
         img = tmp_path / "a.jpg"
         Image.new("RGB", (8, 8), "red").save(img)
 
-        from ai_providers import OllamaProvider as GuiOllama
+        import ai_providers
+        GuiOllama = ai_providers.OllamaProvider
         caps.value = ["thinking", "vision"]
         client.queue = [_response("A red square.", thinking="t" * 10, prompt=7, out=9)]
         gui = GuiOllama()

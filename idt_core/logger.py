@@ -73,7 +73,7 @@ def close_run_log(log: logging.Logger) -> None:
             capture.flush()
             capture.close()
         except Exception:
-            pass
+            pass  # closing a log file must never fail the run that used it
     log._idt_captured = []  # type: ignore[attr-defined]
     for h in list(log.handlers):
         try:

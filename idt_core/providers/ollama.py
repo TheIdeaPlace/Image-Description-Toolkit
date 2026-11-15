@@ -10,7 +10,7 @@ import os
 import time
 from typing import Optional
 
-from ..generation import THINKING_AUTO, THINKING_OFF, THINKING_ON, GenerationOptions
+from ..generation import THINKING_OFF, THINKING_ON, GenerationOptions
 from .base import BaseProvider, DescriptionResult
 
 logger = logging.getLogger(__name__)
