@@ -36,6 +36,10 @@ a = Analysis(
         ('../VERSION', '.'),
     ],
     hiddenimports=[
+        # ---- jaraco (pkg_resources' runtime hook needs it, setuptools >= 75;
+        #      idt.spec and imagedescriber_wx.spec list the same) ----
+        'jaraco', 'jaraco.text', 'jaraco.functools',
+        'jaraco.context', 'jaraco.collections',
         # ---- this app ----
         'chatapp',
         'chatapp.chat_app_wx',

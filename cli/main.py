@@ -491,9 +491,14 @@ def _resolve_gui_launch() -> Optional[list]:
     """
     if getattr(sys, "frozen", False):
         exe_dir = Path(sys.executable).parent
-        for name in ("ImageDescriber.exe", "ImageDescriber"):
-            cand = exe_dir / name
-            if cand.exists():
+        candidates = [exe_dir / "ImageDescriber.exe", exe_dir / "ImageDescriber"]
+        # The standalone Windows zips unzip to separate folders (idt\ and
+        # ImageDescriber\), so also look inside an ImageDescriber folder
+        # beside or within idt's.
+        for folder in (exe_dir.parent / "ImageDescriber", exe_dir / "ImageDescriber"):
+            candidates.append(folder / "ImageDescriber.exe")
+        for cand in candidates:
+            if cand.is_file():   # is_file: "ImageDescriber" may be that folder
                 return [str(cand)]
         app_bin = exe_dir / "ImageDescriber.app" / "Contents" / "MacOS" / "ImageDescriber"
         if app_bin.exists():
