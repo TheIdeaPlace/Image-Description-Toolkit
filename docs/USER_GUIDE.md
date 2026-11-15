@@ -132,7 +132,11 @@ IDT uses environment variables for API keys so they are never stored in your wor
 **Anthropic Claude**
 
 1. Sign up at [console.anthropic.com](https://console.anthropic.com).
-2. Create an API key.
+2. Create an API key **in a workspace**. New keys are assigned to one by default. A key
+   that isn't is refused by Anthropic: every Claude request fails with "This API key is
+   not scoped to a workspace, so this request must include the anthropic-workspace-id
+   header". IDT can't send that header, so if you see this message, create a new key
+   inside a workspace in the Claude Console and use that one.
 3. Set the environment variable:
    - **Windows (permanent):** Control Panel → System → Environment Variables → New: `ANTHROPIC_API_KEY` = your key
    - **Windows (current session):** `set ANTHROPIC_API_KEY=sk-ant-...`
