@@ -36,6 +36,21 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def readable_text(parent, text: str, name: str, width: int = 580) -> "wx.TextCtrl":
+    """Explanatory text a keyboard or screen reader user can reach.
+
+    A wx.StaticText is skipped by Tab, so a screen reader user only heard it by
+    exploring the screen, and most never did. A read-only, multi-line text box
+    is a Tab stop whose text can be read with the cursor. Sized to its text, so
+    the layout barely changes.
+    """
+    box = wx.TextCtrl(parent, value=text, name=name,
+                      style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP | wx.TE_NO_VSCROLL)
+    lines = sum(max(1, len(line) // 80 + 1) for line in text.split("\n"))
+    box.SetMinSize((width, box.GetCharHeight() * (lines + 1) + 8))
+    return box
+
+
 def _choice_label(setting_info: Dict[str, Any], value: Any) -> Any:
     """What a choice setting shows for ``value``: its entry in "choice_labels", else itself."""
     return setting_info.get("choice_labels", {}).get(value, value)
@@ -302,10 +317,7 @@ class ApiKeyEditDialog(wx.Dialog):
                     f"IDT Chat, and the idt command line.")
         else:
             note = "Note: API keys are stored in the config file. Keep your config file secure."
-        help_text = wx.StaticText(panel, label=note)
-        help_text.SetForegroundColour(wx.Colour(100, 100, 100))
-        help_text.Wrap(450)
-        sizer.Add(help_text, 0, wx.ALL, 10)
+        sizer.Add(readable_text(panel, note, "Where keys are saved", width=450), 0, wx.ALL, 10)
         
         # Buttons
         btn_sizer = wx.StdDialogButtonSizer()
@@ -1048,7 +1060,7 @@ class ConfigureDialog(wx.Dialog):
         settings list or reading the explanation panel.
 
         When notebook has focus, allow:
-        - Left/Right arrows to switch tabs
+        - Left/Right arrows to switch tabs (macOS only; Windows' own control does it)
         - Cmd+Shift+[ and Cmd+Shift+] to switch tabs (macOS standard)
         - Enter/Space to move focus to content of current tab
         """
@@ -1061,7 +1073,18 @@ class ConfigureDialog(wx.Dialog):
         keycode = event.GetKeyCode()
         current_page = self.notebook.GetSelection()
         page_count = self.notebook.GetPageCount()
-        
+
+        arrows = (wx.WXK_LEFT, wx.WXK_UP, wx.WXK_RIGHT, wx.WXK_DOWN)
+        if keycode in arrows and platform.system() != "Darwin":
+            # Windows' tab control moves between tabs on the arrow keys itself, and
+            # announces it. Moving here as well, then passing the key on, moved two
+            # tabs per press, so arrowing round visited only every other tab (five
+            # of ten), which a screen reader user heard as a tab bar with some tabs
+            # missing. The arrow handling below is for macOS, where the tab view
+            # doesn't take the arrows.
+            event.Skip()
+            return
+
         # Arrow keys to switch tabs
         if keycode == wx.WXK_LEFT or keycode == wx.WXK_UP:
             new_page = (current_page - 1) % page_count
@@ -1135,41 +1158,41 @@ class ConfigureDialog(wx.Dialog):
     def create_category_tab(self, parent, category: str) -> wx.Panel:
         """Create a tab panel for a specific category"""
         panel = wx.Panel(parent)
-        sizer = wx.BoxSizer(wx.HORIZONTAL)
-        
-        # Left side: Settings list
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        row = wx.BoxSizer(wx.HORIZONTAL)
+
+        # Tab order is creation order: the settings list, then its explanation,
+        # then Change Setting. The explanation used to bounce focus back to the
+        # list, so a keyboard or screen reader user only heard what a setting
+        # meant after opening Change Setting. It is now a read-only box you can
+        # Tab to and read with the cursor, updated as the list selection moves.
+
+        # Left: the settings list
         left_box = wx.StaticBox(panel, label="Settings:")
         left_sizer = wx.StaticBoxSizer(left_box, wx.VERTICAL)
-        
+
         settings_list = wx.ListBox(left_box, style=wx.LB_SINGLE | wx.LB_NEEDED_SB, name=f"{category} settings")
         settings_list.Bind(wx.EVT_LISTBOX, lambda e: self.on_setting_selected(category, e))
         settings_list.Bind(wx.EVT_KEY_DOWN, lambda e: self._on_settings_list_key(category, e))
         left_sizer.Add(settings_list, 1, wx.EXPAND | wx.ALL, 5)
-        
-        # Change button
-        change_button = wx.Button(left_box, label="Change Setting")
+        row.Add(left_sizer, 1, wx.EXPAND | wx.ALL, 5)
+
+        # Right: what the selected setting does
+        right_box = wx.StaticBox(panel, label="Explanation:")
+        right_sizer = wx.StaticBoxSizer(right_box, wx.VERTICAL)
+
+        explanation_text = wx.TextCtrl(right_box, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP,
+                                       name="Explanation of the selected setting")
+        right_sizer.Add(explanation_text, 1, wx.EXPAND | wx.ALL, 5)
+        row.Add(right_sizer, 1, wx.EXPAND | wx.ALL, 5)
+        sizer.Add(row, 1, wx.EXPAND)
+
+        # Below both: Change Setting, so it comes after the explanation in Tab order.
+        change_button = wx.Button(panel, label="&Change Setting")
         change_button.Enable(False)
         change_button.Bind(wx.EVT_BUTTON, lambda e: self.change_setting(category, e))
         change_button.Bind(wx.EVT_KEY_DOWN, lambda e: self._on_change_button_key(category, e))
-        left_sizer.Add(change_button, 0, wx.EXPAND | wx.ALL, 5)
-        
-        sizer.Add(left_sizer, 1, wx.EXPAND | wx.ALL, 5)
-        
-        # Right side: Explanation panel
-        right_box = wx.StaticBox(panel, label="Explanation:")
-        right_sizer = wx.StaticBoxSizer(right_box, wx.VERTICAL)
-        
-        explanation_text = wx.TextCtrl(right_box, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP, name=f"{category} explanation")
-        right_sizer.Add(explanation_text, 1, wx.EXPAND | wx.ALL, 5)
-
-        # The explanation panel is display-only. Prevent Tab from landing here
-        # by capturing EVT_SET_FOCUS and immediately moving focus back to the
-        # settings list. This keeps the Tab cycle:  list → Change button → (next tab / OK)
-        def _skip_explanation_focus(evt, sl=settings_list):
-            wx.CallAfter(sl.SetFocus)
-        explanation_text.Bind(wx.EVT_SET_FOCUS, _skip_explanation_focus)
-
-        sizer.Add(right_sizer, 1, wx.EXPAND | wx.ALL, 5)
+        sizer.Add(change_button, 0, wx.ALIGN_LEFT | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
 
         panel.SetSizer(sizer)
         
@@ -1484,14 +1507,12 @@ class ConfigureDialog(wx.Dialog):
             self._workspace_initial_custom = ""
             default_display = str(Path.home() / "Documents" / "idt")
 
-        desc = wx.StaticText(
+        sizer.Add(readable_text(
             panel,
-            label="Default location where workspace bundles (.idtw files) are saved "
-                  "when you run a batch without opening an existing workspace.\n\n"
-                  "Leave blank to use the built-in default: ~/Documents/idt"
-        )
-        desc.Wrap(580)
-        sizer.Add(desc, 0, wx.ALL, 10)
+            "Default location where workspace bundles (.idtw files) are saved "
+            "when you run a batch without opening an existing workspace.\n\n"
+            "Leave blank to use the built-in default: ~/Documents/idt",
+            "About the workspace location"), 0, wx.ALL, 10)
 
         # Read-only display of the resolved path
         sizer.Add(wx.StaticText(panel, label="Resolved default location:"), 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
@@ -1520,16 +1541,13 @@ class ConfigureDialog(wx.Dialog):
         reset_btn.Bind(wx.EVT_BUTTON, self._on_workspace_reset)
         sizer.Add(reset_btn, 0, wx.LEFT | wx.BOTTOM, 10)
 
-        help_text = wx.StaticText(
+        sizer.Add(readable_text(
             panel,
-            label="This setting is shared with the idt command-line tool and stored in "
-                  "~/.idt/config.json. You can also change it from the terminal with:\n"
-                  "    idt config --set workspace_root=<path>\n"
-                  "    idt config --set workspace_root=   (to reset to default)"
-        )
-        help_text.SetForegroundColour(wx.Colour(100, 100, 100))
-        help_text.Wrap(580)
-        sizer.Add(help_text, 0, wx.ALL, 10)
+            "This setting is shared with the idt command-line tool and stored in "
+            "~/.idt/config.json. You can also change it from the terminal with:\n"
+            "    idt config --set workspace_root=<path>\n"
+            "    idt config --set workspace_root=   (to reset to default)",
+            "Workspace location from the command line"), 0, wx.ALL, 10)
 
         panel.SetSizer(sizer)
         return panel
@@ -1615,14 +1633,14 @@ class ConfigureDialog(wx.Dialog):
         sizer.Add(btn_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 5)
         
         # Help text
-        help_text = wx.StaticText(panel,
-            label="API keys are required for OpenAI and Claude (Anthropic), and for the "
-                  "optional Ollama web search in chat (free key from ollama.com). "
-                  "Ollama itself runs locally and needs no key. Keys are shared with "
-                  "IDT Chat and the idt command line.")
-        help_text.SetForegroundColour(wx.Colour(100, 100, 100))
-        help_text.Wrap(600)
-        sizer.Add(help_text, 0, wx.ALL, 10)
+        sizer.Add(readable_text(
+            panel,
+            "API keys are required for OpenAI and Claude (Anthropic), and for the "
+            "optional Ollama web search in chat (free key from ollama.com). "
+            "Ollama itself runs locally and needs no key. Keys are shared with "
+            "IDT Chat and the idt command line. A Claude key must be assigned to a "
+            "workspace in the Claude Console (new keys are, by default).",
+            "About API keys", width=600), 0, wx.ALL, 10)
         
         panel.SetSizer(sizer)
         
@@ -1824,14 +1842,12 @@ class ConfigureDialog(wx.Dialog):
         panel = wx.Panel(parent)
         sizer = wx.BoxSizer(wx.VERTICAL)
 
-        desc = wx.StaticText(
+        sizer.Add(readable_text(
             panel,
-            label="Add extra MLX model IDs from the mlx-community HuggingFace hub.\n"
-                  "These supplement the built-in model list without requiring a new build.\n"
-                  "Example: mlx-community/gemma-4-26b-a4b-it-4bit"
-        )
-        desc.Wrap(580)
-        sizer.Add(desc, 0, wx.ALL, 10)
+            "Add extra MLX model IDs from the mlx-community HuggingFace hub.\n"
+            "These supplement the built-in model list without requiring a new build.\n"
+            "Example: mlx-community/gemma-4-26b-a4b-it-4bit",
+            "About extra MLX models"), 0, wx.ALL, 10)
 
         # --- Built-in models (read-only reference) ---
         builtin_label = wx.StaticText(panel, label="Built-in models (read-only):")

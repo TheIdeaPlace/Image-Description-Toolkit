@@ -1096,7 +1096,9 @@ Things worth knowing:
 - **Too low an output limit cuts descriptions off.** The run log says when it happens, and when a model spent its whole allowance thinking.
 - **The run log records what was skipped.** If a setting doesn't apply to a model, it isn't sent, and the log in the workspace's `logs` folder says so. It also records how much hidden reasoning each picture took, which explains a slow run.
 
-To change a setting, select it and press **Change Setting**. Leave a number empty, or choose Automatic, to go back to the default.
+To change a setting, select it and press **Change Setting** (Alt+C). Leave a number empty, or choose Automatic, to go back to the default.
+
+On every tab of the Configure dialog, Tab from the settings list goes to an **Explanation** box for the selected setting. You can read it with the cursor, and it changes as you move through the list. Tab again for Change Setting.
 
 ### The Chat Window
 
