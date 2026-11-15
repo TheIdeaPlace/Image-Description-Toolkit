@@ -182,12 +182,14 @@ def test_the_prompt_editor_keeps_a_windows_ai_default_provider(frame):
         dlg.Destroy()
 
 
-def test_settings_offer_it_as_the_default_provider():
+def test_settings_offer_it_as_the_default_provider(monkeypatch):
+    """On Windows only (#402): a Mac never offers it."""
     from types import SimpleNamespace
 
     import configure_dialog
 
-    meta = configure_dialog.ConfigureDialog.build_settings_metadata(
+    monkeypatch.setattr(configure_dialog.platform, "system", lambda: "Windows")
+    meta =configure_dialog.ConfigureDialog.build_settings_metadata(
         SimpleNamespace(_get_ollama_models=lambda: []))
     setting = meta["AI Model Settings"]["default_provider"]
     assert "windows-ai" in setting["choices"]
