@@ -34,6 +34,12 @@ class DescriptionResult:
     provider: str
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
+    #: Characters of hidden reasoning the model produced and IDT discarded.
+    #: None when the provider cannot tell. Explains slow images (issue #392):
+    #: on a thinking model this is often most of ``output_tokens``.
+    thinking_chars: Optional[int] = None
+    #: True when the model stopped at the output cap, so the text is cut off.
+    truncated: bool = False
 
 
 class BaseProvider(ABC):

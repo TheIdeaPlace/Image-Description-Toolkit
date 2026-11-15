@@ -121,8 +121,30 @@ def _resolve_model(provider: str, model: Optional[str],
     return model
 
 
-def _make_provider(provider: str, model: Optional[str], ollama_host: str):
-    """Instantiate the requested provider with a clear error if deps are missing."""
+_GENERATION_DISPLAY_NAMES = {
+    "anthropic": "Claude", "claude-code": "Claude Code", "openai": "OpenAI",
+    "apple": "Apple Intelligence", "windows-ai": "Windows-AI", "ollama": "Ollama",
+}
+
+
+def _make_provider(provider: str, model: Optional[str], ollama_host: str,
+                   options=None):
+    """Instantiate the requested provider with a clear error if deps are missing.
+
+    ``options`` is a GenerationOptions (saved settings plus command flags).
+    """
+    if options is not None and provider != "ollama" and not options.is_automatic():
+        # Ollama is the first provider wired to generation settings (#392).
+        # Display names, not keys: a screen reader says "windows-ai" as
+        # "windows eye" (see _provider_arg).
+        if provider == "windows-ai":
+            print("Note: Windows-AI takes no generation settings; they were ignored.",
+                  file=sys.stderr)
+        else:
+            name = _GENERATION_DISPLAY_NAMES.get(provider, provider)
+            print(f"Note: generation settings are not applied to {name} yet; "
+                  f"using its defaults.", file=sys.stderr)
+
     if provider == "anthropic":
         from idt_core.providers.claude import ClaudeProvider, DEFAULT_MODEL
         return ClaudeProvider(model=model or DEFAULT_MODEL)
@@ -165,7 +187,8 @@ def _make_provider(provider: str, model: Optional[str], ollama_host: str):
 
     if provider == "ollama":
         from idt_core.providers.ollama import OllamaProvider, DEFAULT_MODEL
-        return OllamaProvider(model=model or DEFAULT_MODEL, host=ollama_host)
+        return OllamaProvider(model=model or DEFAULT_MODEL, host=ollama_host,
+                              options=options)
 
     if provider == "openai":
         from idt_core.providers.openai_provider import OpenAIProvider, DEFAULT_MODEL
@@ -275,6 +298,59 @@ def _provider_args(p: argparse.ArgumentParser) -> None:
         "--ollama-host", metavar="URL", default="http://localhost:11434",
         help="Ollama server URL (default: http://localhost:11434)",
     )
+    _generation_args(p)
+
+
+def _generation_args(p: argparse.ArgumentParser) -> None:
+    """Optional generation overrides. Unset means automatic: IDT's defaults for
+    the provider and model, then any saved settings (issue #392)."""
+    g = p.add_argument_group(
+        "generation settings",
+        "Leave these out to use IDT's defaults for the chosen model. A setting the "
+        "provider or model cannot take is skipped, and the log says so.")
+    g.add_argument("--think", dest="thinking", action="store_const", const="on",
+                   default=None,
+                   help="Let a reasoning model think before describing (slower)")
+    g.add_argument("--no-think", dest="thinking", action="store_const", const="off",
+                   help="Ask a reasoning model not to think (the default for descriptions)")
+    g.add_argument("--temperature", type=_non_negative_float, metavar="F",
+                   help="Sampling temperature, 0 or more")
+    g.add_argument("--max-tokens", type=_positive_int, metavar="N",
+                   help="Cap on the length of each description, in tokens")
+
+
+def _positive_int(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a whole number, got {value!r}")
+    if number <= 0:
+        raise argparse.ArgumentTypeError(f"must be greater than 0, got {number}")
+    return number
+
+
+def _non_negative_float(value: str) -> float:
+    try:
+        number = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a number, got {value!r}")
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"must be 0 or more, got {number:g}")
+    return number
+
+
+def _generation_options(args, provider_name: str):
+    """Saved settings for the provider, with this command's flags on top."""
+    from idt_core.generation import GenerationOptions, user_options
+
+    overrides = GenerationOptions.from_dict({
+        "thinking": getattr(args, "thinking", None),
+        "temperature": getattr(args, "temperature", None),
+        "max_output_tokens": getattr(args, "max_tokens", None),
+    })
+    # The CLI calls Claude "anthropic" internally; settings use the public name.
+    key = "claude" if provider_name == "anthropic" else provider_name
+    return user_options(key).merged(overrides)
 
 
 def _prompt_args(p: argparse.ArgumentParser) -> None:
@@ -564,7 +640,8 @@ def cmd_describe(args):
     ws.geocode_enabled = bool(args.geocode)
     ws.save_manifest()
 
-    provider = _make_provider(provider_name, model, args.ollama_host)
+    provider = _make_provider(provider_name, model, args.ollama_host,
+                              options=_generation_options(args, provider_name))
 
     options = RunOptions(
         prompt_name=prompt_name,
@@ -1003,7 +1080,8 @@ def _cmd_describe_stdin(args):
                                    args.model or _ws_model or user_cfg.default_model,
                                    explicit=args.model)
     prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
-    provider = _make_provider(provider_name, model, args.ollama_host)
+    provider = _make_provider(provider_name, model, args.ollama_host,
+                              options=_generation_options(args, provider_name))
 
     # Add each stdin image to the workspace (idempotent), mirroring its position
     # under the common source root as a subfolder. copy_originals decides copy vs
@@ -1166,7 +1244,8 @@ def cmd_download(args):
                                args.model or _ws_model or cfg.default_model,
                                explicit=args.model)
         prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
-        provider = _make_provider(provider_name, model, args.ollama_host)
+        provider = _make_provider(provider_name, model, args.ollama_host,
+                              options=_generation_options(args, provider_name))
 
         if not args.quiet:
             print(f"Describing {result.downloaded} images with {provider_name} / {model}...")
@@ -1306,7 +1385,8 @@ def cmd_video(args):
                                    args.model or _ws_model or user_cfg.default_model,
                                    explicit=args.model)
         prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
-        provider = _make_provider(provider_name, model, args.ollama_host)
+        provider = _make_provider(provider_name, model, args.ollama_host,
+                              options=_generation_options(args, provider_name))
 
         if not args.quiet:
             print(f"Describing {total_frames} frames with {provider_name} / {model}...")
@@ -2308,7 +2388,8 @@ def cmd_watch(args):
                                    args.model or _ws_model or user_cfg.default_model,
                                    explicit=args.model)
     prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
-    provider = _make_provider(provider_name, model, args.ollama_host)
+    provider = _make_provider(provider_name, model, args.ollama_host,
+                              options=_generation_options(args, provider_name))
 
     if not args.quiet:
         print(f"Watching:  {source}")
@@ -3109,6 +3190,25 @@ Supported providers:
 # Entry point                                                          #
 # ------------------------------------------------------------------ #
 
+def _show_provider_warnings() -> None:
+    """Print provider warnings (a model ignoring "thinking off", a cut-off
+    description) on stderr as plain sentences. The run log captures them too,
+    with the INFO notices, while a run is open (idt_core/logger.py). Without
+    an explicit handler they would stop reaching the screen once the run log
+    attaches one, because Python's last-resort printing only applies to loggers
+    with no handlers at all."""
+    import logging
+
+    source = logging.getLogger("idt_core.providers")
+    if any(getattr(h, "_idt_console", False) for h in source.handlers):
+        return
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setLevel(logging.WARNING)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    handler._idt_console = True  # type: ignore[attr-defined]
+    source.addHandler(handler)
+
+
 def main():
     # Ensure stdout/stderr can emit any Unicode character on Windows (cp1252 is the
     # default and chokes on arrows, curly quotes, etc. found in AI descriptions).
@@ -3118,6 +3218,7 @@ def main():
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
     _set_console_title("IDT - Image Description Toolkit")
+    _show_provider_warnings()
     parser = build_parser()
     args = parser.parse_args()
     _cmd_titles = {

@@ -116,3 +116,24 @@ def test_metadata_context_stored_when_present(tmp_path, src):
     events = list(WorkspacePipeline(ws, FakeProvider()).run(
         RunOptions(prompt_text="x", extract_metadata=True)))
     assert all(e.success for e in events)
+
+
+def test_hidden_reasoning_and_cutoffs_reach_the_run_log(tmp_path, src):
+    """A slow run must be explainable from its log (issue #392): on a thinking
+    model most of each image's time goes into reasoning that is discarded."""
+    class ThinkingProvider(FakeProvider):
+        def describe(self, image_bytes, mime_type, prompt):
+            result = super().describe(image_bytes, mime_type, prompt)
+            result.thinking_chars = 4820
+            result.truncated = self.calls == 2
+            return result
+
+    ws = Workspace.create(tmp_path / "WS")
+    ws.add_source_folder(src, recursive=True)
+    events = list(WorkspacePipeline(ws, ThinkingProvider()).run(RunOptions(prompt_text="x")))
+
+    assert [e.thinking_chars for e in events] == [4820, 4820]
+    assert [e.truncated for e in events] == [False, True]
+    log_text = "".join(p.read_text(encoding="utf-8") for p in ws.logs_dir.glob("*.log"))
+    assert log_text.count("4,820 characters of hidden reasoning, discarded") == 2
+    assert log_text.count("CUT OFF at the output limit") == 1

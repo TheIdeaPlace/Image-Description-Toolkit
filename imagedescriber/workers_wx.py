@@ -385,6 +385,8 @@ class ProcessingWorker(threading.Thread):
         self.result_ok = False
         self.result_input_tokens = 0
         self.result_output_tokens = 0
+        self.result_thinking_chars = 0
+        self.result_truncated = False
         self.result_error = None
         self.result_kind = None   # ErrorKind of a provider failure, if known
         self.result_signature = None   # see _failure_signature
@@ -461,7 +463,10 @@ class ProcessingWorker(threading.Thread):
                     metadata['input_tokens'] = usage.get('prompt_tokens', 0)
                     metadata['output_tokens'] = usage.get('completion_tokens', 0)
                     metadata['total_tokens'] = usage.get('total_tokens', 0)
-            
+                # Hidden reasoning a thinking model spent on this image (#392)
+                if usage.get('thinking_chars'):
+                    metadata['thinking_chars'] = usage['thinking_chars']
+
             # Add location byline if geocoding data is available
             description = self._add_location_byline(description, metadata)
             
@@ -483,6 +488,8 @@ class ProcessingWorker(threading.Thread):
             self.result_ok = True
             self.result_input_tokens = metadata.get('input_tokens', 0)
             self.result_output_tokens = metadata.get('output_tokens', 0)
+            self.result_thinking_chars = metadata.get('thinking_chars', 0)
+            self.result_truncated = metadata.get('finish_reason') == 'length'
 
         except Exception as e:
             # Emit failure
@@ -1395,6 +1402,11 @@ class BatchProcessingWorker(threading.Thread):
                         in_t = worker.result_input_tokens
                         out_t = worker.result_output_tokens
                         token_str = f"  ({in_t} in, {out_t} out)" if (in_t or out_t) else ""
+                        if worker.result_thinking_chars:
+                            token_str += (f"  {worker.result_thinking_chars:,} characters "
+                                          f"of hidden reasoning, discarded")
+                        if worker.result_truncated:
+                            token_str += "  CUT OFF at the output limit"
                         run_log.info(f"{i}/{total}  {Path(file_path).name}: described{token_str}")
                     else:
                         err = worker.result_error or "unknown error"

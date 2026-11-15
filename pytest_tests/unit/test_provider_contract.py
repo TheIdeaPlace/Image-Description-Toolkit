@@ -113,20 +113,6 @@ def _sdk_exception(status):
     return APIStatusError(f"upstream said {status}", status)
 
 
-# -- HTTP fake for the requests-based providers -----------------------------
-
-class _FakeResponse:
-    def __init__(self, status_code, text, parseable=True):
-        self.status_code = status_code
-        self.text = text
-        self._parseable = parseable
-
-    def json(self):
-        if not self._parseable:
-            raise ValueError("Expecting value: line 1 column 1 (char 0)")
-        return {"response": self.text}
-
-
 # ===========================================================================
 # Drivers -- one per AIProvider subclass
 # ===========================================================================
@@ -155,21 +141,40 @@ class _OllamaDriver(ProviderDriver):
     provider_class = OllamaProvider
 
     def _make(self, monkeypatch, outcomes):
+        """Fake the ollama SDK client: ImageDescriber describes through
+        idt_core's provider, which uses it, since issue #392."""
+        import httpx
+        import ollama
+
         script = _Script(outcomes)
 
-        def fake_post(*_args, **_kwargs):
-            kind, value = script.next()
-            if kind == "ok":
-                return _FakeResponse(200, value)
-            if kind == "http":
-                return _FakeResponse(value, f'{{"error":"status {value}"}}')
-            if kind == "timeout":
-                raise APITimeoutError("Read timeout after 300s")
-            if kind == "garbage":
-                return _FakeResponse(200, "<html>not json</html>", parseable=False)
-            raise _ScriptExhausted(kind)
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                pass
 
-        monkeypatch.setattr("ai_providers.requests.post", fake_post)
+            def show(self, _name):
+                # The capability probe behind `think`; not a describe call.
+                return SimpleNamespace(capabilities=["completion", "vision"],
+                                       model_info={"general.architecture": "x"},
+                                       parameters="")
+
+            def chat(self, **_kwargs):
+                kind, value = script.next()
+                if kind == "ok":
+                    return SimpleNamespace(
+                        message=SimpleNamespace(content=value, thinking=None),
+                        done_reason="stop", prompt_eval_count=10, eval_count=5)
+                if kind == "http":
+                    raise ollama.ResponseError(f"status {value}", value)
+                if kind == "timeout":
+                    # What the SDK's httpx transport really raises.
+                    raise httpx.ReadTimeout("timed out")
+                if kind == "garbage":
+                    # The SDK fails to parse an unreadable body.
+                    raise ValueError("Expecting value: line 1 column 1 (char 0)")
+                raise _ScriptExhausted(kind)
+
+        monkeypatch.setattr(ollama, "Client", FakeClient)
         return script
 
     def build(self, monkeypatch, tmp_path, outcomes):
