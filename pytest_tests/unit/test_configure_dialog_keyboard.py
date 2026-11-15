@@ -26,13 +26,10 @@ _ROOT = Path(__file__).resolve().parents[2]
 
 def _import_wx():
     """wx, or a skip -- a failure instead when IDT_REQUIRE_WX=1 (test_gui_smoke.py's rule)."""
-    try:
-        import wx
-    except ImportError as exc:
-        if os.environ.get("IDT_REQUIRE_WX") == "1":
-            raise RuntimeError(f"IDT_REQUIRE_WX=1 but wxPython is missing: {exc}") from exc
-        pytest.skip("wxPython is not installed")
-    return wx
+    if os.environ.get("IDT_REQUIRE_WX") == "1":
+        import wx   # a missing wx is an ImportError, failing the test
+        return wx
+    return pytest.importorskip("wx", reason="wxPython is not installed")
 
 
 @pytest.fixture(scope="module")
