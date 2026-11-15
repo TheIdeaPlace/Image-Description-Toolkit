@@ -24,21 +24,28 @@ import pytest
 _ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.fixture(scope="module")
-def dialog():
+def _import_wx():
+    """wx, or a skip -- a failure instead when IDT_REQUIRE_WX=1 (test_gui_smoke.py's rule)."""
     try:
         import wx
     except ImportError as exc:
         if os.environ.get("IDT_REQUIRE_WX") == "1":
             raise RuntimeError(f"IDT_REQUIRE_WX=1 but wxPython is missing: {exc}") from exc
         pytest.skip("wxPython is not installed")
+    return wx
+
+
+@pytest.fixture(scope="module")
+def dialog():
+    wx = _import_wx()
     saved_path = list(sys.path)
     sys.path[:0] = [str(_ROOT), str(_ROOT / "imagedescriber")]
-    app = wx.App(False)  # noqa: F841 - must exist while the dialog does
+    app = wx.App.Get() or wx.App(False)   # must exist while the dialog does
     import configure_dialog
     dlg = configure_dialog.ConfigureDialog(None)
     yield dlg, configure_dialog, wx
     dlg.Destroy()
+    del app
     sys.path[:] = saved_path
 
 
