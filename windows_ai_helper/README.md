@@ -101,14 +101,20 @@ certificate's subject exactly.
 the next build replaces the installed files. Rebuild with `-Register` again, and not while the
 helper is running.
 
+**Which helper answers `idt-windows-ai`.** The command belongs to whichever package registered
+it first. On a PC where IDT is already installed, `-Register` leaves the command with the
+installed helper, and `idt-windows-ai` keeps running *that* one, not your build; `-Register`
+says which version answers. On a PC with no IDT installed yet, your build gets the command,
+and keeps it even after IDT is installed later.
+
 **Run `-Unregister` when you are done, and always before deleting this folder or its
-worktree.** A registered build takes over the `idt-windows-ai` command from an installed IDT.
-If its folder is deleted, the registration stays behind and keeps the command, and every
-Windows AI request from every IDT on the PC fails with "The system cannot find the path
-specified". That happened on a development PC in November 2026, from a worktree deleted a
-month earlier. `-Unregister` removes development registrations only; an installed IDT's signed
-helper is left alone and answers the command again. IDT itself now names this case when it
-happens (`idt_core/providers/windows_ai.py`).
+worktree.** If a registration that owns the command loses its folder, it stays behind and
+keeps the command, and every Windows AI request from every IDT on the PC fails with "The
+system cannot find the path specified". That happened on a development PC in November 2026:
+the helper was registered from a worktree a day before IDT's installer ran, and the worktree
+was deleted later. `-Unregister` removes development registrations only, leaves an installed
+IDT's signed helper alone, and then checks that `idt-windows-ai` answers. IDT names this case
+when it happens (`idt_core/providers/windows_ai.py`).
 
 ## Releasing
 

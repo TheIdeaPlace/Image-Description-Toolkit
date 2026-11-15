@@ -127,22 +127,27 @@ _NO_HELPER_HINT = (
     "reinstall IDT, or install the helper package that came with it."
 )
 _STALE_REGISTRATION_HINT = (
-    "Windows couldn't start the Windows AI helper: its idt-windows-ai command points at a folder "
-    "that no longer exists. That is usually a development build registered with "
-    "build_helper.ps1 -Register whose folder was deleted. Remove it with "
-    "windows_ai_helper\\build_helper.ps1 -Unregister, or reinstall IDT."
+    "Windows AI couldn't start, because the command that runs its helper points at a folder "
+    "that no longer exists. On a PC where IDT is developed, that is a development build of the "
+    "helper whose folder was deleted. Remove it by running windows_ai_helper\\build_helper.ps1 "
+    "-Unregister from IDT's source code."
 )
 
 
 def _start_failure(exc: OSError, verb: str) -> "WindowsAIError":
     """The error for an OSError starting the helper.
 
-    A path that isn't there (Windows errors 2 and 3) means the command was found but points
-    nowhere: in practice a development registration whose folder was deleted, which takes the
-    command over from the installed helper and fails every request. "[WinError 3] The system
-    cannot find the path specified" said nothing about that.
+    A path that isn't there (Windows errors 2 and 3, which Python raises as FileNotFoundError)
+    while the command still exists means the command points nowhere: in practice a development
+    registration (build_helper.ps1 -Register) whose folder was deleted. Registered before any
+    installed helper, it owns the command and keeps it, so every request fails; on a development
+    PC in November 2026 that read only "[WinError 3] The system cannot find the path specified".
+    If the command itself is gone (uninstalled between the lookup and the start), the helper
+    simply isn't installed, and that is what the user is told.
     """
     if getattr(exc, "winerror", None) in (2, 3) or isinstance(exc, FileNotFoundError):
+        if find_helper() is None:
+            return WindowsAIError(_NO_HELPER_HINT, setup=True)
         return WindowsAIError(_STALE_REGISTRATION_HINT, setup=True)
     return WindowsAIError(f"Couldn't {verb} the Windows AI helper: {exc}", setup=True)
 

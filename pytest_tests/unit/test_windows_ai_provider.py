@@ -180,16 +180,41 @@ def test_a_helper_command_pointing_nowhere_says_what_happened(tmp_path, monkeypa
     "[WinError 3] The system cannot find the path specified"."""
     missing = tmp_path / "deleted-worktree" / "IdtWindowsAI.exe"
     monkeypatch.setattr(windows_ai, "_helper_command", lambda: [str(missing)])
+    monkeypatch.setattr(windows_ai, "find_helper", lambda: str(missing))   # the command is still there
     with pytest.raises(WindowsAIError) as info:
         windows_ai._run_helper("--check", 5)
     message = str(info.value)
+    assert message.startswith("Windows AI couldn't start")      # plain language first
     assert "points at a folder that no longer exists" in message
     assert "build_helper.ps1 -Unregister" in message
     assert info.value.setup is True        # nothing else will work until it's fixed
 
 
+def test_the_serve_process_reports_it_the_same_way(tmp_path, monkeypatch):
+    missing = tmp_path / "deleted-worktree" / "IdtWindowsAI.exe"
+    monkeypatch.setattr(windows_ai, "_helper_command", lambda: [str(missing)])
+    monkeypatch.setattr(windows_ai, "find_helper", lambda: str(missing))
+    helper = windows_ai.HelperProcess()
+    with pytest.raises(WindowsAIError) as info:
+        with helper._state_lock:
+            helper._start_locked()
+    assert "points at a folder that no longer exists" in str(info.value)
+
+
+def test_a_command_removed_before_the_start_says_not_installed(tmp_path, monkeypatch):
+    """Uninstalled between the lookup and the start: nothing points anywhere, so there is no
+    development build to blame."""
+    missing = tmp_path / "IdtWindowsAI.exe"
+    monkeypatch.setattr(windows_ai, "_helper_command", lambda: [str(missing)])
+    monkeypatch.setattr(windows_ai, "find_helper", lambda: None)
+    with pytest.raises(WindowsAIError) as info:
+        windows_ai._run_helper("--check", 5)
+    assert str(info.value) == windows_ai._NO_HELPER_HINT
+
+
 @pytest.mark.parametrize("winerror", [2, 3])
-def test_both_windows_not_found_errors_are_recognised(winerror):
+def test_both_windows_not_found_errors_are_recognised(winerror, monkeypatch):
+    monkeypatch.setattr(windows_ai, "find_helper", lambda: "idt-windows-ai.exe")
     exc = OSError(f"winerror {winerror}")
     exc.winerror = winerror
     assert "-Unregister" in str(windows_ai._start_failure(exc, "run"))
