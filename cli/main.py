@@ -304,7 +304,7 @@ def _generation_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--no-think", dest="thinking", action="store_const", const="off",
                    help="Ask a reasoning model not to think. The default for Ollama "
                         "descriptions; for Claude and OpenAI, which cannot switch "
-                        "reasoning off, it means the lowest effort")
+                        "reasoning off, it means low effort")
     g.add_argument("--temperature", type=_non_negative_float, metavar="F",
                    help="Sampling temperature, 0 or more")
     g.add_argument("--max-tokens", type=_positive_int, metavar="N",

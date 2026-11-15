@@ -56,7 +56,8 @@ class TestSendWithFallback:
         def call(**kw):
             calls.append(dict(kw))
             if "temperature" in kw:
-                raise BadRequest("Unsupported value: 'temperature' does not support 0.2")
+                raise BadRequest("Unsupported parameter: 'temperature' is not supported "
+                                 "with this model.")
             return "ok"
 
         with caplog.at_level(logging.INFO, logger="idt_core.providers"):
@@ -66,7 +67,35 @@ class TestSendWithFallback:
                                       ("temperature",), "openai", "m") == "ok"
         # Second request leaves it out up front: one failure per run, not per image.
         assert [("temperature" in c) for c in calls] == [True, False, False]
-        assert caplog.text.count("not sending temperature") == 1
+        assert caplog.text.count("sending again without temperature") == 1
+
+    def test_a_rejected_value_is_not_remembered(self):
+        # Once the user fixes the value it must be sent again, without a restart.
+        calls = []
+
+        def call(**kw):
+            calls.append(dict(kw))
+            if kw.get("temperature") == 3.0:
+                raise BadRequest("Invalid value for 'temperature': must be between 0 and 2")
+            return "ok"
+
+        send_with_fallback(call, {"temperature": 3.0}, ("temperature",), "openai", "m")
+        send_with_fallback(call, {"temperature": 0.5}, ("temperature",), "openai", "m")
+        assert calls[-1] == {"temperature": 0.5}
+
+    def test_unknown_settings_in_extra_body_are_dropped_on_rejection(self):
+        from idt_core.generation import with_extra_body
+        calls = []
+
+        def call(**kw):
+            calls.append(dict(kw))
+            if "extra_body" in kw:
+                raise BadRequest("Unrecognized request argument supplied: num_ctx")
+            return "ok"
+
+        params = {"model": "m", "extra_body": {"num_ctx": 8192}}
+        send_with_fallback(call, params, with_extra_body(("temperature",), params), "openai", "m")
+        assert "extra_body" not in calls[-1]
 
     def test_a_400_about_something_else_is_raised(self):
         def call(**kw):
@@ -173,6 +202,25 @@ class TestOpenAIParams:
         assert "top_k" not in params
         assert "not sending top_k" in caplog.text
 
+    @pytest.mark.parametrize("model, sent", [
+        ("gpt-5", "minimal"), ("gpt-5-mini", "minimal"), ("gpt-5-nano-2025-08-07", "minimal"),
+        ("gpt-5.2", "low"), ("o3", "low"), ("gpt-6-sol", "low"),
+    ])
+    def test_minimal_effort_only_where_it_exists(self, model, sent):
+        opts = GenerationOptions(effort="minimal")
+        assert oai.describe_request_params(model, opts)["reasoning_effort"] == sent
+
+    def test_out_of_range_temperature_is_not_sent(self):
+        params = oai.describe_request_params("gpt-4o", GenerationOptions(temperature=3.0))
+        assert "temperature" not in params
+
+    def test_unknown_settings_go_in_the_body_not_as_keywords(self):
+        # As keyword arguments they were a TypeError that failed every image.
+        opts = GenerationOptions.from_dict({"temprature": 0.2})
+        params = oai.describe_request_params("gpt-4o", opts)
+        assert "temprature" not in params
+        assert params["extra_body"] == {"temprature": 0.2}
+
 
 def _openai_response(content, finish="stop", completion=50, reasoning=None):
     details = SimpleNamespace(reasoning_tokens=reasoning) if reasoning is not None else None
@@ -211,6 +259,29 @@ class TestOpenAIDescribe:
     def test_all_reasoning_no_answer_is_an_error_not_a_blank(self):
         provider, _ = _core_openai([_openai_response("", finish="length", reasoning=4096)])
         with pytest.raises(RuntimeError, match="reasoning effort"):
+            provider.describe(b"x", "image/jpeg", "Describe.")
+
+    @pytest.mark.parametrize("content, finish", [("", "stop"), (None, "stop"), ("  ", "stop")])
+    def test_any_empty_answer_is_an_error(self, content, finish):
+        from idt_core.providers.base import EmptyAnswerError
+        provider, _ = _core_openai([_openai_response(content, finish=finish)])
+        with pytest.raises(EmptyAnswerError):
+            provider.describe(b"x", "image/jpeg", "Describe.")
+
+    def test_a_refusal_is_a_declined_picture(self):
+        from idt_core.pipeline import is_per_image_failure
+        from idt_core.providers.base import DeclinedError
+        response = _openai_response(None)
+        response.choices[0].message.refusal = "I can't help with that."
+        provider, _ = _core_openai([response])
+        with pytest.raises(DeclinedError) as info:
+            provider.describe(b"x", "image/jpeg", "Describe.")
+        assert is_per_image_failure(info.value)
+
+    def test_content_filter_is_a_declined_picture(self):
+        from idt_core.providers.base import DeclinedError
+        provider, _ = _core_openai([_openai_response("", finish="content_filter")])
+        with pytest.raises(DeclinedError):
             provider.describe(b"x", "image/jpeg", "Describe.")
 
     def test_truncation_is_reported(self):
@@ -301,6 +372,26 @@ class TestClaudeDescribe:
         with pytest.raises(RuntimeError, match="output allowance"):
             provider.describe(b"x", "image/jpeg", "Describe.")
 
+    @pytest.mark.parametrize("stop", ["end_turn", "pause_turn", "model_context_window_exceeded"])
+    def test_any_empty_answer_is_an_error_not_a_saved_blank(self, stop):
+        from idt_core.providers.base import EmptyAnswerError
+        provider, _ = _core_claude([_claude_message([_block("thinking")], stop=stop)])
+        with pytest.raises(EmptyAnswerError, match="Claude"):
+            provider.describe(b"x", "image/jpeg", "Describe.")
+
+    def test_a_refusal_is_a_declined_picture_that_does_not_stop_the_run(self):
+        from idt_core.pipeline import is_per_image_failure
+        from idt_core.providers.base import DeclinedError
+        provider, _ = _core_claude([_claude_message([], stop="refusal")])
+        with pytest.raises(DeclinedError) as info:
+            provider.describe(b"x", "image/jpeg", "Describe.")
+        assert is_per_image_failure(info.value)
+
+    def test_unknown_settings_go_in_the_body(self):
+        opts = GenerationOptions.from_dict({"num_ctx": 8192})
+        params = claude_mod.describe_request_params("m", opts)
+        assert "num_ctx" not in params and params["extra_body"] == {"num_ctx": 8192}
+
     def test_rejected_effort_is_retried_without(self):
         provider, calls = _core_claude(
             [BadRequest("output_config.effort: not supported for claude-haiku-4-5"),
@@ -339,7 +430,9 @@ class TestClaudeCode:
                                                             max_output_tokens=800)) == ("high", 800)
         with caplog.at_level(logging.INFO, logger="idt_core.providers"):
             describe_settings("haiku", GenerationOptions(temperature=0.3))
+            assert describe_settings("haiku", GenerationOptions(thinking=THINKING_ON)) == (None, None)
         assert "not sending temperature" in caplog.text
+        assert "not sending thinking on" in caplog.text
 
     def test_effort_reaches_the_command_line(self):
         from idt_core.providers.claude_code import build_command
@@ -363,8 +456,17 @@ class TestApple:
 # ImageDescriber uses the same mapping                                         #
 # --------------------------------------------------------------------------- #
 
+@pytest.fixture
+def gui(monkeypatch):
+    """ai_providers importable, and no real settings file read."""
+    monkeypatch.syspath_prepend(str(_ROOT / "imagedescriber"))
+    monkeypatch.setattr(generation, "_load_config", lambda: {})
+    import ai_providers
+    monkeypatch.setattr(ai_providers.time, "sleep", lambda s: None)
+    return ai_providers
+
+
 def _gui_image(tmp_path):
-    sys.path.insert(0, str(_ROOT / "imagedescriber"))
     from PIL import Image
     img = tmp_path / "a.jpg"
     Image.new("RGB", (8, 8)).save(img)
@@ -372,10 +474,13 @@ def _gui_image(tmp_path):
 
 
 class TestImageDescriber:
+    @pytest.fixture(autouse=True)
+    def _gui(self, gui):
+        return gui
     def test_openai_uses_the_shared_request(self, tmp_path, monkeypatch):
         img = _gui_image(tmp_path)
         import ai_providers
-        monkeypatch.setattr(generation, "_load_config",
+        monkeypatch.setattr(generation, "_load_config",  # overrides the fixture's {}
                             lambda: {"generation": {"openai": {"temperature": 0.3}}})
         calls = []
 
@@ -398,9 +503,43 @@ class TestImageDescriber:
             create=lambda **kw: _claude_message([_block("thinking"), _block("text", "A square.")])))
         assert gui.describe_image(img, "Describe.", "claude-opus-5-5") == "A square."
 
-    def test_sdk_clients_do_not_retry_under_the_decorator(self):
+    def test_sdk_clients_retry_once_at_most(self):
+        # One SDK retry (for retry-after) inside the decorator's four: at most
+        # 8 attempts per failing image, not the 16 it was.
         import ai_providers
-        assert ai_providers._SDK_RETRIES == 0
+        assert ai_providers._SDK_RETRIES == 1
+
+    def test_a_dropped_connection_is_retried_by_the_decorator(self, tmp_path):
+        # With the SDK's retries cut down, the decorator must catch these.
+        img = _gui_image(tmp_path)
+        import ai_providers
+
+        class APIConnectionError(Exception):
+            pass
+
+        outcomes = [APIConnectionError("Connection error."), _openai_response("A square.")]
+
+        def create(**kw):
+            item = outcomes.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        provider = ai_providers.OpenAIProvider(api_key="sk-test-not-real")
+        provider.client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+        assert provider.describe_image(img, "Describe.", "gpt-4o") == "A square."
+
+    def test_claude_empty_answer_message_is_a_full_sentence(self, tmp_path):
+        img = _gui_image(tmp_path)
+        import ai_providers
+        provider = ai_providers.ClaudeProvider(api_key="sk-ant-test-not-real")
+        provider.client = SimpleNamespace(messages=SimpleNamespace(
+            create=lambda **kw: _claude_message([_block("thinking")], stop="max_tokens")))
+        with pytest.raises(ai_providers.ProviderError) as info:
+            provider.describe_image(img, "Describe.", "claude-opus-5-5")
+        assert "Claude (claude-opus-5-5) used its whole output allowance" in str(info.value)
+        assert "generation settings" in str(info.value)
 
 
 # --------------------------------------------------------------------------- #

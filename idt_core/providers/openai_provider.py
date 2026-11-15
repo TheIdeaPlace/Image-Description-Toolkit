@@ -134,6 +134,10 @@ def describe_request_params(model: str, opts) -> dict:
         # OpenAI reasoning cannot be switched off; "low" is the least every
         # reasoning model accepts ("minimal" and "none" depend on the model).
         effort = "low"
+    if effort == "minimal" and not _takes_minimal_effort(model):
+        # Only the original GPT-5 models take "minimal". Elsewhere it would be
+        # rejected and the request resent at the default -- slower than asked.
+        effort = "low"
     if effort is not None:
         if reasoning:
             params["reasoning_effort"] = effort
@@ -141,8 +145,46 @@ def describe_request_params(model: str, opts) -> dict:
             note_dropped("openai", model, "effort", "the model does not reason")
     elif opts.thinking is not None and not reasoning:
         note_dropped("openai", model, "thinking", "the model does not reason")
-    params.update(opts.extra or {})
+    if "temperature" in params and params["temperature"] > 2:
+        note_dropped("openai", model, "temperature", "OpenAI accepts 0 to 2")
+        params.pop("temperature")
+    extra = dict(opts.extra or {})
+    if extra:
+        # Request body, not SDK keyword arguments: an unknown keyword is a
+        # TypeError that fails every image (see claude._extra_body).
+        params["extra_body"] = extra
     return params
+
+
+def _takes_minimal_effort(model_id: str) -> bool:
+    """gpt-5, gpt-5-mini, gpt-5-nano and their dated snapshots."""
+    import re
+
+    return bool(re.match(r"gpt-5(-mini|-nano)?(-\d{4}-\d{2}-\d{2})?$", (model_id or "").lower()))
+
+
+def empty_answer_error(model: str, choice, cap: int, hidden: Optional[int]) -> Exception:
+    """The error for a choice with no description text, by why it stopped.
+
+    Every empty answer is an error: saving the blank would mark the picture
+    described. A refusal or content filter is about the picture, so it is a
+    DeclinedError, which the pipeline remembers and does not stop the run on.
+    """
+    from .base import DeclinedError, EmptyAnswerError
+
+    finish_reason = getattr(choice, "finish_reason", None)
+    refusal = getattr(getattr(choice, "message", None), "refusal", None)
+    if refusal or finish_reason == "content_filter":
+        return DeclinedError(f"OpenAI ({model}) declined to describe this picture"
+                             + (f": {refusal}" if refusal else "."))
+    if finish_reason == "length":
+        return EmptyAnswerError(
+            f"OpenAI ({model}) used its whole output allowance ({cap} tokens"
+            + (f", {hidden} of them reasoning" if hidden else "")
+            + ") before writing a description. Raise the output limit or lower the "
+              "reasoning effort in the generation settings.")
+    return EmptyAnswerError(
+        f"OpenAI ({model}) returned no description (finish reason: {finish_reason or 'none'}).")
 
 
 def reasoning_tokens(usage) -> Optional[int]:
@@ -362,7 +404,7 @@ class OpenAIProvider(BaseProvider):
         return self._model
 
     def describe(self, image_bytes: bytes, mime_type: str, prompt: str) -> DescriptionResult:
-        from ..generation import send_with_fallback
+        from ..generation import send_with_fallback, with_extra_body
 
         b64 = base64.standard_b64encode(image_bytes).decode("ascii")
         params = describe_request_params(self._model, self._options)
@@ -379,19 +421,17 @@ class OpenAIProvider(BaseProvider):
             }
         ]
         response = send_with_fallback(self._client.chat.completions.create, params,
-                                      OPTIONAL_PARAMS, "openai", self._model)
+                                      with_extra_body(OPTIONAL_PARAMS, params),
+                                      "openai", self._model)
         usage = response.usage
         choice = response.choices[0]
         text = choice.message.content or ""
-        truncated = getattr(choice, "finish_reason", None) == "length"
+        finish_reason = getattr(choice, "finish_reason", None)
+        truncated = finish_reason == "length"
         hidden = reasoning_tokens(usage)
-        if truncated and not text.strip():
-            raise RuntimeError(
-                f"{self._model} used its whole output allowance "
-                f"({params['max_completion_tokens']} tokens"
-                + (f", {hidden} of them reasoning" if hidden else "")
-                + ") before writing a description. Raise the output limit or lower "
-                  "the reasoning effort.")
+        if not text.strip():
+            raise empty_answer_error(self._model, choice, params["max_completion_tokens"],
+                                     hidden)
         return DescriptionResult(
             text=text,
             model=self._model,

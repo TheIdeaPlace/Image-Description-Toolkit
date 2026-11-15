@@ -835,6 +835,9 @@ def describe_settings(model: str, opts) -> Tuple[int, Optional[float]]:
     for setting in ("top_p", "top_k", "repeat_penalty", "thinking", "effort"):
         if getattr(opts, setting) is not None:
             note_dropped("apple", model, setting, "Apple Intelligence has no such setting")
+    if opts.extra:
+        note_dropped("apple", model, ", ".join(map(str, opts.extra)),
+                     "Apple Intelligence takes no extra settings")
     return opts.max_output_tokens or DESCRIBE_MAX_OUTPUT_TOKENS, opts.temperature
 
 

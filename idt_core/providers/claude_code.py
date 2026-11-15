@@ -274,15 +274,21 @@ def describe_settings(model: str, opts) -> Tuple[Optional[str], Optional[int]]:
     Measured on a Surface Laptop 7: effort barely changed time per photo
     (6-9 s on Haiku, Sonnet and Opus), so automatic leaves it alone.
     """
-    from ..generation import THINKING_OFF, GenerationOptions, note_dropped
+    from ..generation import THINKING_OFF, THINKING_ON, GenerationOptions, note_dropped
 
     opts = opts or GenerationOptions()
     for setting in ("temperature", "top_p", "top_k", "repeat_penalty"):
         if getattr(opts, setting) is not None:
             note_dropped("claude-code", model, setting, "Claude Code takes no sampling settings")
+    if opts.extra:
+        note_dropped("claude-code", model, ", ".join(map(str, opts.extra)),
+                     "Claude Code takes no extra settings")
     effort = _EFFORT_MAP.get(opts.effort) if opts.effort else None
     if effort is None and opts.thinking == THINKING_OFF:
         effort = "low"
+    elif effort is None and opts.thinking == THINKING_ON:
+        note_dropped("claude-code", model, "thinking on",
+                     "Claude Code decides when to think; set an effort level instead")
     return effort, opts.max_output_tokens
 
 

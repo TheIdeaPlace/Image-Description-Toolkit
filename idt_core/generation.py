@@ -238,6 +238,31 @@ def _is_rejection_of(exc: BaseException, needles) -> bool:
     return any(needle in text for needle in needles)
 
 
+def _as_needles(optional) -> dict:
+    return dict(optional) if isinstance(optional, Mapping) else {p: (p,) for p in optional}
+
+
+def with_extra_body(optional, params: dict) -> dict:
+    """``optional`` plus ``extra_body``, identified by its own keys.
+
+    Unknown settings from the user's file travel in ``extra_body``; if the API
+    rejects one, the request goes again without them rather than failing the
+    batch over a typo.
+    """
+    needles = _as_needles(optional)
+    extra = params.get("extra_body")
+    if extra:
+        needles["extra_body"] = tuple(str(k) for k in extra)
+    return needles
+
+
+#: Words in a 400 that mean a *value* was wrong rather than the parameter
+#: unsupported. Such a rejection is not remembered: once the user fixes the
+#: value, it should be sent again without restarting the app.
+_VALUE_PROBLEM_WORDS = ("unsupported value", "invalid value", "must be", "less than",
+                        "greater than", "out of range", "between")
+
+
 def send_with_fallback(call, params: dict, optional, provider: str, model: str):
     """``call(**params)``, retrying without any optional parameter the API rejects.
 
@@ -252,8 +277,7 @@ def send_with_fallback(call, params: dict, optional, provider: str, model: str):
     the words that identify it in an error (``{"output_config": ("effort",
     "output_config")}``), for APIs that name a nested field.
     """
-    needles = (dict(optional) if isinstance(optional, Mapping)
-               else {p: (p,) for p in optional})
+    needles = _as_needles(optional)
     params = dict(params)
     for parameter in needles:
         if (provider, model, parameter) in _REJECTED and parameter in params:
@@ -266,8 +290,11 @@ def send_with_fallback(call, params: dict, optional, provider: str, model: str):
                             if p in params and _is_rejection_of(exc, words)), None)
             if culprit is None:
                 raise
-            _REJECTED.add((provider, model, culprit))
-            note_dropped(provider, model, culprit, f"the model rejected it: {exc}")
+            text = str(exc).lower()
+            if not any(word in text for word in _VALUE_PROBLEM_WORDS):
+                _REJECTED.add((provider, model, culprit))
+            _options_log.info("%s %s: sending again without %s, which was rejected: %s",
+                              provider, model, culprit, exc)
             params.pop(culprit)
 
 

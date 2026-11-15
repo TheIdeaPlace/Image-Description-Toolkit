@@ -379,6 +379,11 @@ def classify_provider_exception(exc: BaseException):
 
     if 'RateLimitError' in error_type or status_code == 429:
         return ErrorKind.RATE_LIMIT, status_code
+    # A dropped connection, or 408/409 (which the SDKs themselves retry), is
+    # transient. Its message is just "Connection error.", so without this it
+    # classified UNKNOWN and was never retried by retry_on_api_error.
+    if 'APIConnectionError' in error_type or status_code in (408, 409):
+        return ErrorKind.SERVER_ERROR, status_code
     if 'AuthenticationError' in error_type or status_code == 401:
         return ErrorKind.AUTH, status_code
     if 'InvalidRequestError' in error_type or status_code == 400:
@@ -526,10 +531,12 @@ def raise_provider_error_from_exception(exc: BaseException, provider: str,
     ) from exc
 
 
-#: Retries inside the OpenAI and Anthropic SDK clients. None: describe_image is
+#: Retries inside the OpenAI and Anthropic SDK clients. describe_image is
 #: wrapped in retry_on_api_error, and the SDK's own 3 retries inside its 3 made
-#: up to 16 attempts per failing image (issue #392 inventory).
-_SDK_RETRIES = 0
+#: up to 16 attempts per failing image (issue #392 inventory). One SDK retry is
+#: kept because only the SDK honours a rate limit's retry-after header; the
+#: decorator's 2/4/8 s backoff is too short for a per-minute limit. At most 8.
+_SDK_RETRIES = 1
 
 
 def retry_on_api_error(max_retries=3, base_delay=1.0, max_delay=60.0, backoff_multiplier=2.0):
@@ -1011,10 +1018,9 @@ class OpenAIProvider(AIProvider):
             # (issue #392). This used to cap non-reasoning models at 300
             # tokens, cutting detailed descriptions off, and decided "reasoning
             # model" with a startswith list that missed newer families.
-            from idt_core.generation import send_with_fallback, user_options
+            from idt_core.generation import send_with_fallback, user_options, with_extra_body
             from idt_core.providers.openai_provider import (
                 OPTIONAL_PARAMS as _OPENAI_OPTIONAL, describe_request_params,
-                reasoning_tokens as _reasoning_tokens,
             )
             request_params = describe_request_params(model, user_options("openai"))
             request_params["messages"] = [
@@ -1032,8 +1038,9 @@ class OpenAIProvider(AIProvider):
                 }
             ]
 
-            response = send_with_fallback(self.client.chat.completions.create,
-                                          request_params, _OPENAI_OPTIONAL, "openai", model)
+            response = send_with_fallback(self.client.chat.completions.create, request_params,
+                                          with_extra_body(_OPENAI_OPTIONAL, request_params),
+                                          "openai", model)
             
             # Extract response details for comprehensive logging
             content = response.choices[0].message.content or ""
@@ -1336,10 +1343,10 @@ class ClaudeProvider(AIProvider):
             
             # The request's settings come from idt_core, shared with the CLI
             # (issue #392).
-            from idt_core.generation import send_with_fallback, user_options
+            from idt_core.generation import send_with_fallback, user_options, with_extra_body
             from idt_core.providers.claude import (
                 OPTIONAL_PARAMS as _CLAUDE_OPTIONAL, describe_request_params,
-                response_text as _claude_text,
+                empty_answer_error as _claude_empty, response_text as _claude_text,
             )
             request_params = describe_request_params(model, user_options("claude"))
             request_params["messages"] = [
@@ -1362,7 +1369,8 @@ class ClaudeProvider(AIProvider):
                 }
             ]
             message = send_with_fallback(self.client.messages.create, request_params,
-                                         _CLAUDE_OPTIONAL, "claude", model)
+                                         with_extra_body(_CLAUDE_OPTIONAL, request_params),
+                                         "claude", model)
 
             stop_reason = getattr(message, "stop_reason", None)
             # Store token usage for cost tracking and logging
@@ -1370,7 +1378,6 @@ class ClaudeProvider(AIProvider):
                 'prompt_tokens': message.usage.input_tokens,
                 'completion_tokens': message.usage.output_tokens,
                 'total_tokens': message.usage.input_tokens + message.usage.output_tokens,
-                'finish_reason': 'length' if stop_reason == 'max_tokens' else None,
                 'model': model
             }
 
@@ -1379,12 +1386,11 @@ class ClaudeProvider(AIProvider):
             text = _claude_text(message)
             if text.strip():
                 return text
+            # A full sentence naming Claude and what to do: it is read aloud.
             raise_provider_error(
                 provider="Claude API", kind=ErrorKind.UNKNOWN,
-                message=("used its whole output allowance thinking"
-                         if stop_reason == "max_tokens"
-                         else "declined to describe the image" if stop_reason == "refusal"
-                         else "no content in response"))
+                message=str(_claude_empty(model, stop_reason,
+                                          request_params["max_tokens"])))
                 
         except ProviderError:
             # Raised by this method's own body. Re-raise unchanged;
