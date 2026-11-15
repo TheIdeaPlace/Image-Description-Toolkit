@@ -98,10 +98,10 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 - **ImageDescriber capped most OpenAI models at 300 tokens and Claude at 1,024,** which
   cut detailed descriptions short. Both caps are now 4,096 unless you set another in
   Generation settings, the same as the command line.
-- **Claude descriptions could come back empty.** Both the command line and
-  ImageDescriber read the first part of Claude's reply, which on current models can be
-  its reasoning with no text. They now use the text parts. *Not run against the live
-  Claude API.*
+- **Claude Opus 5.5 descriptions failed through the Claude API.** Both the command line
+  and ImageDescriber read the first part of Claude's reply as the description. Opus 5.5
+  always thinks first, so that part is its (empty) reasoning, with no text. They now use
+  the text parts. Checked live with Haiku 5.5, Sonnet 5.5, Opus 5.5 and Haiku 4.5.
 - **An empty answer from OpenAI or Claude is now an error,** not a saved blank
   description that counted the picture as described. A refusal or content-filter
   decline marks that one picture and the run carries on.
@@ -642,11 +642,12 @@ idt version     Version information
 
 ## Known limitations
 
-- **The OpenAI and Claude paths were changed but not tried against the live APIs before
-  release.** The requests were checked against the current OpenAI and Anthropic SDKs and
-  by tests, not by describing a picture with each service.
-- **Claude API keys tied to a user (`sk-ant-usr...`) need an `anthropic-workspace-id`
-  header, which IDT has no setting for yet.** Keys made for a workspace work as before.
+- **The OpenAI path was changed but not tried against the live API before release.** The
+  requests were checked against the current OpenAI SDK and by tests, not by describing a
+  picture. (Claude was tried live, with Haiku 5.5, Sonnet 5.5, Opus 5.5 and Haiku 4.5.)
+- **A Claude API key that isn't assigned to a workspace is refused by Anthropic** with a
+  message asking for an `anthropic-workspace-id` header, which IDT has no setting for.
+  Use a key assigned to a workspace (the Claude Console's default for new keys).
 - **The Generation tab has not been used on macOS,** so the Apple Intelligence and MLX
   settings are untried there.
 - **macOS builds are Apple Silicon only.** No Intel Mac build is published. Intel

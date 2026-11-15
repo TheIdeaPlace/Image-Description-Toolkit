@@ -23,7 +23,7 @@
 
 - `idt describe --provider openai` sent `max_tokens`, which OpenAI's reasoning models reject (the default model is `gpt-5.2`). It now sends `max_completion_tokens`. Not run against the live OpenAI API.
 - ImageDescriber capped most OpenAI models at 300 tokens and Claude at 1,024, cutting detailed descriptions short. Both are now 4,096, and what counts as an OpenAI reasoning model no longer depends on a list of name prefixes.
-- Both the command line and ImageDescriber read the first part of Claude's reply as text. On current models that can be a reasoning block with no text. They now join the text parts. Not run against the live Claude API.
+- Claude Opus 5.5 descriptions failed through the Claude API: both the command line and ImageDescriber read the first part of Claude's reply as text, and Opus 5.5 always sends a reasoning block first, with no text. They now join the text parts. Checked live with Haiku 5.5, Sonnet 5.5, Opus 5.5 and Haiku 4.5, including thinking on and off.
 - An empty answer from OpenAI or Claude is now an error, not a saved blank that counted the picture as described. Refusals and content-filter declines mark that picture and the run carries on.
 - The command line's Claude path shrinks images over the API's size limit, as Claude Code already did.
 - ImageDescriber made up to 16 attempts per failing image; it is now at most 8, and dropped connections are still retried.
@@ -35,7 +35,7 @@
 - IDT's links, updater and user guide point at TheIdeaPlace/Image-Description-Toolkit (#381). Installed copies keep updating through GitHub's redirect.
 
 ### Not tested
-- The OpenAI and Claude APIs live (the test OpenAI account has no credits; the Claude key needs an `anthropic-workspace-id` header IDT can't send). Listening to the new Generation tab and Thinking menus with JAWS or NVDA, the macOS interface, and a frozen build.
+- The OpenAI API live (the test account has no credits). A Claude API key that isn't assigned to a workspace still needs an `anthropic-workspace-id` header IDT can't send. Listening to the new Generation tab and Thinking menus with JAWS or NVDA, the macOS interface, and a frozen build.
 
 ## [4.8.1] - 2026-10-09
 

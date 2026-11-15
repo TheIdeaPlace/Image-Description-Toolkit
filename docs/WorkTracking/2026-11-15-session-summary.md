@@ -28,6 +28,6 @@ Full suite 2,424 passed / 47 skipped on Windows; CI green on Windows and macOS f
 
 ## Not tested
 
-- OpenAI and Claude APIs live: test OpenAI account has no credits; the Claude key is user-scoped and needs an `anthropic-workspace-id` header IDT can't send (worth an issue).
+- OpenAI API live: the test account has no credits. (Claude was tested live once Kelly replaced the key: Haiku 5.5, Sonnet 5.5, Opus 5.5 and Haiku 4.5, automatic / thinking off / on / temperature, all described; Opus 5.5 replies start with a thinking block, confirming the `content[0]` bug. The first key wasn't assigned to a workspace and Anthropic refused it without an `anthropic-workspace-id` header.)
 - JAWS / NVDA listening, macOS UI, frozen build.
 - `test_model_refresh.py::test_concurrent_refreshes_fetch_once` failed once under `-n 4` and passed alone; flaky, unrelated.
