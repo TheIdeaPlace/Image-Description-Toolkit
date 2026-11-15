@@ -99,8 +99,10 @@ jobs:
     #                                                                      #
     #  Signing happens at the source dist/ folders, BEFORE packaging, so    #
     #  every downstream copy inherits the signature: the exes bundled into  #
-    #  the installer AND the standalone exes uploaded as artifacts. Signing #
+    #  the installer AND the standalone zips uploaded as artifacts. Signing #
     #  only dist_all/bin would leave the standalone artifacts unsigned.     #
+    #  Each app is a folder build (dist/<App>/<App>.exe + <app>-lib/);      #
+    #  only the top-level exe is signed, not the bundled libraries.         #
     #                                                                      #
     #  Skipped on pull_request: fork PRs have no access to secrets, and     #
     #  signing every PR build would burn signing operations for nothing.    #
@@ -120,8 +122,9 @@ jobs:
         endpoint: https://eus.codesigning.azure.net/
         signing-account-name: kellylford
         certificate-profile-name: kellyford-public
-        files-folder: ${{ github.workspace }}\idt\dist
+        files-folder: ${{ github.workspace }}\idt\dist\idt
         files-folder-filter: exe
+        files-folder-recurse: false
         file-digest: SHA256
         timestamp-rfc3161: http://timestamp.acs.microsoft.com
         timestamp-digest: SHA256
@@ -133,8 +136,9 @@ jobs:
         endpoint: https://eus.codesigning.azure.net/
         signing-account-name: kellylford
         certificate-profile-name: kellyford-public
-        files-folder: ${{ github.workspace }}\imagedescriber\dist
+        files-folder: ${{ github.workspace }}\imagedescriber\dist\ImageDescriber
         files-folder-filter: exe
+        files-folder-recurse: false
         file-digest: SHA256
         timestamp-rfc3161: http://timestamp.acs.microsoft.com
         timestamp-digest: SHA256
@@ -146,8 +150,9 @@ jobs:
         endpoint: https://eus.codesigning.azure.net/
         signing-account-name: kellylford
         certificate-profile-name: kellyford-public
-        files-folder: ${{ github.workspace }}\chatapp\dist
+        files-folder: ${{ github.workspace }}\chatapp\dist\IDTChat
         files-folder-filter: exe
+        files-folder-recurse: false
         file-digest: SHA256
         timestamp-rfc3161: http://timestamp.acs.microsoft.com
         timestamp-digest: SHA256
@@ -201,10 +206,13 @@ jobs:
       shell: pwsh
       run: |
         $targets = @(
-          "idt\dist\idt.exe",
-          "imagedescriber\dist\ImageDescriber.exe",
-          "chatapp\dist\IDTChat.exe"
-        ) + (Get-ChildItem "BuildAndRelease\WinBuilds\dist_all\*.exe" | ForEach-Object { $_.FullName }) `
+          "idt\dist\idt\idt.exe",
+          "imagedescriber\dist\ImageDescriber\ImageDescriber.exe",
+          "chatapp\dist\IDTChat\IDTChat.exe",
+          "BuildAndRelease\WinBuilds\dist_all\bin\idt.exe",
+          "BuildAndRelease\WinBuilds\dist_all\bin\ImageDescriber.exe",
+          "BuildAndRelease\WinBuilds\dist_all\bin\IDTChat.exe"
+        ) +(Get-ChildItem "BuildAndRelease\WinBuilds\dist_all\*.exe" | ForEach-Object { $_.FullName }) `
           + (Get-ChildItem "windows_ai_helper\dist\*.msix" | ForEach-Object { $_.FullName })
 
         $failed = $false
@@ -232,23 +240,38 @@ jobs:
         path: BuildAndRelease/WinBuilds/dist_all/*.exe
         retention-days: 30
     
-    - name: Upload IDT executable
+    # Each standalone app is a folder (the exe needs its -lib folder beside
+    # it), so it is shipped as a zip holding that folder. Unzip and run the
+    # exe inside; nothing is installed.
+    - name: Zip standalone apps
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force standalone | Out-Null
+        foreach ($app in @(@("idt", "idt"), @("imagedescriber", "ImageDescriber"), @("chatapp", "IDTChat"))) {
+          $src = "$($app[0])\dist\$($app[1])"
+          if (-not (Test-Path "$src\$($app[1]).exe")) { throw "missing $src\$($app[1]).exe" }
+          7z a -tzip -mx=5 "standalone\$($app[1])-windows-x64.zip" ".\$src" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "7z failed for $src" }
+          Write-Host ("{0,-32} {1,8:N1} MB" -f "$($app[1])-windows-x64.zip", ((Get-Item "standalone\$($app[1])-windows-x64.zip").Length / 1MB))
+        }
+
+    - name: Upload IDT standalone
       uses: actions/upload-artifact@v7
       with:
         name: idt-windows
-        path: idt/dist/idt.exe
+        path: standalone/idt-windows-x64.zip
         retention-days: 30
-    
-    - name: Upload ImageDescriber executable
+
+    - name: Upload ImageDescriber standalone
       uses: actions/upload-artifact@v7
       with:
         name: imagedescriber-windows
-        path: imagedescriber/dist/ImageDescriber.exe
+        path: standalone/ImageDescriber-windows-x64.zip
         retention-days: 30
 
-    - name: Upload IDT Chat executable
+    - name: Upload IDT Chat standalone
       uses: actions/upload-artifact@v7
       with:
         name: idtchat-windows
-        path: chatapp/dist/IDTChat.exe
+        path: standalone/IDTChat-windows-x64.zip
         retention-days: 30

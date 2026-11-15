@@ -85,9 +85,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not exist "dist\IDTChat.exe" (
+if not exist "dist\IDTChat\IDTChat.exe" (
     echo.
-    echo ERROR: PyInstaller reported success but dist\IDTChat.exe is missing.
+    echo ERROR: PyInstaller reported success but dist\IDTChat\IDTChat.exe is missing.
     exit /b 1
 )
 
@@ -95,5 +95,5 @@ echo.
 echo ========================================================================
 echo BUILD SUCCESSFUL
 echo ========================================================================
-echo Executable created: dist\IDTChat.exe
+echo Executable created: dist\IDTChat\IDTChat.exe ^(with its idtchat-lib folder^)
 echo.

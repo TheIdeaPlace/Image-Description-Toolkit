@@ -170,12 +170,7 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
-    [],
+_exe_options = dict(
     name='idt',
     debug=False,
     bootloader_ignore_signals=False,
@@ -190,3 +185,18 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+
+if _sys.platform == 'win32':
+    # Folder build on Windows: dist/idt/idt.exe plus dist/idt/idt-lib/.
+    # A one-file exe unpacks itself into %TEMP%\_MEIxxxxxx on every start and
+    # deletes that folder on exit; if any file in it is still held open, the
+    # bootloader shows "Failed to remove temporary directory" and leaves the
+    # folder behind. ImageDescriber and IDT Chat hit that on every close.
+    # Each app gets its own contents folder so all three share {app} safely.
+    exe = EXE(pyz, a.scripts, [], exclude_binaries=True,
+              contents_directory='idt-lib', **_exe_options)
+    coll = COLLECT(exe, a.binaries, a.datas,
+                   strip=False, upx=False, upx_exclude=[], name='idt')
+else:
+    # macOS stays a single file (the tarball and signing expect one binary).
+    exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], **_exe_options)

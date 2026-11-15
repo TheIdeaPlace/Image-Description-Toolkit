@@ -139,12 +139,7 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
-    [],
+_exe_options = dict(
     name='IDTChat',
     debug=False,
     bootloader_ignore_signals=False,
@@ -159,6 +154,17 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+
+if _sys.platform == 'win32':
+    # Folder build on Windows: dist/IDTChat/IDTChat.exe plus IDTChat/idtchat-lib/.
+    # As a one-file exe it showed "Failed to remove temporary directory" on
+    # every close and left a %TEMP%\_MEIxxxxxx folder behind (see idt.spec).
+    exe = EXE(pyz, a.scripts, [], exclude_binaries=True,
+              contents_directory='idtchat-lib', **_exe_options)
+    coll = COLLECT(exe, a.binaries, a.datas,
+                   strip=False, upx=False, upx_exclude=[], name='IDTChat')
+else:
+    exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], **_exe_options)
 
 # ---------------------------------------------------------------------------
 # macOS .app bundle

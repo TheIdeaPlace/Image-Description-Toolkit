@@ -192,7 +192,7 @@ telemetry, no data sent.
 **Installing an update by hand**
 
 1. Download the latest installer (Windows) or disk image (macOS) from the [releases page](https://github.com/TheIdeaPlace/Image-Description-Toolkit/releases).
-2. Run the installer, or drag the new `ImageDescriber.app` to `/Applications`. If you use the standalone executables instead, replace the old `idt.exe` and `ImageDescriber.exe` in your folder.
+2. Run the installer, or drag the new `ImageDescriber.app` to `/Applications`. If you use the standalone Windows downloads instead, unzip the new one and replace the whole old folder, not just the exe: each app's `.exe` needs the `-lib` folder that comes with it.
 3. Your existing `.idtw` workspace bundles and `~/.idt/config.json` settings are preserved — no migration needed.
 
 **From source**

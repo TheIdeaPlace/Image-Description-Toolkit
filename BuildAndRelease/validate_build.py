@@ -138,7 +138,7 @@ def main():
         print()
         print("Common fixes:")
         print("  - Import error: check idt.spec hiddenimports for missing idt_core.* modules")
-        print("  - Wrong exe:    confirm idt/dist/idt.exe was rebuilt with --clean")
+        print("  - Wrong exe:    confirm idt/dist/idt/idt.exe was rebuilt with --clean")
         return 1
 
 
