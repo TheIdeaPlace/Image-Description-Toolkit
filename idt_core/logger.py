@@ -17,11 +17,21 @@ from pathlib import Path
 _FMT = "%(levelname)s - %(message)s - (%(asctime)s)"
 _DATE = "%Y-%m-%d %H:%M:%S"
 
+#: Loggers whose notices belong in the run log while a run is open. Providers
+#: report things a user reading the log needs: a setting the model could not
+#: take, a model that ignored "thinking off", a description cut off at the
+#: output limit (issue #392). Without this they went nowhere, because nothing
+#: in IDT configures the root logger.
+CAPTURED_LOGGERS = ("idt_core.providers",)
+
 
 def open_run_log(logs_dir: Path, *, label: str = "run") -> logging.Logger:
     """
     Create run_YYYYMMDD_HHMMSS.log in logs_dir and return a Logger.
     The caller is responsible for calling close_run_log() when the run ends.
+
+    While the log is open, INFO and above from CAPTURED_LOGGERS are written to
+    it too; close_run_log() detaches them.
     """
     logs_dir = Path(logs_dir)
     logs_dir.mkdir(parents=True, exist_ok=True)
@@ -37,12 +47,34 @@ def open_run_log(logs_dir: Path, *, label: str = "run") -> logging.Logger:
     h.setFormatter(logging.Formatter(_FMT, datefmt=_DATE))
     log.addHandler(h)
 
+    captured = []
+    for name in CAPTURED_LOGGERS:
+        source = logging.getLogger(name)
+        previous_level = source.level
+        if source.level == logging.NOTSET or source.level > logging.INFO:
+            source.setLevel(logging.INFO)
+        capture = logging.FileHandler(str(log_path), encoding="utf-8")
+        capture.setLevel(logging.INFO)
+        capture.setFormatter(logging.Formatter(_FMT, datefmt=_DATE))
+        source.addHandler(capture)
+        captured.append((source, capture, previous_level))
+    log._idt_captured = captured  # type: ignore[attr-defined]
+
     log.info(f"Log: {log_path}")
     return log
 
 
 def close_run_log(log: logging.Logger) -> None:
     """Flush and close all file handlers on this logger."""
+    for source, capture, previous_level in getattr(log, "_idt_captured", []):
+        source.removeHandler(capture)
+        source.setLevel(previous_level)
+        try:
+            capture.flush()
+            capture.close()
+        except Exception:
+            pass
+    log._idt_captured = []  # type: ignore[attr-defined]
     for h in list(log.handlers):
         try:
             h.flush()

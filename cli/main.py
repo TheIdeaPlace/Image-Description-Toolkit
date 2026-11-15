@@ -121,6 +121,12 @@ def _resolve_model(provider: str, model: Optional[str],
     return model
 
 
+_GENERATION_DISPLAY_NAMES = {
+    "anthropic": "Claude", "claude-code": "Claude Code", "openai": "OpenAI",
+    "apple": "Apple Intelligence", "windows-ai": "Windows-AI", "ollama": "Ollama",
+}
+
+
 def _make_provider(provider: str, model: Optional[str], ollama_host: str,
                    options=None):
     """Instantiate the requested provider with a clear error if deps are missing.
@@ -129,8 +135,15 @@ def _make_provider(provider: str, model: Optional[str], ollama_host: str,
     """
     if options is not None and provider != "ollama" and not options.is_automatic():
         # Ollama is the first provider wired to generation settings (#392).
-        print(f"Note: generation settings are not applied to {provider} yet; "
-              f"using its defaults.", file=sys.stderr)
+        # Display names, not keys: a screen reader says "windows-ai" as
+        # "windows eye" (see _provider_arg).
+        if provider == "windows-ai":
+            print("Note: Windows-AI takes no generation settings; they were ignored.",
+                  file=sys.stderr)
+        else:
+            name = _GENERATION_DISPLAY_NAMES.get(provider, provider)
+            print(f"Note: generation settings are not applied to {name} yet; "
+                  f"using its defaults.", file=sys.stderr)
 
     if provider == "anthropic":
         from idt_core.providers.claude import ClaudeProvider, DEFAULT_MODEL
@@ -300,10 +313,30 @@ def _generation_args(p: argparse.ArgumentParser) -> None:
                    help="Let a reasoning model think before describing (slower)")
     g.add_argument("--no-think", dest="thinking", action="store_const", const="off",
                    help="Ask a reasoning model not to think (the default for descriptions)")
-    g.add_argument("--temperature", type=float, metavar="F",
-                   help="Sampling temperature")
-    g.add_argument("--max-tokens", type=int, metavar="N",
+    g.add_argument("--temperature", type=_non_negative_float, metavar="F",
+                   help="Sampling temperature, 0 or more")
+    g.add_argument("--max-tokens", type=_positive_int, metavar="N",
                    help="Cap on the length of each description, in tokens")
+
+
+def _positive_int(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a whole number, got {value!r}")
+    if number <= 0:
+        raise argparse.ArgumentTypeError(f"must be greater than 0, got {number}")
+    return number
+
+
+def _non_negative_float(value: str) -> float:
+    try:
+        number = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a number, got {value!r}")
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"must be 0 or more, got {number:g}")
+    return number
 
 
 def _generation_options(args, provider_name: str):
@@ -3157,6 +3190,25 @@ Supported providers:
 # Entry point                                                          #
 # ------------------------------------------------------------------ #
 
+def _show_provider_warnings() -> None:
+    """Print provider warnings (a model ignoring "thinking off", a cut-off
+    description) on stderr as plain sentences. The run log captures them too,
+    with the INFO notices, while a run is open (idt_core/logger.py). Without
+    an explicit handler they would stop reaching the screen once the run log
+    attaches one, because Python's last-resort printing only applies to loggers
+    with no handlers at all."""
+    import logging
+
+    source = logging.getLogger("idt_core.providers")
+    if any(getattr(h, "_idt_console", False) for h in source.handlers):
+        return
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setLevel(logging.WARNING)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    handler._idt_console = True  # type: ignore[attr-defined]
+    source.addHandler(handler)
+
+
 def main():
     # Ensure stdout/stderr can emit any Unicode character on Windows (cp1252 is the
     # default and chokes on arrows, curly quotes, etc. found in AI descriptions).
@@ -3166,6 +3218,7 @@ def main():
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
     _set_console_title("IDT - Image Description Toolkit")
+    _show_provider_warnings()
     parser = build_parser()
     args = parser.parse_args()
     _cmd_titles = {

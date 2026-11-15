@@ -327,8 +327,20 @@ def _answer_parts(response) -> tuple[str, str]:
         text = getattr(message, "content", None) or ""
         thinking = getattr(message, "thinking", None) or ""
     stripped = text.lstrip()
-    if stripped.startswith("<think>") and "</think>" in stripped:
-        inline, _, rest = stripped[len("<think>"):].partition("</think>")
+    inline = None
+    if stripped.startswith("<think>"):
+        body = stripped[len("<think>"):]
+        if "</think>" in body:
+            inline, _, rest = body.partition("</think>")
+        else:
+            # Opened and never closed: cut off at the output cap mid-thought.
+            # All of it is reasoning; the empty answer is handled by describe().
+            inline, rest = body, ""
+    elif "</think>" in stripped and "<think>" not in stripped.split("</think>", 1)[0]:
+        # Some Qwen-style templates put the opening tag in the prompt, so the
+        # reply is "reasoning...</think> answer" with no opening tag.
+        inline, _, rest = stripped.partition("</think>")
+    if inline is not None:
         thinking = (thinking + inline) if thinking else inline
         text = rest.lstrip()
     return text, thinking
@@ -430,12 +442,8 @@ class OllamaProvider(BaseProvider):
                     "setting; descriptions will be slow. A non-thinking edition, "
                     "usually the '-instruct' tag, avoids it.", self._model, len(thinking))
 
-        if thinking:
-            # Recorded per image so a slow run can be explained from the log.
-            logger.info("%s: %d characters of hidden reasoning (discarded), "
-                        "%d-character description, %s output tokens",
-                        self._model, len(thinking), len(text), output_tokens or "?")
-
+        # thinking_chars on the result is what the run logs record per image
+        # (pipeline.py, workers_wx.py), so a slow run can be explained.
         truncated = getattr(response, "done_reason", None) == "length"
         if truncated:
             logger.warning("%s stopped at its output limit; the description is cut off",

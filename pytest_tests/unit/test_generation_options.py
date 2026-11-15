@@ -27,6 +27,16 @@ from idt_core.generation import (  # noqa: E402
 from idt_core.providers import ollama as ollama_mod  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _fresh_show_cache():
+    """Capability answers are cached per (host, model); no test may see another's."""
+    ollama_mod._SHOW_CACHE.clear()
+    ollama_mod._NEGATIVE_AT.clear()
+    yield
+    ollama_mod._SHOW_CACHE.clear()
+    ollama_mod._NEGATIVE_AT.clear()
+
+
 # --------------------------------------------------------------------------- #
 # GenerationOptions                                                            #
 # --------------------------------------------------------------------------- #
@@ -123,13 +133,16 @@ class TestUserOptions:
                   "prompt_model_settings": {"narrative": {"num_predict": 500}}}
         assert user_options("ollama", config=config).is_automatic()
 
-    def test_shipped_config_leaves_everything_automatic_but_thinking(self):
+    def test_shipped_config_is_automatic_and_descriptions_default_to_no_thinking(self):
         import json
         config = json.loads((_ROOT / "scripts" / "image_describer_config.json")
                             .read_text(encoding="utf-8"))
         opts = user_options("ollama", config=config)
-        assert opts.max_output_tokens is None
-        assert opts.temperature is None
+        assert opts.is_automatic()
+        # Thinking off comes from the provider's description defaults, not the file.
+        provider = ollama_mod.OllamaProvider(model="m", options=opts)
+        assert provider.options.thinking == THINKING_OFF
+        assert provider.options.max_output_tokens is None
 
 
 # --------------------------------------------------------------------------- #
@@ -301,6 +314,25 @@ class TestDescribe:
         assert result.text == "A desk."
         assert result.thinking_chars == len("let me look")
 
+    def test_closing_tag_without_opening_tag(self, client, caps):
+        # Templates that put <think> in the prompt reply "reasoning</think> answer".
+        client.queue = [_response("let me look</think>\nA desk.")]
+        result = _describe()
+        assert result.text == "A desk."
+        assert result.thinking_chars == len("let me look")
+
+    def test_unclosed_think_tag_is_all_reasoning(self, client, caps):
+        # Cut off mid-thought: nothing in it is a description, so it is retried.
+        client.queue = [_response("<think>still looking at the", done_reason="length"),
+                        _response("A desk.")]
+        assert _describe().text == "A desk."
+        assert len(client.calls) == 2
+
+    def test_a_literal_tag_inside_a_description_is_left_alone(self, client, caps):
+        text = "A sign reading <think> and </think> hangs on the wall."
+        client.queue = [_response(text)]
+        assert _describe().text == text
+
     def test_truncation_is_reported(self, client, caps, caplog):
         client.queue = [_response("A desk with a", done_reason="length")]
         with caplog.at_level(logging.WARNING):
@@ -370,12 +402,51 @@ class TestCli:
 
     def test_parser_accepts_the_flags(self):
         from cli import main as cli_main
-        parser = cli_main.build_parser() if hasattr(cli_main, "build_parser") else None
-        if parser is None:
-            pytest.skip("parser builder not exposed")
-        args = parser.parse_args(["describe", "x", "--no-think", "--max-tokens", "800",
-                                  "--temperature", "0.2"])
+        args = cli_main.build_parser().parse_args(
+            ["describe", "x", "--no-think", "--max-tokens", "800", "--temperature", "0.2"])
         assert (args.thinking, args.max_tokens, args.temperature) == ("off", 800, 0.2)
+
+    @pytest.mark.parametrize("flags", [
+        ["--max-tokens", "0"], ["--max-tokens", "-5"], ["--max-tokens", "lots"],
+        ["--temperature", "-1"], ["--temperature", "warm"],
+    ])
+    def test_bad_flag_values_fail_at_the_prompt(self, flags, capsys):
+        # Not silently dropped: the user asked for something they would not get.
+        from cli import main as cli_main
+        with pytest.raises(SystemExit):
+            cli_main.build_parser().parse_args(["describe", "x", *flags])
+        assert "error" in capsys.readouterr().err
+
+    def test_zero_temperature_is_allowed(self):
+        from cli import main as cli_main
+        args = cli_main.build_parser().parse_args(["describe", "x", "--temperature", "0"])
+        assert args.temperature == 0.0
+
+    def test_note_for_unwired_providers_uses_the_display_name(self, capsys, monkeypatch):
+        from cli import main as cli_main
+        import idt_core.providers.openai_provider as oai
+        monkeypatch.setattr(oai.OpenAIProvider, "__init__", lambda self, model=None: None)
+        cli_main._make_provider("openai", "gpt-5.2", "http://x",
+                                options=GenerationOptions(temperature=0.2))
+        assert "not applied to OpenAI yet" in capsys.readouterr().err
+
+    def test_windows_ai_note_says_settings_are_ignored(self, capsys, monkeypatch):
+        from cli import main as cli_main
+        monkeypatch.setattr(cli_main.sys, "exit", lambda code=0: None)
+        try:
+            cli_main._make_provider("windows-ai", None, "http://x",
+                                    options=GenerationOptions(thinking=THINKING_OFF))
+        except Exception:
+            pass   # no Windows AI on the test machine; only the note matters
+        note = capsys.readouterr().err.splitlines()[0]
+        assert note == "Note: Windows-AI takes no generation settings; they were ignored."
+
+    def test_no_note_when_everything_is_automatic(self, capsys, monkeypatch):
+        from cli import main as cli_main
+        import idt_core.providers.openai_provider as oai
+        monkeypatch.setattr(oai.OpenAIProvider, "__init__", lambda self, model=None: None)
+        cli_main._make_provider("openai", "gpt-5.2", "http://x", options=GenerationOptions())
+        assert "Note:" not in capsys.readouterr().err
 
 
 # --------------------------------------------------------------------------- #
@@ -423,3 +494,74 @@ class TestImageDescriberRouting:
         with pytest.raises(ai_providers.ProviderError) as info:
             ai_providers.OllamaProvider().describe_image(str(img), "x", "nope")
         assert info.value.status_code == 404
+
+
+def _gui_image(tmp_path):
+    sys.path.insert(0, str(_ROOT / "imagedescriber"))
+    from PIL import Image
+    img = tmp_path / "a.jpg"
+    Image.new("RGB", (8, 8)).save(img)
+    return str(img)
+
+
+class TestImageDescriberRetries:
+    """What each failure costs: a retried 30-minute request is a long wait."""
+
+    def test_reasoning_without_description_is_not_retried_again(self, client, caps,
+                                                                tmp_path, monkeypatch):
+        import ai_providers
+        monkeypatch.setattr(ai_providers.time, "sleep", lambda s: None)
+        img = _gui_image(tmp_path)
+        client.queue = [_response("", thinking="x")] * 8
+        with pytest.raises(ai_providers.ProviderError):
+            ai_providers.OllamaProvider().describe_image(img, "x", "qwen3-vl:2b")
+        # The core provider's own single retry, and no decorator retries on top.
+        assert len(client.calls) == 2
+
+    def test_a_full_length_timeout_is_not_retried(self, caps, tmp_path, monkeypatch):
+        import httpx
+        import ollama
+        import ai_providers
+        monkeypatch.setattr(ai_providers.time, "sleep", lambda s: None)
+        img = _gui_image(tmp_path)
+        calls = []
+
+        class Hanging(_ScriptedClient):
+            def chat(self, **kwargs):
+                calls.append(kwargs)
+                raise httpx.ReadTimeout("timed out")
+
+        monkeypatch.setattr(ollama, "Client", Hanging)
+        with pytest.raises(ai_providers.ProviderError) as info:
+            ai_providers.OllamaProvider().describe_image(img, "x", "m")
+        assert len(calls) == 1
+        # Still transient for the batch's stop rules; just not repeated here.
+        assert info.value.kind == ai_providers.ErrorKind.TIMEOUT
+        assert info.value.is_retryable
+
+    def test_cloud_provider_reports_usage(self, client, caps, tmp_path):
+        import ai_providers
+        img = _gui_image(tmp_path)
+        client.queue = [_response("A dock.", thinking="t" * 12, prompt=3, out=4)]
+        cloud = ai_providers.OllamaCloudProvider()
+        assert cloud.describe_image(img, "x", "gemma4:31b-cloud") == "A dock."
+        assert cloud.last_usage["completion_tokens"] == 4
+        assert cloud.last_usage["thinking_chars"] == 12
+
+
+class TestRunLog:
+    def test_provider_notices_are_written_while_a_run_is_open(self, tmp_path):
+        from idt_core.logger import close_run_log, open_run_log
+        source = logging.getLogger("idt_core.providers.ollama")
+        log = open_run_log(tmp_path)
+        source.info("Not sending num_predict to cloud model x")
+        source.warning("m kept thinking although thinking was turned off")
+        close_run_log(log)
+        source.info("after the run")
+        text = "".join(p.read_text(encoding="utf-8") for p in tmp_path.glob("*.log"))
+        assert "Not sending num_predict to cloud model x" in text
+        assert "kept thinking" in text
+        assert "after the run" not in text
+        assert not logging.getLogger("idt_core.providers").handlers or all(
+            getattr(h, "_idt_console", False)
+            for h in logging.getLogger("idt_core.providers").handlers)

@@ -577,7 +577,10 @@ def retry_on_api_error(max_retries=3, base_delay=1.0, max_delay=60.0, backoff_mu
 
                     if isinstance(e, ProviderError):
                         # The kind already encodes the retry policy; no parsing.
-                        is_retryable = e.is_retryable
+                        # no_retry: transient for the batch, but not worth
+                        # repeating here -- e.g. a request that already waited
+                        # out a 30-minute limit (issue #392 review).
+                        is_retryable = e.is_retryable and not getattr(e, "no_retry", False)
                     else:
                         error_msg = str(e).lower()
                         # getattr, not hasattr: an exception may carry
@@ -756,6 +759,20 @@ class OllamaProvider(AIProvider):
         except Exception as e:
             logging.error("Ollama describe failed for %s with %s: %s: %s",
                           Path(image_path).name, model, type(e).__name__, e)
+            kind, _status = classify_provider_exception(e)
+            if kind == ErrorKind.TIMEOUT:
+                # The request already waited the full limit. Retrying would
+                # hold this image -- and the batch's Stop, which is checked
+                # between images -- for four times as long.
+                minutes = _CoreProvider.DESCRIBE_TIMEOUT_SECONDS // 60
+                logging.error("Ollama did not answer within %d minutes; not retrying",
+                              minutes)
+                err = ProviderError(
+                    provider_error_from_exception(e, "Ollama"),
+                    status_code=None, provider="Ollama", kind=ErrorKind.TIMEOUT,
+                    raw_message=str(e))
+                err.no_retry = True
+                raise err from e
             raise_provider_error_from_exception(e, "Ollama")
 
         self.last_usage = {
@@ -1445,7 +1462,7 @@ class OllamaCloudProvider(AIProvider):
     
     def __init__(self, base_url: str = "http://localhost:11434"):
         self.base_url = base_url
-        self.timeout = 300  # 5 minutes timeout for cloud models
+        self.last_usage = None  # copied from the OllamaProvider it delegates to
         self._models_cache = None
         self._models_cache_time = 0
         self._cache_duration = 30  # Cache for 30 seconds
@@ -1520,9 +1537,15 @@ class OllamaCloudProvider(AIProvider):
         through the same local Ollama endpoint, so delegate to OllamaProvider,
         which asks the API what each model can actually do (issue #227).
         """
-        return OllamaProvider(base_url=self.base_url).describe_image(
-            image_path, prompt, model
-        )
+        delegate = OllamaProvider(base_url=self.base_url)
+        self.last_usage = None
+        try:
+            return delegate.describe_image(image_path, prompt, model)
+        finally:
+            # The worker reads last_usage from this object, not the delegate:
+            # without the copy, cloud models reported no token counts, no
+            # reasoning size and no finish_reason in ImageDescriber.
+            self.last_usage = delegate.last_usage
 
 
 # ---------------------------------------------------------------------------
