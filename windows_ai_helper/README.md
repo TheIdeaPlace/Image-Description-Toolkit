@@ -88,6 +88,7 @@ Needs the .NET 10 SDK. From this folder:
 .\build_helper.ps1                  # this PC's architecture, into out\<arch>
 .\build_helper.ps1 -Arch x64        # or arm64
 .\build_helper.ps1 -Register        # and install it for this user (needs Developer Mode)
+.\build_helper.ps1 -Unregister      # remove that registration again (builds nothing)
 .\build_helper.ps1 -Pack            # and pack it into dist\IdtWindowsAI_<arch>.msix
 dotnet test IdtWindowsAI.Tests      # the protocol tests: run anywhere, no NPU needed
 ```
@@ -99,6 +100,21 @@ certificate's subject exactly.
 `-Register` installs the folder *in place*: the registered helper runs from `out\<arch>`, so
 the next build replaces the installed files. Rebuild with `-Register` again, and not while the
 helper is running.
+
+**Which helper answers `idt-windows-ai`.** The command belongs to whichever package registered
+it first. On a PC where IDT is already installed, `-Register` leaves the command with the
+installed helper, and `idt-windows-ai` keeps running *that* one, not your build; `-Register`
+says which version answers. On a PC with no IDT installed yet, your build gets the command,
+and keeps it even after IDT is installed later.
+
+**Run `-Unregister` when you are done, and always before deleting this folder or its
+worktree.** If a registration that owns the command loses its folder, it stays behind and
+keeps the command, and every Windows AI request from every IDT on the PC fails with "The
+system cannot find the path specified". That happened on a development PC in November 2026:
+the helper was registered from a worktree a day before IDT's installer ran, and the worktree
+was deleted later. `-Unregister` removes development registrations only, leaves an installed
+IDT's signed helper alone, and then checks that `idt-windows-ai` answers. IDT names this case
+when it happens (`idt_core/providers/windows_ai.py`).
 
 ## Releasing
 
