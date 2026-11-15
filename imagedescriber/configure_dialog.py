@@ -44,11 +44,57 @@ def readable_text(parent, text: str, name: str, width: int = 580) -> "wx.TextCtr
     is a Tab stop whose text can be read with the cursor. Sized to its text, so
     the layout barely changes.
     """
-    box = wx.TextCtrl(parent, value=text, name=name,
-                      style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP | wx.TE_NO_VSCROLL)
-    lines = sum(max(1, len(line) // 80 + 1) for line in text.split("\n"))
+    # A scroll bar appears only if the text outgrows the box (large Windows text
+    # sizes), so the end of the text is never hidden.
+    box = wx.TextCtrl(parent, value=text,
+                      style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP)
+    name_for_screen_readers(box, name)
+    per_line = max(20, (width - 16) // max(1, box.GetCharWidth()))
+    lines = sum(max(1, -(-len(line) // per_line)) for line in text.split("\n"))
     box.SetMinSize((width, box.GetCharHeight() * (lines + 1) + 8))
     return box
+
+
+class _NamedText(wx.Accessible):
+    """The accessible name of a read-only text box, which has no label of its own
+    (a native edit takes its name from a static label just before it, and these
+    have none). The same pattern as the chat window's message box; childId 0 only,
+    so the text itself is still read normally."""
+
+    def __init__(self, win, label: str):
+        super().__init__(win)
+        self._label = label
+
+    def GetName(self, childId):
+        if childId:
+            return (wx.ACC_NOT_IMPLEMENTED, None)
+        return (wx.ACC_OK, self._label)
+
+
+def first_tab_stop(window):
+    """The first control under ``window`` that Tab would reach, depth first."""
+    for child in window.GetChildren():
+        if isinstance(child, (wx.StaticText, wx.StaticBox)) or not child.IsShown():
+            if isinstance(child, wx.StaticBox):
+                found = first_tab_stop(child)
+                if found is not None:
+                    return found
+            continue
+        if child.IsEnabled() and child.AcceptsFocusFromKeyboard():
+            return child
+        found = first_tab_stop(child)
+        if found is not None:
+            return found
+    return None
+
+
+def name_for_screen_readers(box, label: str) -> None:
+    """Set ``label`` as the control's name for screen readers on every platform."""
+    box.SetName(label)
+    try:
+        box.SetAccessible(_NamedText(box, label))
+    except (NotImplementedError, AttributeError):
+        pass   # no wx.Accessible on this platform (macOS); SetName is used there
 
 
 def _choice_label(setting_info: Dict[str, Any], value: Any) -> Any:
@@ -1074,28 +1120,30 @@ class ConfigureDialog(wx.Dialog):
         current_page = self.notebook.GetSelection()
         page_count = self.notebook.GetPageCount()
 
-        arrows = (wx.WXK_LEFT, wx.WXK_UP, wx.WXK_RIGHT, wx.WXK_DOWN)
-        if keycode in arrows and platform.system() != "Darwin":
-            # Windows' tab control moves between tabs on the arrow keys itself, and
+        on_mac = platform.system() == "Darwin"
+        if keycode in (wx.WXK_LEFT, wx.WXK_RIGHT) and not on_mac:
+            # Windows' tab control moves between tabs on Left and Right itself, and
             # announces it. Moving here as well, then passing the key on, moved two
             # tabs per press, so arrowing round visited only every other tab (five
             # of ten), which a screen reader user heard as a tab bar with some tabs
-            # missing. The arrow handling below is for macOS, where the tab view
-            # doesn't take the arrows.
+            # missing (reported with JAWS, 11/2026).
             event.Skip()
             return
 
-        # Arrow keys to switch tabs
-        if keycode == wx.WXK_LEFT or keycode == wx.WXK_UP:
-            new_page = (current_page - 1) % page_count
-            self.notebook.SetSelection(new_page)
-            event.Skip()  # Allow VoiceOver to announce the change
+        # Arrow keys to switch tabs: all four on macOS, where the tab view doesn't
+        # take them; Up and Down on Windows, whose tab control ignores them. The
+        # key is passed on only on macOS (for VoiceOver's announcement); on
+        # Windows passing it on is what caused the double move.
+        if keycode in (wx.WXK_LEFT, wx.WXK_UP):
+            self.notebook.SetSelection((current_page - 1) % page_count)
+            if on_mac:
+                event.Skip()
             return
-        
-        elif keycode == wx.WXK_RIGHT or keycode == wx.WXK_DOWN:
-            new_page = (current_page + 1) % page_count
-            self.notebook.SetSelection(new_page)
-            event.Skip()  # Allow VoiceOver to announce the change
+
+        elif keycode in (wx.WXK_RIGHT, wx.WXK_DOWN):
+            self.notebook.SetSelection((current_page + 1) % page_count)
+            if on_mac:
+                event.Skip()
             return
         
         # Cmd+Shift+[ and Cmd+Shift+] (macOS standard for previous/next tab)
@@ -1111,15 +1159,14 @@ class ConfigureDialog(wx.Dialog):
         
         # Enter or Space to move focus into current tab's content
         elif keycode in (wx.WXK_RETURN, wx.WXK_SPACE):
-            # Move focus to first control in current tab
+            # Move focus to the first control in the tab, in Tab order. The old
+            # loop looked only at the page's direct children, so it skipped the
+            # settings list (inside a group box) and landed on Change Setting.
             current_tab = self.notebook.GetPage(current_page)
-            if current_tab:
-                # Find first focusable child
-                children = current_tab.GetChildren()
-                for child in children:
-                    if isinstance(child, (wx.ListBox, wx.Button, wx.TextCtrl, wx.Choice)):
-                        child.SetFocus()
-                        return
+            target = first_tab_stop(current_tab) if current_tab else None
+            if target is not None:
+                target.SetFocus()
+                return
             event.Skip()
             return
         
@@ -1181,14 +1228,18 @@ class ConfigureDialog(wx.Dialog):
         right_box = wx.StaticBox(panel, label="Explanation:")
         right_sizer = wx.StaticBoxSizer(right_box, wx.VERTICAL)
 
-        explanation_text = wx.TextCtrl(right_box, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP,
-                                       name="Explanation of the selected setting")
+        explanation_text = wx.TextCtrl(right_box, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP)
+        name_for_screen_readers(explanation_text, "Explanation")
         right_sizer.Add(explanation_text, 1, wx.EXPAND | wx.ALL, 5)
         row.Add(right_sizer, 1, wx.EXPAND | wx.ALL, 5)
         sizer.Add(row, 1, wx.EXPAND)
 
         # Below both: Change Setting, so it comes after the explanation in Tab order.
-        change_button = wx.Button(panel, label="&Change Setting")
+        # No Alt letter: there is one of these on every settings tab, and a letter
+        # repeated in one dialog cycles focus instead of pressing (hidden notebook
+        # pages share the namespace; docs/KEYBOARD_SHORTCUTS.md). Enter on the
+        # list opens the same editor.
+        change_button = wx.Button(panel, label="Change Setting")
         change_button.Enable(False)
         change_button.Bind(wx.EVT_BUTTON, lambda e: self.change_setting(category, e))
         change_button.Bind(wx.EVT_KEY_DOWN, lambda e: self._on_change_button_key(category, e))

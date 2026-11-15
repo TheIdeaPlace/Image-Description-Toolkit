@@ -7,13 +7,17 @@ Configure dialog keyboard access (reported by Kelly with JAWS, 11/15/2026).
 * Each setting's explanation sat in a box Tab could never reach (focus was
   bounced back to the list), so it was only heard after opening Change Setting.
   Help paragraphs on other tabs were static text, also unreachable by Tab.
+
+These test which code path each key takes. That one press moves exactly one tab
+in Windows' own tab control is a hands-on check with a real keyboard: posted key
+messages don't reach an inactive dialog's handler, and real keystrokes would
+interrupt whoever is using the PC.
 """
 from __future__ import annotations
 
 import os
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -28,12 +32,14 @@ def dialog():
         if os.environ.get("IDT_REQUIRE_WX") == "1":
             raise RuntimeError(f"IDT_REQUIRE_WX=1 but wxPython is missing: {exc}") from exc
         pytest.skip("wxPython is not installed")
+    saved_path = list(sys.path)
     sys.path[:0] = [str(_ROOT), str(_ROOT / "imagedescriber")]
     app = wx.App(False)  # noqa: F841 - must exist while the dialog does
     import configure_dialog
     dlg = configure_dialog.ConfigureDialog(None)
     yield dlg, configure_dialog, wx
     dlg.Destroy()
+    sys.path[:] = saved_path
 
 
 def _focusable(win, wx):
@@ -65,16 +71,48 @@ class _Key:
         self.skipped = skip
 
 
-def test_arrows_on_the_tabs_are_left_to_windows(dialog, monkeypatch):
+def test_left_and_right_on_the_tabs_are_left_to_windows(dialog, monkeypatch):
     dlg, cfg, wx = dialog
     monkeypatch.setattr(cfg.platform, "system", lambda: "Windows")
     monkeypatch.setattr(wx.Window, "FindFocus", staticmethod(lambda: dlg.notebook))
     dlg.notebook.SetSelection(0)
-    for code in (wx.WXK_RIGHT, wx.WXK_LEFT, wx.WXK_DOWN, wx.WXK_UP):
+    for code in (wx.WXK_RIGHT, wx.WXK_LEFT):
         key = _Key(code)
         dlg.on_notebook_char(key)
         assert key.skipped, "the key must reach the native tab control"
         assert dlg.notebook.GetSelection() == 0, "the dialog must not move the tab as well"
+
+
+def test_up_and_down_move_one_tab_on_windows_and_stop_there(dialog, monkeypatch):
+    """Windows' tab control ignores Up and Down, so the dialog moves the tab, and
+    does not pass the key on (in case a control ever does take them)."""
+    dlg, cfg, wx = dialog
+    monkeypatch.setattr(cfg.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(wx.Window, "FindFocus", staticmethod(lambda: dlg.notebook))
+    dlg.notebook.SetSelection(0)
+    down = _Key(wx.WXK_DOWN)
+    dlg.on_notebook_char(down)
+    assert dlg.notebook.GetSelection() == 1 and not down.skipped
+    up = _Key(wx.WXK_UP)
+    dlg.on_notebook_char(up)
+    assert dlg.notebook.GetSelection() == 0 and not up.skipped
+
+
+def test_enter_on_the_tab_bar_goes_to_the_settings_list(dialog, monkeypatch):
+    """It went past the list (inside a group box) to Change Setting."""
+    dlg, cfg, wx = dialog
+    monkeypatch.setattr(wx.Window, "FindFocus", staticmethod(lambda: dlg.notebook))
+    index = [dlg.notebook.GetPageText(i) for i in range(dlg.notebook.GetPageCount())].index("Generation")
+    dlg.notebook.SetSelection(index)
+    page = dlg.notebook.GetPage(index)
+    assert cfg.first_tab_stop(page) is dlg.category_widgets["Generation"]["settings_list"]
+
+
+def test_change_setting_has_no_alt_letter(dialog):
+    """One per settings tab: a repeated letter in one dialog cycles focus."""
+    dlg, cfg, wx = dialog
+    for widgets in dlg.category_widgets.values():
+        assert "&" not in widgets["change_button"].GetLabel()
 
 
 def test_arrows_still_move_tabs_on_macos(dialog, monkeypatch):
@@ -105,10 +143,25 @@ def test_the_explanation_keeps_focus(dialog):
 def test_the_explanation_follows_the_selection(dialog):
     dlg, cfg, wx = dialog
     widgets = dlg.category_widgets["Generation"]
-    widgets["settings_list"].SetSelection(1)
-    dlg.on_setting_selected("Generation", None)
-    assert "wording" in widgets["explanation_text"].GetValue()       # Ollama temperature
-    assert widgets["explanation_text"].IsEditable() is False
+    box = widgets["explanation_text"]
+    for index in (1, 0):
+        widgets["settings_list"].SetSelection(index)
+        dlg.on_setting_selected("Generation", None)
+        name = widgets["settings_list"].GetClientData(index)
+        expected = dlg.settings_metadata["Generation"][name]["description"]
+        assert box.GetValue().startswith(expected), name
+    assert box.IsEditable() is False
+    assert box.GetName() == "Explanation"
+
+
+def test_help_boxes_fit_their_text(dialog):
+    """No hidden last lines: tall enough for the text at the real font size."""
+    dlg, cfg, wx = dialog
+    text = "word " * 200
+    box = cfg.readable_text(dlg, text, "test", width=300)
+    per_line = (300 - 16) // box.GetCharWidth()
+    assert box.GetMinSize().height >= box.GetCharHeight() * (len(text) // per_line)
+    box.Destroy()
 
 
 def test_help_paragraphs_are_reachable_by_tab(dialog):
