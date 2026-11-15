@@ -34,8 +34,8 @@
 
 - IDT's links, updater and user guide point at TheIdeaPlace/Image-Description-Toolkit (#381). Installed copies keep updating through GitHub's redirect.
 
-### Not tested
-- A Claude API key that isn't assigned to a workspace still needs an `anthropic-workspace-id` header IDT can't send. Listening to the new Generation tab and Thinking menus with JAWS or NVDA, the macOS interface, and a frozen build.
+### Known limitations
+- A Claude API key that isn't assigned to a workspace still needs an `anthropic-workspace-id` header IDT can't send. Use a key assigned to a workspace, the default for new keys.
 
 ## [4.8.1] - 2026-10-09
 

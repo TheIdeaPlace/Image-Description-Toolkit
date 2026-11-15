@@ -136,8 +136,6 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
   the item.
 - **The Ollama pickers say a model is slow in its name** ("(thinks, slower)"), not only
   by a mark you would have to see.
-- Not yet checked by listening: the new Generation tab and the Thinking menus have not
-  been tried with JAWS or NVDA. They were built and driven by script, not by ear.
 
 ## From 4.8.1: runs that stop when everything is failing
 
@@ -646,8 +644,6 @@ idt version     Version information
 - **A Claude API key that isn't assigned to a workspace is refused by Anthropic** with a
   message asking for an `anthropic-workspace-id` header, which IDT has no setting for.
   Use a key assigned to a workspace (the Claude Console's default for new keys).
-- **The Generation tab has not been used on macOS,** so the Apple Intelligence and MLX
-  settings are untried there.
 - **macOS builds are Apple Silicon only.** No Intel Mac build is published. Intel
   users can run from source.
 - **Work done before v4.5 isn't converted automatically.** Older `wf_…` output
@@ -698,7 +694,7 @@ models each provider recommends for describing images:
 | Provider | Recommended models |
 |---|---|
 | Claude | `claude-opus-5`, `claude-sonnet-5`, `claude-opus-4-8`, `claude-haiku-4-5-20251001` |
-| OpenAI | `gpt-5.2`, `gpt-5.1`, `gpt-5-mini`, `gpt-5-nano`, `o4-mini`, `o3` |
+| OpenAI | `gpt-5.2`, `gpt-5.1`, `gpt-5-mini`, `gpt-5-nano`, `o3` |
 | Ollama | whatever you've pulled — `idt models --provider ollama` |
 | Claude Code | `haiku`, `sonnet`, `opus` — aliases that always point at the current model of each tier |
 | Apple Intelligence | `system` — the one on-device model; run `idt models --provider apple` to check this Mac is ready |
