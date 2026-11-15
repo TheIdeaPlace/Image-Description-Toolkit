@@ -17,16 +17,17 @@ no uploading your photos anywhere.
 |---|---|---|
 | **`ImageDescriptionToolkitSetup-4.9.0-windows.exe`** | Windows 10/11, 64-bit | **Start here.** Installs all three applications. |
 | **`IDT-4.9.0-macos-arm64.dmg`** | macOS, Apple Silicon | **Start here.** Contains all three. |
-| `idt-4.9.0-windows-x64.exe` | Windows | Just the command-line tool, no installer |
-| `ImageDescriber-4.9.0-windows-x64.exe` | Windows | Just the image GUI, no installer |
-| `IDTChat-4.9.0-windows-x64.exe` | Windows | Just the chat client, no installer |
+| `idt-4.9.0-windows-x64.zip` | Windows | Just the command-line tool, no installer |
+| `ImageDescriber-4.9.0-windows-x64.zip` | Windows | Just the image GUI, no installer |
+| `IDTChat-4.9.0-windows-x64.zip` | Windows | Just the chat client, no installer |
 | `idt-4.9.0-macos-arm64.tar.gz` | macOS | Just the command-line tool |
 | `SHA256SUMS.txt` | — | Checksums, if you want to verify your download |
 
 No Python, no dependencies. The Windows installer is signed; the macOS build is signed
 and notarized by Apple.
 
-The standalone `.exe` files are for people who want one tool and no installer. Most
+The standalone zips are for people who want one tool and no installer. Each holds a
+folder: unzip it and run the `.exe` inside, keeping the `-lib` folder next to it. Most
 people want the installer, which puts all three on the Start menu.
 
 ---
@@ -91,6 +92,24 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 
 ### Fixed
 
+- **Closing ImageDescriber or IDT Chat on Windows no longer leaves a "Warning" box
+  behind.** After the window closed, a box titled "Warning" said *Failed to remove
+  temporary directory*, and each close left another `_MEI` folder in your Temp folder.
+  Each Windows app now installs as its `.exe` plus a folder of its libraries, which also
+  makes them start faster. Folders left in Temp by earlier versions can be deleted when no
+  IDT app is running: they are the `_MEI…` folders in `%TEMP%`.
+- **Saving a large workspace after a few new descriptions rewrote every picture.** With a
+  12,911-picture library, adding two descriptions and pressing Save processed all 12,911.
+  A save now writes only the pictures that changed since the workspace was opened or last
+  saved, and a save with nothing changed finishes at once, with no progress window.
+- **The Process dialog took several seconds to open** (8 to 21 seconds on a Surface
+  Laptop). Every request to Ollama went to `localhost`, which Windows tries over IPv6 first;
+  Ollama listens on IPv4, so each request waited 2 seconds. IDT now uses `127.0.0.1`, and
+  an address you've set to `localhost` is changed the same way. The dialog opens in about
+  half a second. If you set Ollama up to listen only on IPv6, set the address to
+  `http://[::1]:11434`.
+- **The default provider list offered Apple Intelligence on Windows** (and Windows AI on a
+  Mac). Each is now listed only where it can run.
 - **`idt describe --provider openai` failed on every image with the default model.** It
   sent `max_tokens`, which `gpt-5.2` and OpenAI's other reasoning models reject ("Use
   'max_completion_tokens' instead"). It now sends `max_completion_tokens`. Checked live
@@ -127,6 +146,15 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 
 ### For screen reader users
 
+- **Arrowing along the Configure dialog's tabs reaches every tab.** On Windows each
+  press of Left or Right moved two tabs, so after the first pass only half the tabs
+  could be reached. One press now moves one tab, and Up and Down move between tabs too.
+  Enter on a tab goes to that tab's settings list.
+- **Each setting's explanation can be reached with Tab.** In the Configure dialog, Tab
+  from the settings list goes to a read-only **Explanation** box for the selected
+  setting, which you can read line by line, then to **Change Setting**. Before, the
+  explanation was only heard after opening Change Setting. The help paragraphs on the
+  API Keys and Workspace tabs are read-only text boxes reachable by Tab as well.
 - **Generation settings are a list with a single tab stop,** like the rest of the
   Configure dialog. A number you type that can't be used gets a message box saying what
   to enter, not help text, because JAWS doesn't read help text when a control gets
@@ -641,6 +669,10 @@ idt version     Version information
 
 ## Known limitations
 
+- **In ImageDescriber, File → Save doesn't save chats in a workspace that was already
+  saved** ([#403](https://github.com/TheIdeaPlace/Image-Description-Toolkit/issues/403)).
+  A chat started or continued there is lost when the workspace is closed. **File → Save
+  As** to a new name keeps them.
 - **A Claude API key that isn't assigned to a workspace is refused by Anthropic** with a
   message asking for an `anthropic-workspace-id` header, which IDT has no setting for.
   Use a key assigned to a workspace (the Claude Console's default for new keys).

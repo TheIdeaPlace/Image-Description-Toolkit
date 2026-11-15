@@ -10,6 +10,16 @@ Issue #392 fixed in three merged PRs, plus release prep for 4.9.0 (this PR).
 | #394 | OpenAI, Claude, Claude Code, Apple mappings; `note_dropped` / `send_with_fallback`; fixes: CLI OpenAI `max_tokens`, GUI 300-token cap, Claude `content[0]`, blank answers saved, refusals halting runs, CLI Claude image size, 16 attempts per image, OpenAI chat temperature |
 | #395 | Configure → Generation tab (per-provider, Automatic everywhere), Chat → Thinking / Session → Thinking, chat thinking for Claude/OpenAI/Claude Code, "(thinks, slower)" picker flags with no network calls, legacy `model_settings` removed |
 
+Then, from Kelly's testing on 11/15:
+
+| PR | What |
+|---|---|
+| #401 | Configure dialog: Left/Right moved two tabs on Windows (the dialog moved the tab and passed the key to the native control too); Up/Down now move one; Enter reaches the settings list; explanations and help paragraphs are read-only TextCtrls reachable by Tab |
+| #402 | Ollama at 127.0.0.1 (`localhost` cost 2 s per request on Windows; Process dialog 21 s → 0.5 s); saves write only changed items (fingerprint record per workspace); Apple/Windows AI offered only on their platform |
+| #404 | Windows apps are PyInstaller folder builds (`<App>.exe` + `<app>-lib`): one-file GUIs showed "Failed to remove temporary directory" on close and left `%TEMP%\_MEI*` behind. Standalone downloads are zips. config_loader labels `_MEIPASS` files `bundled` before the exe-folder check (`_MEIPASS` is now inside it) |
+
+Filed: #403 (File → Save never writes chats in an existing bundle; pre-existing).
+
 ## Decisions
 
 - Legacy `model_settings` / `prompt_model_settings` stay unread (tuned for 2025 models; `num_predict: 500` truncates current ones). New settings: `"generation"` → provider → setting.
@@ -29,5 +39,6 @@ Full suite 2,424 passed / 47 skipped on Windows; CI green on Windows and macOS f
 ## Not tested
 
 - (Both APIs were tested live later, once Kelly added OpenAI credit: the old `max_tokens` request returns a 400 on `gpt-5.2`; `gpt-4o-mini`, `gpt-5-nano`, `gpt-5-mini` and `gpt-5.2` described with automatic, thinking off and temperature; `gpt-5-nano` reasoning went from 384 tokens to 0 with thinking off; `gpt-5.2` reasons 0 tokens by default, confirming "none" is its default; `o4-mini` is deprecated (404). Claude was tested live once Kelly replaced the key: Haiku 5.5, Sonnet 5.5, Opus 5.5 and Haiku 4.5, automatic / thinking off / on / temperature, all described; Opus 5.5 replies start with a thinking block, confirming the `content[0]` bug. The first key wasn't assigned to a workspace and Anthropic refused it without an `anthropic-workspace-id` header.)
-- JAWS / NVDA listening, macOS UI, frozen build.
+- JAWS / NVDA listening (Kelly is testing), macOS UI.
+- Folder builds: checked from CI's artifacts (all three close with no warning and no new `_MEI` folder); not checked with Smart App Control on, where the unsigned libraries in a zip extracted by Explorer might be blocked.
 - `test_model_refresh.py::test_concurrent_refreshes_fetch_once` failed once under `-n 4` and passed alone; flaky, unrelated.

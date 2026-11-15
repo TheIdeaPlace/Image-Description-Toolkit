@@ -21,6 +21,11 @@
 
 ### 🐛 Bug Fixes
 
+- Closing ImageDescriber or IDT Chat on Windows left a "Warning" box, "Failed to remove temporary directory", and another `%TEMP%\_MEI…` folder each time. The Windows apps are now PyInstaller folder builds (each `.exe` with its own `-lib` folder) instead of one-file exes, so nothing is unpacked to Temp (#404). The standalone Windows downloads are now `.zip` files.
+- Saving a workspace wrote every item, so two new descriptions in a 12,911-picture library meant a 12,911-item save. A save now writes only items changed since the workspace was opened or last saved (#402).
+- The Process dialog took 8 to 21 seconds to open: requests to Ollama at `localhost` waited 2 seconds each for Windows to give up on IPv6. IDT now uses `127.0.0.1`, also for a `localhost` address in settings (#402).
+- The default provider choices offered Apple Intelligence on Windows and Windows AI on a Mac (#402).
+- In the Configure dialog on Windows, Left and Right moved two tabs per press, so half the tabs were unreachable after the first pass; Up and Down did nothing. Each setting's explanation, and the help on the API Keys and Workspace tabs, is now in a read-only box reachable by Tab (#401).
 - `idt describe --provider openai` sent `max_tokens`, which OpenAI's reasoning models reject (the default model is `gpt-5.2`). It now sends `max_completion_tokens`. Confirmed live: the old request fails with a 400 on `gpt-5.2`, and the new one describes with `gpt-4o-mini`, `gpt-5-nano`, `gpt-5-mini` and `gpt-5.2`, with thinking off and with a temperature (dropped for reasoning models).
 - ImageDescriber capped most OpenAI models at 300 tokens and Claude at 1,024, cutting detailed descriptions short. Both are now 4,096, and what counts as an OpenAI reasoning model no longer depends on a list of name prefixes.
 - Claude Opus 5.5 descriptions failed through the Claude API: both the command line and ImageDescriber read the first part of Claude's reply as text, and Opus 5.5 always sends a reasoning block first, with no text. They now join the text parts. Checked live with Haiku 5.5, Sonnet 5.5, Opus 5.5 and Haiku 4.5, including thinking on and off.
@@ -35,6 +40,7 @@
 - IDT's links, updater and user guide point at TheIdeaPlace/Image-Description-Toolkit (#381). Installed copies keep updating through GitHub's redirect.
 
 ### Known limitations
+- File → Save doesn't write chats in a workspace that was already saved (#403).
 - A Claude API key that isn't assigned to a workspace still needs an `anthropic-workspace-id` header IDT can't send. Use a key assigned to a workspace, the default for new keys.
 
 ## [4.8.1] - 2026-10-09
