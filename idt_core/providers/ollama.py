@@ -1,6 +1,6 @@
 """
 Ollama provider — local models (llava, qwen2-vl, llama3.2-vision, etc.)
-Connects to a running Ollama instance; default host is localhost:11434.
+Connects to a running Ollama instance; default host is 127.0.0.1:11434.
 """
 from __future__ import annotations
 
@@ -22,7 +22,39 @@ except ImportError:
         from config import DEFAULT_OLLAMA_MODEL as DEFAULT_MODEL        # frozen
     except ImportError:
         DEFAULT_MODEL = "llama3.2-vision"                               # fallback
-DEFAULT_HOST = "http://localhost:11434"
+#: 127.0.0.1, not "localhost". On Windows "localhost" resolves to IPv6 ::1 first,
+#: and Ollama listens on IPv4 127.0.0.1 only, so every request waited out a
+#: failed IPv6 connection: 2.06 s against 0.024 s, measured on a Surface Laptop 7
+#: (11/2026). ImageDescriber's Process dialog makes several requests to open,
+#: which is why it took seconds to appear.
+DEFAULT_HOST = "http://127.0.0.1:11434"
+
+
+def normalize_host(host: Optional[str]) -> Optional[str]:
+    """``host`` with a ``localhost`` host name replaced by 127.0.0.1 (see
+    DEFAULT_HOST); anything else unchanged. ``None`` stays ``None`` (the SDK's own
+    default, which is already 127.0.0.1) unless ``OLLAMA_HOST`` names localhost,
+    in which case the corrected address is returned instead.
+    """
+    if host is None:
+        env = os.environ.get("OLLAMA_HOST", "")
+        if "localhost" not in env.lower():
+            return None
+        host = env
+    text = host.strip()
+    if not text:
+        return host
+    with_scheme = text if "://" in text else f"http://{text}"
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(with_scheme)
+    if (parts.hostname or "").lower() != "localhost":
+        return host
+    netloc = "127.0.0.1" + (f":{parts.port}" if parts.port else "")
+    if parts.username:
+        netloc = f"{parts.username}{':' + parts.password if parts.password else ''}@{netloc}"
+    fixed = urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+    return fixed if "://" in text else fixed.split("://", 1)[1]
 
 # (host, model) -> the /api/show payload, or None when the probe failed.
 #
@@ -50,7 +82,7 @@ def _resolve_host(host: Optional[str]) -> str:
     localhost is what made remote-Ollama users silently fall back to a 32k
     context window while their chat turns went to the real server.
     """
-    resolved = (host or os.environ.get("OLLAMA_HOST") or DEFAULT_HOST).strip()
+    resolved = normalize_host(host or os.environ.get("OLLAMA_HOST") or DEFAULT_HOST).strip()
     if not resolved.startswith(("http://", "https://")):
         resolved = f"http://{resolved}"
     return resolved.rstrip("/")
@@ -422,6 +454,7 @@ class OllamaProvider(BaseProvider):
         # None means "let the SDK decide", which is how OLLAMA_HOST reaches us.
         # Hardcoding localhost here sent every capability/context probe to the
         # local daemon while the chat turns themselves went to the real server.
+        host = normalize_host(host)
         self._host = host.rstrip("/") if host else None
         #: User and caller settings, layered over DESCRIBE_DEFAULTS per request.
         self._options = options or GenerationOptions()

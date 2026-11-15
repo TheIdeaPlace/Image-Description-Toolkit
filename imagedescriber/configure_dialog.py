@@ -215,6 +215,29 @@ def normalise_generation_section(config: Optional[Dict[str, Any]]) -> None:
         del config[CONFIG_KEY]
 
 
+def default_provider_choices(system: Optional[str] = None):
+    """``(choices, description)`` for the default provider, for this platform.
+
+    Apple Intelligence runs only on a Mac and Windows AI only on Windows, so each
+    is offered only there: both were listed everywhere, and choosing the other
+    platform's one just failed later.
+    """
+    system = system or platform.system()
+    choices = ["ollama", "openai", "claude", "claude-code"]
+    description = ("Default AI provider to use when processing images. Ollama runs locally, "
+                   "OpenAI and Claude require API keys, and claude-code uses your Claude "
+                   "subscription through the Claude Code app (sign in with 'claude auth login').")
+    if system == "Darwin":
+        choices.append("apple")
+        description += (" apple runs Apple Intelligence on this Mac (macOS 27; accept the terms "
+                        "once with 'sudo fm license').")
+    elif system == "Windows":
+        choices.append("windows-ai")
+        description += (" Windows-AI runs Windows' own model on a Copilot+ PC (it takes no "
+                        "prompt; its models are kinds of description).")
+    return choices, description
+
+
 def _remove_path(config: Dict[str, Any], path: List[str]) -> None:
     """Delete ``path`` from nested dicts, then any parents it leaves empty."""
     parents = []
@@ -754,17 +777,18 @@ class ConfigureDialog(wx.Dialog):
         """Build metadata for all settings organized by category"""
         # Get available Ollama models for default_model choice list
         ollama_models = self._get_ollama_models()
-        
+        provider_choices, provider_description = default_provider_choices()
+
         return {
             "AI Model Settings": {
                 "default_provider": {
                     "file": "image_describer",
                     "path": ["default_provider"],
                     "type": "choice",
-                    "choices": ["ollama", "openai", "claude", "claude-code", "apple", "windows-ai"],
+                    "choices": provider_choices,
                     # Shown as typed: a screen reader says a lowercase "ai" as a word.
                     "choice_labels": {"windows-ai": typed_provider_name("windows-ai")},
-                    "description": "Default AI provider to use when processing images. Ollama runs locally, OpenAI and Claude require API keys, claude-code uses your Claude subscription through the Claude Code app (sign in with 'claude auth login'), apple runs Apple Intelligence on this Mac (macOS 27; accept the terms once with 'sudo fm license'), and Windows-AI runs Windows' own model on a Copilot+ PC (it takes no prompt; its models are kinds of description)."
+                    "description": provider_description
                 },
                 "default_model": {
                     "file": "image_describer",

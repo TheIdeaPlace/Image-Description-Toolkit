@@ -285,8 +285,8 @@ def _provider_args(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--model", metavar="NAME", help="Model name")
     p.add_argument(
-        "--ollama-host", metavar="URL", default="http://localhost:11434",
-        help="Ollama server URL (default: http://localhost:11434)",
+        "--ollama-host", metavar="URL", default="http://127.0.0.1:11434",
+        help="Ollama server URL (default: http://127.0.0.1:11434)",
     )
     _generation_args(p)
 
@@ -3028,7 +3028,7 @@ Supported providers:
     p_models.add_argument("--provider", type=_provider_arg, metavar=_PROVIDER_METAVAR,
                           help="Show only this provider")
     p_models.add_argument("--ollama-host", metavar="URL",
-                          default="http://localhost:11434")
+                          default="http://127.0.0.1:11434")
     p_models.add_argument("--json", dest="json_out", action="store_true",
                           help="Output as JSON")
     p_models.add_argument("--refresh", action="store_true",

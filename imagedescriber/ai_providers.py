@@ -663,11 +663,22 @@ class AIProvider(ABC):
         pass
 
 
+def _ollama_url(base_url: str) -> str:
+    """``base_url`` with "localhost" replaced by 127.0.0.1 (see idt_core)."""
+    try:
+        from idt_core.providers.ollama import normalize_host
+        return normalize_host(base_url) or base_url
+    except Exception:                                               # noqa: BLE001
+        return base_url
+
+
 class OllamaProvider(AIProvider):
     """Ollama provider for local AI models"""
     
-    def __init__(self, base_url: str = "http://localhost:11434"):
-        self.base_url = base_url
+    def __init__(self, base_url: str = "http://127.0.0.1:11434"):
+        # 127.0.0.1, never "localhost": on Windows "localhost" tries IPv6 first
+        # and every request waited 2 s for it to fail (idt_core.providers.ollama).
+        self.base_url = _ollama_url(base_url)
         # Describe requests time out in idt_core's provider
         # (OllamaProvider.DESCRIBE_TIMEOUT_SECONDS); listing uses its own.
         self._models_cache = None
@@ -1484,8 +1495,8 @@ class ClaudeProvider(AIProvider):
 class OllamaCloudProvider(AIProvider):
     """Ollama Cloud provider for large cloud-hosted models"""
     
-    def __init__(self, base_url: str = "http://localhost:11434"):
-        self.base_url = base_url
+    def __init__(self, base_url: str = "http://127.0.0.1:11434"):
+        self.base_url = _ollama_url(base_url)
         self.last_usage = None  # copied from the OllamaProvider it delegates to
         self._models_cache = None
         self._models_cache_time = 0
