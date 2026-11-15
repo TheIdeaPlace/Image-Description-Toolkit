@@ -71,6 +71,130 @@ def get_openai_model_info(model_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Generation settings (issue #392)
+# ---------------------------------------------------------------------------
+
+def is_reasoning_model(model_id: str) -> bool:
+    """True for OpenAI's reasoning families: the o-series and GPT-5 onward.
+
+    They reason before answering, count that against the output cap, accept
+    ``reasoning_effort``, and reject a non-default ``temperature``/``top_p``.
+    A rule rather than a list, so gpt-6 and later models are covered on the
+    day they appear in the live catalog; send_with_fallback catches the cases
+    a rule gets wrong.
+    """
+    import re
+
+    name = (model_id or "").lower()
+    if re.match(r"o\d", name):
+        return True
+    match = re.match(r"gpt-(\d+)", name)
+    return bool(match) and int(match.group(1)) >= 5
+
+
+#: Description cap when the user sets none. Reasoning counts against it, so it
+#: has to leave room: ImageDescriber's old 300 cut descriptions off, and its
+#: 1500 was measured against a 192-token reasoning budget at default effort.
+DESCRIBE_MAX_OUTPUT_TOKENS = 4096
+
+#: Parameters dropped and retried without when the API rejects them.
+OPTIONAL_PARAMS = ("temperature", "top_p", "reasoning_effort")
+
+
+def describe_request_params(model: str, opts) -> dict:
+    """Chat-completions keyword arguments (all but ``messages``) for a description.
+
+    Shared by idt_core's provider and ImageDescriber's, so the two cannot drift
+    apart again: the CLI sent ``max_tokens`` -- which reasoning models reject --
+    while ImageDescriber capped other models at 300 tokens.
+    """
+    from ..generation import THINKING_OFF, GenerationOptions, note_dropped
+
+    opts = opts or GenerationOptions()
+    reasoning = is_reasoning_model(model)
+    # max_completion_tokens, never max_tokens: every current chat model takes
+    # it, and reasoning models reject max_tokens outright.
+    params = {"model": model,
+              "max_completion_tokens": opts.max_output_tokens or DESCRIBE_MAX_OUTPUT_TOKENS}
+    for setting in ("temperature", "top_p"):
+        value = getattr(opts, setting)
+        if value is None:
+            continue
+        if reasoning:
+            note_dropped("openai", model, setting,
+                         "reasoning models accept only their default")
+        else:
+            params[setting] = value
+    for setting in ("top_k", "repeat_penalty"):
+        if getattr(opts, setting) is not None:
+            note_dropped("openai", model, setting, "OpenAI has no such setting")
+
+    effort = opts.effort
+    if effort is None and opts.thinking == THINKING_OFF and reasoning:
+        # OpenAI reasoning cannot be switched off; "low" is the least every
+        # reasoning model accepts ("minimal" and "none" depend on the model).
+        effort = "low"
+    if effort == "minimal" and not _takes_minimal_effort(model):
+        # Only the original GPT-5 models take "minimal". Elsewhere it would be
+        # rejected and the request resent at the default -- slower than asked.
+        effort = "low"
+    if effort is not None:
+        if reasoning:
+            params["reasoning_effort"] = effort
+        else:
+            note_dropped("openai", model, "effort", "the model does not reason")
+    elif opts.thinking is not None and not reasoning:
+        note_dropped("openai", model, "thinking", "the model does not reason")
+    if "temperature" in params and params["temperature"] > 2:
+        note_dropped("openai", model, "temperature", "OpenAI accepts 0 to 2")
+        params.pop("temperature")
+    extra = dict(opts.extra or {})
+    if extra:
+        # Request body, not SDK keyword arguments: an unknown keyword is a
+        # TypeError that fails every image (see claude._extra_body).
+        params["extra_body"] = extra
+    return params
+
+
+def _takes_minimal_effort(model_id: str) -> bool:
+    """gpt-5, gpt-5-mini, gpt-5-nano and their dated snapshots."""
+    import re
+
+    return bool(re.match(r"gpt-5(-mini|-nano)?(-\d{4}-\d{2}-\d{2})?$", (model_id or "").lower()))
+
+
+def empty_answer_error(model: str, choice, cap: int, hidden: Optional[int]) -> Exception:
+    """The error for a choice with no description text, by why it stopped.
+
+    Every empty answer is an error: saving the blank would mark the picture
+    described. A refusal or content filter is about the picture, so it is a
+    DeclinedError, which the pipeline remembers and does not stop the run on.
+    """
+    from .base import DeclinedError, EmptyAnswerError
+
+    finish_reason = getattr(choice, "finish_reason", None)
+    refusal = getattr(getattr(choice, "message", None), "refusal", None)
+    if refusal or finish_reason == "content_filter":
+        return DeclinedError(f"OpenAI ({model}) declined to describe this picture"
+                             + (f": {refusal}" if refusal else "."))
+    if finish_reason == "length":
+        return EmptyAnswerError(
+            f"OpenAI ({model}) used its whole output allowance ({cap} tokens"
+            + (f", {hidden} of them reasoning" if hidden else "")
+            + ") before writing a description. Raise the output limit or lower the "
+              "reasoning effort in the generation settings.")
+    return EmptyAnswerError(
+        f"OpenAI ({model}) returned no description (finish reason: {finish_reason or 'none'}).")
+
+
+def reasoning_tokens(usage) -> Optional[int]:
+    """Hidden reasoning tokens from a chat-completions usage object, or None."""
+    details = getattr(usage, "completion_tokens_details", None)
+    value = getattr(details, "reasoning_tokens", None) if details is not None else None
+    return value if isinstance(value, int) else None
+
+
+# ---------------------------------------------------------------------------
 # Live listing
 # ---------------------------------------------------------------------------
 #
@@ -256,7 +380,8 @@ def list_models_live(client=None, api_key: Optional[str] = None,
 
 
 class OpenAIProvider(BaseProvider):
-    def __init__(self, model: str = DEFAULT_MODEL, api_key: Optional[str] = None):
+    def __init__(self, model: str = DEFAULT_MODEL, api_key: Optional[str] = None,
+                 options=None):
         try:
             from openai import OpenAI  # noqa: F401
         except ImportError:
@@ -265,6 +390,8 @@ class OpenAIProvider(BaseProvider):
             )
         from openai import OpenAI
         self._model = model
+        #: GenerationOptions; None means automatic.
+        self._options = options
         # api_key=None → SDK reads OPENAI_API_KEY from environment
         self._client = OpenAI(api_key=api_key)
 
@@ -277,28 +404,40 @@ class OpenAIProvider(BaseProvider):
         return self._model
 
     def describe(self, image_bytes: bytes, mime_type: str, prompt: str) -> DescriptionResult:
+        from ..generation import send_with_fallback, with_extra_body
+
         b64 = base64.standard_b64encode(image_bytes).decode("ascii")
-        response = self._client.chat.completions.create(
-            model=self._model,
-            max_tokens=2048,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{mime_type};base64,{b64}"},
-                        },
-                        {"type": "text", "text": prompt},
-                    ],
-                }
-            ],
-        )
+        params = describe_request_params(self._model, self._options)
+        params["messages"] = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{b64}"},
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ]
+        response = send_with_fallback(self._client.chat.completions.create, params,
+                                      with_extra_body(OPTIONAL_PARAMS, params),
+                                      "openai", self._model)
         usage = response.usage
+        choice = response.choices[0]
+        text = choice.message.content or ""
+        finish_reason = getattr(choice, "finish_reason", None)
+        truncated = finish_reason == "length"
+        hidden = reasoning_tokens(usage)
+        if not text.strip():
+            raise empty_answer_error(self._model, choice, params["max_completion_tokens"],
+                                     hidden)
         return DescriptionResult(
-            text=response.choices[0].message.content,
+            text=text,
             model=self._model,
             provider="openai",
             input_tokens=usage.prompt_tokens if usage else None,
             output_tokens=usage.completion_tokens if usage else None,
+            thinking_tokens=hidden,
+            truncated=truncated,
         )

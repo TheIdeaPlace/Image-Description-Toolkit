@@ -202,6 +202,103 @@ def thinking_mode(flag: Optional[bool]) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Dropped settings and rejected parameters                                     #
+# --------------------------------------------------------------------------- #
+
+#: Notices go to a logger under idt_core.providers, which the run log captures
+#: while a run is open (idt_core/logger.py).
+_options_log = logging.getLogger("idt_core.providers.options")
+_NOTED: set = set()
+
+
+def note_dropped(provider: str, model: str, setting: str, reason: str) -> None:
+    """Log, once per (provider, model, setting), that a setting was not sent.
+
+    The promise this module makes is that a setting the provider or model
+    cannot take is skipped and the log says so -- never sent to fail the
+    request, never silently ignored.
+    """
+    key = (provider, model, setting)
+    if key in _NOTED:
+        return
+    _NOTED.add(key)
+    _options_log.info("%s %s: not sending %s (%s)", provider, model, setting, reason)
+
+
+# (provider, model, parameter) the API has rejected in this process, so later
+# requests leave it out instead of failing once per image.
+_REJECTED: set = set()
+
+
+def _is_rejection_of(exc: BaseException, needles) -> bool:
+    status = getattr(exc, "status_code", None)
+    if status not in (400, 422):
+        return False
+    text = str(exc)
+    return any(needle in text for needle in needles)
+
+
+def _as_needles(optional) -> dict:
+    return dict(optional) if isinstance(optional, Mapping) else {p: (p,) for p in optional}
+
+
+def with_extra_body(optional, params: dict) -> dict:
+    """``optional`` plus ``extra_body``, identified by its own keys.
+
+    Unknown settings from the user's file travel in ``extra_body``; if the API
+    rejects one, the request goes again without them rather than failing the
+    batch over a typo.
+    """
+    needles = _as_needles(optional)
+    extra = params.get("extra_body")
+    if extra:
+        needles["extra_body"] = tuple(str(k) for k in extra)
+    return needles
+
+
+#: Words in a 400 that mean a *value* was wrong rather than the parameter
+#: unsupported. Such a rejection is not remembered: once the user fixes the
+#: value, it should be sent again without restarting the app.
+_VALUE_PROBLEM_WORDS = ("unsupported value", "invalid value", "must be", "less than",
+                        "greater than", "out of range", "between")
+
+
+def send_with_fallback(call, params: dict, optional, provider: str, model: str):
+    """``call(**params)``, retrying without any optional parameter the API rejects.
+
+    Model capabilities change faster than IDT releases: OpenAI's reasoning
+    models reject ``temperature``, older Claude models reject ``effort``, and a
+    new model may reject something today's table says it takes. Rather than
+    trust a table, an optional parameter that comes back as a 400 naming it is
+    dropped (with a note) and the request sent again. Only the parameters in
+    ``optional`` are ever dropped; a 400 about anything else is raised.
+
+    ``optional`` is either parameter names, or a mapping of parameter name to
+    the words that identify it in an error (``{"output_config": ("effort",
+    "output_config")}``), for APIs that name a nested field.
+    """
+    needles = _as_needles(optional)
+    params = dict(params)
+    for parameter in needles:
+        if (provider, model, parameter) in _REJECTED and parameter in params:
+            params.pop(parameter)
+    while True:
+        try:
+            return call(**params)
+        except Exception as exc:                                 # noqa: BLE001
+            culprit = next((p for p, words in needles.items()
+                            if p in params and _is_rejection_of(exc, words)), None)
+            if culprit is None:
+                raise
+            text = str(exc).lower()
+            if not any(word in text for word in _VALUE_PROBLEM_WORDS):
+                _REJECTED.add((provider, model, culprit))
+            _options_log.info("%s %s: sending again without %s, which was rejected: %s",
+                              provider, model, culprit, exc)
+            params.pop(culprit)
+
+
+# --------------------------------------------------------------------------- #
 # User settings                                                                #
 # --------------------------------------------------------------------------- #
 

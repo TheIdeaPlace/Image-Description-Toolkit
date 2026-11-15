@@ -121,38 +121,28 @@ def _resolve_model(provider: str, model: Optional[str],
     return model
 
 
-_GENERATION_DISPLAY_NAMES = {
-    "anthropic": "Claude", "claude-code": "Claude Code", "openai": "OpenAI",
-    "apple": "Apple Intelligence", "windows-ai": "Windows-AI", "ollama": "Ollama",
-}
-
-
 def _make_provider(provider: str, model: Optional[str], ollama_host: str,
                    options=None):
     """Instantiate the requested provider with a clear error if deps are missing.
 
     ``options`` is a GenerationOptions (saved settings plus command flags).
+    Each provider maps it onto what its models take, and notes in the run log
+    anything it had to leave out (issue #392).
     """
-    if options is not None and provider != "ollama" and not options.is_automatic():
-        # Ollama is the first provider wired to generation settings (#392).
-        # Display names, not keys: a screen reader says "windows-ai" as
+    if options is not None and provider == "windows-ai" and not options.is_automatic():
+        # "Windows-AI", not the key: a screen reader says "windows-ai" as
         # "windows eye" (see _provider_arg).
-        if provider == "windows-ai":
-            print("Note: Windows-AI takes no generation settings; they were ignored.",
-                  file=sys.stderr)
-        else:
-            name = _GENERATION_DISPLAY_NAMES.get(provider, provider)
-            print(f"Note: generation settings are not applied to {name} yet; "
-                  f"using its defaults.", file=sys.stderr)
+        print("Note: Windows-AI takes no generation settings; they were ignored.",
+              file=sys.stderr)
 
     if provider == "anthropic":
         from idt_core.providers.claude import ClaudeProvider, DEFAULT_MODEL
-        return ClaudeProvider(model=model or DEFAULT_MODEL)
+        return ClaudeProvider(model=model or DEFAULT_MODEL, options=options)
 
     if provider == "apple":
         from idt_core.providers.apple import AppleProvider, DEFAULT_MODEL
         try:
-            return AppleProvider(model=model or DEFAULT_MODEL)
+            return AppleProvider(model=model or DEFAULT_MODEL, options=options)
         except RuntimeError as exc:
             # Wrong macOS, no /usr/bin/fm, or the terms not accepted. All three
             # carry their own fix, so the message is printed as-is.
@@ -162,7 +152,7 @@ def _make_provider(provider: str, model: Optional[str], ollama_host: str,
     if provider == "claude-code":
         from idt_core.providers.claude_code import ClaudeCodeProvider, DEFAULT_MODEL
         try:
-            return ClaudeCodeProvider(model=model or DEFAULT_MODEL)
+            return ClaudeCodeProvider(model=model or DEFAULT_MODEL, options=options)
         except RuntimeError as exc:
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
@@ -192,7 +182,7 @@ def _make_provider(provider: str, model: Optional[str], ollama_host: str,
 
     if provider == "openai":
         from idt_core.providers.openai_provider import OpenAIProvider, DEFAULT_MODEL
-        return OpenAIProvider(model=model or DEFAULT_MODEL)
+        return OpenAIProvider(model=model or DEFAULT_MODEL, options=options)
 
     print(f"Unknown provider: {provider!r}", file=sys.stderr)
     print(f"Valid providers: {', '.join(_PROVIDER_CHOICES_SHOWN)}", file=sys.stderr)
@@ -312,7 +302,9 @@ def _generation_args(p: argparse.ArgumentParser) -> None:
                    default=None,
                    help="Let a reasoning model think before describing (slower)")
     g.add_argument("--no-think", dest="thinking", action="store_const", const="off",
-                   help="Ask a reasoning model not to think (the default for descriptions)")
+                   help="Ask a reasoning model not to think. The default for Ollama "
+                        "descriptions; for Claude and OpenAI, which cannot switch "
+                        "reasoning off, it means low effort")
     g.add_argument("--temperature", type=_non_negative_float, metavar="F",
                    help="Sampling temperature, 0 or more")
     g.add_argument("--max-tokens", type=_positive_int, metavar="N",

@@ -423,13 +423,23 @@ class TestCli:
         args = cli_main.build_parser().parse_args(["describe", "x", "--temperature", "0"])
         assert args.temperature == 0.0
 
-    def test_note_for_unwired_providers_uses_the_display_name(self, capsys, monkeypatch):
+    def test_every_provider_receives_the_settings(self, monkeypatch):
         from cli import main as cli_main
+        import idt_core.providers.claude as claude_mod
         import idt_core.providers.openai_provider as oai
-        monkeypatch.setattr(oai.OpenAIProvider, "__init__", lambda self, model=None: None)
-        cli_main._make_provider("openai", "gpt-5.2", "http://x",
-                                options=GenerationOptions(temperature=0.2))
-        assert "not applied to OpenAI yet" in capsys.readouterr().err
+        seen = {}
+
+        def capture(name):
+            def init(self, model=None, options=None, **kw):
+                seen[name] = options
+            return init
+
+        monkeypatch.setattr(oai.OpenAIProvider, "__init__", capture("openai"))
+        monkeypatch.setattr(claude_mod.ClaudeProvider, "__init__", capture("claude"))
+        opts = GenerationOptions(effort="low")
+        cli_main._make_provider("openai", "gpt-5.2", "http://x", options=opts)
+        cli_main._make_provider("anthropic", "claude-opus-5-5", "http://x", options=opts)
+        assert seen == {"openai": opts, "claude": opts}
 
     def test_windows_ai_note_says_settings_are_ignored(self, capsys, monkeypatch):
         from cli import main as cli_main
@@ -442,11 +452,13 @@ class TestCli:
         note = capsys.readouterr().err.splitlines()[0]
         assert note == "Note: Windows-AI takes no generation settings; they were ignored."
 
-    def test_no_note_when_everything_is_automatic(self, capsys, monkeypatch):
+    def test_no_note_for_providers_that_take_settings(self, capsys, monkeypatch):
         from cli import main as cli_main
         import idt_core.providers.openai_provider as oai
-        monkeypatch.setattr(oai.OpenAIProvider, "__init__", lambda self, model=None: None)
-        cli_main._make_provider("openai", "gpt-5.2", "http://x", options=GenerationOptions())
+        monkeypatch.setattr(oai.OpenAIProvider, "__init__",
+                            lambda self, model=None, options=None: None)
+        cli_main._make_provider("openai", "gpt-5.2", "http://x",
+                                options=GenerationOptions(temperature=0.2))
         assert "Note:" not in capsys.readouterr().err
 
 

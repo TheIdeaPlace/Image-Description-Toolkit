@@ -38,8 +38,28 @@ class DescriptionResult:
     #: None when the provider cannot tell. Explains slow images (issue #392):
     #: on a thinking model this is often most of ``output_tokens``.
     thinking_chars: Optional[int] = None
+    #: The same, counted in tokens, where the provider reports that instead
+    #: (OpenAI's reasoning_tokens). Hidden reasoning is billed as output.
+    thinking_tokens: Optional[int] = None
     #: True when the model stopped at the output cap, so the text is cut off.
     truncated: bool = False
+
+
+class DeclinedError(RuntimeError):
+    """The provider declined this one picture (a refusal or content filter).
+
+    ``per_image`` tells the pipeline it is about the picture, not a broken
+    provider: the run carries on, the picture is remembered as declined, and a
+    few of them in a row do not stop the batch (see pipeline._failure_event).
+    """
+
+    per_image = True
+    code = "declined"
+
+
+class EmptyAnswerError(RuntimeError):
+    """The provider returned no description text. Raised rather than saved:
+    a blank description would count the picture as described."""
 
 
 class BaseProvider(ABC):

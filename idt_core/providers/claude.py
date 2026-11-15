@@ -240,8 +240,102 @@ def _created_timestamp(model) -> float:
         return 0.0
 
 
+# ---------------------------------------------------------------------------
+# Generation settings (issue #392)
+# ---------------------------------------------------------------------------
+
+#: Description cap when the user sets none. On current models thinking is on
+#: by default and counts against max_tokens, so the old 1024/2048 left little
+#: room once the model had reasoned.
+DESCRIBE_MAX_OUTPUT_TOKENS = 4096
+
+#: Parameters dropped and retried without when a model rejects them, with the
+#: words that identify each in an error (effort is nested in output_config).
+OPTIONAL_PARAMS = {"output_config": ("effort", "output_config"),
+                   "thinking": ("thinking",)}
+
+_EFFORT_MAP = {"minimal": "low", "low": "low", "medium": "medium", "high": "high"}
+
+
+def describe_request_params(model: str, opts) -> dict:
+    """Messages-API keyword arguments (all but ``messages``) for a description.
+
+    Shared by idt_core's provider and ImageDescriber's. Claude's current API
+    takes no sampling settings (temperature/top_p/top_k return a 400), so those
+    are dropped with a note. Thinking cannot be switched off on current models
+    (``disabled`` is a 400 on Opus 5.5 and Sonnet 5.5); low effort is the
+    closest every model accepts, so "thinking off" means effort low.
+    """
+    from ..generation import THINKING_OFF, THINKING_ON, GenerationOptions, note_dropped
+
+    opts = opts or GenerationOptions()
+    params = {"model": model,
+              "max_tokens": opts.max_output_tokens or DESCRIBE_MAX_OUTPUT_TOKENS}
+    for setting in ("temperature", "top_p", "top_k"):
+        if getattr(opts, setting) is not None:
+            note_dropped("claude", model, setting,
+                         "Claude's API no longer takes sampling settings")
+    if opts.repeat_penalty is not None:
+        note_dropped("claude", model, "repeat_penalty", "Claude has no such setting")
+
+    effort = _EFFORT_MAP.get(opts.effort) if opts.effort else None
+    if opts.thinking == THINKING_ON:
+        params["thinking"] = {"type": "adaptive"}
+    elif opts.thinking == THINKING_OFF and effort is None:
+        effort = "low"
+    if effort:
+        params["output_config"] = {"effort": effort}
+    params.update(_extra_body(opts))
+    return params
+
+
+def response_text(message) -> str:
+    """The answer text of a Messages response: its text blocks, joined.
+
+    Not ``content[0].text``: with thinking on -- the default on current models
+    -- the first block is a thinking block, which has no ``text``.
+    """
+    parts = []
+    for block in getattr(message, "content", None) or []:
+        if getattr(block, "type", "text") == "text" and getattr(block, "text", None):
+            parts.append(block.text)
+    return "".join(parts)
+
+
+def empty_answer_error(model: str, stop_reason, max_tokens: int) -> Exception:
+    """The error for a response with no description text, by why it stopped.
+
+    Every empty answer is an error: saving the blank would mark the picture
+    described. A refusal is about the picture, so it is a DeclinedError.
+    """
+    from .base import DeclinedError, EmptyAnswerError
+
+    if stop_reason == "refusal":
+        return DeclinedError(f"Claude ({model}) declined to describe this picture.")
+    if stop_reason == "max_tokens":
+        return EmptyAnswerError(
+            f"Claude ({model}) used its whole output allowance ({max_tokens} tokens) "
+            f"thinking, before writing a description. Raise the output limit or "
+            f"lower the effort in the generation settings.")
+    return EmptyAnswerError(
+        f"Claude ({model}) returned no description (stop reason: {stop_reason or 'none'}).")
+
+
+def _extra_body(opts) -> dict:
+    """Unknown settings go in the request body, not as SDK keyword arguments.
+
+    ``create()`` has fixed keyword arguments, so an unknown one -- a typo, or
+    an Ollama option copied into this provider's section -- is a TypeError
+    that fails every image. In the body, the API answers with a 400 naming
+    the key, which send_with_fallback can act on.
+    """
+    extra = dict(getattr(opts, "extra", None) or {})
+    return {"extra_body": extra} if extra else {}
+
+
 class ClaudeProvider(BaseProvider):
-    def __init__(self, model: str = DEFAULT_MODEL, api_key: Optional[str] = None):
+    def __init__(self, model: str = DEFAULT_MODEL, api_key: Optional[str] = None,
+                 options=None):
         try:
             import anthropic
         except ImportError:
@@ -249,6 +343,8 @@ class ClaudeProvider(BaseProvider):
                 "anthropic package is required for Claude: pip install anthropic"
             )
         self._model = model
+        #: GenerationOptions; None means automatic.
+        self._options = options
         # api_key=None → SDK reads ANTHROPIC_API_KEY from environment
         self._client = __import__("anthropic").Anthropic(api_key=api_key)
 
@@ -261,31 +357,43 @@ class ClaudeProvider(BaseProvider):
         return self._model
 
     def describe(self, image_bytes: bytes, mime_type: str, prompt: str) -> DescriptionResult:
+        from ..generation import send_with_fallback, with_extra_body
+        from .claude_code import fit_image
+
+        # Claude rejects images over 5 MB; a phone photo often is. Same limits
+        # Claude Code uses.
+        image_bytes, mime_type = fit_image(image_bytes, mime_type)
         b64 = base64.standard_b64encode(image_bytes).decode("ascii")
-        message = self._client.messages.create(
-            model=self._model,
-            max_tokens=2048,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": mime_type,
-                                "data": b64,
-                            },
+        params = describe_request_params(self._model, self._options)
+        params["messages"] = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": mime_type,
+                            "data": b64,
                         },
-                        {"type": "text", "text": prompt},
-                    ],
-                }
-            ],
-        )
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ]
+        message = send_with_fallback(self._client.messages.create, params,
+                                     with_extra_body(OPTIONAL_PARAMS, params),
+                                     "claude", self._model)
+        text = response_text(message)
+        stop_reason = getattr(message, "stop_reason", None)
+        truncated = stop_reason == "max_tokens"
+        if not text.strip():
+            raise empty_answer_error(self._model, stop_reason, params["max_tokens"])
         return DescriptionResult(
-            text=message.content[0].text,
+            text=text,
             model=self._model,
             provider="anthropic",
             input_tokens=message.usage.input_tokens,
             output_tokens=message.usage.output_tokens,
+            truncated=truncated,
         )

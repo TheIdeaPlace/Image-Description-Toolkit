@@ -144,7 +144,8 @@ def fake_cli(tmp_path, monkeypatch):
     script.write_text(FAKE_CLI, encoding="utf-8")
     monkeypatch.setattr(
         claude_code, "build_command",
-        lambda claude, model, system_prompt, partial=False: [sys.executable, str(script)],
+        lambda claude, model, system_prompt, partial=False, effort=None:
+            [sys.executable, str(script)],
     )
     return script
 
@@ -164,7 +165,8 @@ def test_system_prompt_reaches_the_cli_through_a_file(tmp_path, monkeypatch):
     '''), encoding="utf-8")
     monkeypatch.setattr(
         claude_code, "build_command",
-        lambda claude, model, prompt_file, partial=False: [sys.executable, str(script), prompt_file],
+        lambda claude, model, prompt_file, partial=False, effort=None:
+            [sys.executable, str(script), prompt_file],
     )
     tricky = 'Say "hi" & echo %PATH% | more'
     events = list(run_claude(_text("ok"), "haiku", tricky, claude="x"))
