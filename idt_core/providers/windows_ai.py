@@ -126,6 +126,27 @@ _NO_HELPER_HINT = (
     "The Windows AI helper isn't installed. IDT's installer adds it on a Copilot+ PC; "
     "reinstall IDT, or install the helper package that came with it."
 )
+_STALE_REGISTRATION_HINT = (
+    "Windows couldn't start the Windows AI helper: its idt-windows-ai command points at a folder "
+    "that no longer exists. That is usually a development build registered with "
+    "build_helper.ps1 -Register whose folder was deleted. Remove it with "
+    "windows_ai_helper\\build_helper.ps1 -Unregister, or reinstall IDT."
+)
+
+
+def _start_failure(exc: OSError, verb: str) -> "WindowsAIError":
+    """The error for an OSError starting the helper.
+
+    A path that isn't there (Windows errors 2 and 3) means the command was found but points
+    nowhere: in practice a development registration whose folder was deleted, which takes the
+    command over from the installed helper and fails every request. "[WinError 3] The system
+    cannot find the path specified" said nothing about that.
+    """
+    if getattr(exc, "winerror", None) in (2, 3) or isinstance(exc, FileNotFoundError):
+        return WindowsAIError(_STALE_REGISTRATION_HINT, setup=True)
+    return WindowsAIError(f"Couldn't {verb} the Windows AI helper: {exc}", setup=True)
+
+
 _NO_IDENTITY_HINT = (
     "The Windows AI helper is present but isn't installed as a package, and Windows only lets "
     "a package use its model. Reinstall IDT to install it properly."
@@ -242,7 +263,7 @@ def _run_helper(option: str, timeout: float) -> dict:
         raise WindowsAIError(f"The Windows AI helper didn't answer {option} within {timeout:.0f} seconds.",
                              timeout=True)
     except OSError as exc:
-        raise WindowsAIError(f"Couldn't run the Windows AI helper: {exc}", setup=True)
+        raise _start_failure(exc, "run")
     for line in (result.stdout or "").splitlines():
         line = line.strip()
         if line.startswith("{"):
@@ -389,7 +410,7 @@ class HelperProcess:
                 bufsize=1, creationflags=_CREATE_NO_WINDOW,
             )
         except OSError as exc:
-            raise WindowsAIError(f"Couldn't start the Windows AI helper: {exc}", setup=True)
+            raise _start_failure(exc, "start")
         self._proc = proc
         self._answers = queue.Queue()
         threading.Thread(target=self._read_answers, args=(proc, self._answers),

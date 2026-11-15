@@ -28,7 +28,16 @@ commit into them), so a release build passes a number unique to the build (the w
 number). 0 to 65535.
 
 .PARAMETER Register
-Install the built layout for the current user (needs Developer Mode).
+Install the built layout for the current user (needs Developer Mode). The package then runs
+from out\<arch> itself and claims the idt-windows-ai command, ahead of an installed IDT's
+helper. Run -Unregister when you are done, and always before deleting this folder or the
+worktree it is in: a registration whose folder is gone stays behind, keeps the command, and
+every Windows AI request then fails with "The system cannot find the path specified".
+
+.PARAMETER Unregister
+Remove development registrations of the helper (the ones -Register makes), so an installed
+IDT's helper answers idt-windows-ai again. Builds nothing. Installed, signed copies are left
+alone.
 
 .PARAMETER Pack
 Also pack the layout into dist\IdtWindowsAI_<arch>.msix.
@@ -36,6 +45,9 @@ Also pack the layout into dist\IdtWindowsAI_<arch>.msix.
 .EXAMPLE
 .\build_helper.ps1 -Register
 idt-windows-ai --check
+
+.EXAMPLE
+.\build_helper.ps1 -Unregister
 #>
 param(
     [ValidateSet('x64', 'arm64')]
@@ -46,9 +58,35 @@ param(
     [int]$Revision = 0,
     [string]$Configuration = 'Release',
     [switch]$Register,
+    [switch]$Unregister,
     [switch]$Pack
 )
 $ErrorActionPreference = 'Stop'
+
+# The package name in IdtWindowsAI\AppxManifest.xml.
+$packageName = 'ImageDescriptionToolkit.WindowsAI'
+
+if ($Unregister) {
+    if ($Register -or $Pack) { throw '-Unregister builds nothing; use it on its own.' }
+    # Development registrations only: -Register makes them in Developer Mode, from a folder.
+    # An installed IDT's helper is a signed package in WindowsApps and is left alone.
+    $dev = @(Get-AppxPackage -Name $packageName | Where-Object { $_.IsDevelopmentMode })
+    if (-not $dev) {
+        Write-Host "No development registration of $packageName to remove."
+    }
+    foreach ($package in $dev) {
+        $where = if ($package.InstallLocation) { $package.InstallLocation } else { '(its folder no longer exists)' }
+        Remove-AppxPackage -Package $package.PackageFullName
+        Write-Host "Removed the development registration $($package.PackageFullName) from $where"
+    }
+    $installed = @(Get-AppxPackage -Name $packageName)
+    if ($installed) {
+        Write-Host "idt-windows-ai now runs the installed helper $($installed[0].Version)."
+    } else {
+        Write-Host 'No installed helper remains; install IDT to get one.'
+    }
+    return
+}
 
 $project = Join-Path $PSScriptRoot 'IdtWindowsAI\IdtWindowsAI.csproj'
 $out = Join-Path $PSScriptRoot "out\$Arch"
@@ -100,4 +138,8 @@ if ($Pack) {
 if ($Register) {
     Add-AppxPackage -Register (Join-Path $out 'AppxManifest.xml') -ForceUpdateFromAnyVersion
     Write-Host 'Registered for this user. Try: idt-windows-ai --check'
+    Write-Warning ("$out is now registered as the Windows AI helper and takes over the " +
+        "idt-windows-ai command from an installed IDT. Run .\build_helper.ps1 -Unregister when " +
+        "you are done, and before deleting this folder or its worktree; otherwise Windows AI " +
+        "stops working for every IDT on this PC.")
 }

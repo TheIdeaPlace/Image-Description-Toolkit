@@ -174,6 +174,33 @@ def test_available_only_on_windows_24h2_with_the_helper(monkeypatch):
     assert not windows_ai.is_available()
 
 
+def test_a_helper_command_pointing_nowhere_says_what_happened(tmp_path, monkeypatch):
+    """A development registration whose folder was deleted keeps the idt-windows-ai command
+    and fails every request. On a development PC in November 2026 that read only
+    "[WinError 3] The system cannot find the path specified"."""
+    missing = tmp_path / "deleted-worktree" / "IdtWindowsAI.exe"
+    monkeypatch.setattr(windows_ai, "_helper_command", lambda: [str(missing)])
+    with pytest.raises(WindowsAIError) as info:
+        windows_ai._run_helper("--check", 5)
+    message = str(info.value)
+    assert "points at a folder that no longer exists" in message
+    assert "build_helper.ps1 -Unregister" in message
+    assert info.value.setup is True        # nothing else will work until it's fixed
+
+
+@pytest.mark.parametrize("winerror", [2, 3])
+def test_both_windows_not_found_errors_are_recognised(winerror):
+    exc = OSError(f"winerror {winerror}")
+    exc.winerror = winerror
+    assert "-Unregister" in str(windows_ai._start_failure(exc, "run"))
+
+
+def test_other_start_failures_keep_their_own_message():
+    error = windows_ai._start_failure(PermissionError("Access is denied"), "start")
+    assert "Couldn't start the Windows AI helper: Access is denied" in str(error)
+    assert "-Unregister" not in str(error)
+
+
 def test_the_helper_is_found_in_windowsapps_even_off_path(tmp_path, monkeypatch):
     apps = tmp_path / "Microsoft" / "WindowsApps"
     apps.mkdir(parents=True)
