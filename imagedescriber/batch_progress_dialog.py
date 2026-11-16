@@ -40,6 +40,15 @@ def _is_stopping_row(row: str) -> bool:
     return row.endswith(STOPPING_LINE)
 
 
+def _focus_if_alive(window) -> None:
+    """Focus a window that may have been closed in the meantime."""
+    try:
+        if window:
+            window.SetFocus()
+    except RuntimeError:        # wrapped C++ object deleted
+        pass
+
+
 # "claude-code" -> "Claude Code". idt_core imports the same way in dev and
 # frozen builds, so no try/except fallback is needed.
 from idt_core.providers.registry import display_name as _display_provider  # noqa: E402
@@ -522,7 +531,12 @@ class BatchProgressDialog(wx.Dialog):
     def on_stop_clicked(self, event):
         """Stop processing — or close the dialog when batch is already complete."""
         if self._is_complete:
+            parent = self.parent_window
             self.Destroy()
+            # Back to where the user works, as focus_completion took it away (#409).
+            image_list = getattr(parent, 'image_list', None)
+            if image_list:
+                wx.CallAfter(_focus_if_alive, image_list)
             return
 
         # Import here to avoid circular dependency
@@ -621,7 +635,22 @@ class BatchProgressDialog(wx.Dialog):
         # Update window title so screen readers announce completion
         self.SetTitle("Batch Stopped  —  Review stats then close" if stopped
                       else "Batch Complete  —  Review stats then close")
-    
+
+    def focus_completion(self):
+        """Bring the finished window forward with focus on its summary line.
+
+        A screen reader then says the "Batch Complete" title and the summary.
+        The main window used to take focus right after the batch ended, so the
+        retitle above was never heard (#409, NVDA bug bash 11/15/2026).
+        """
+        if not self or not self.IsShown():
+            return
+        self.Raise()
+        last = self.stats_list.GetCount() - 1
+        if last >= 0 and last not in self.separator_indices:
+            self.stats_list.SetSelection(last)
+        self.stats_list.SetFocus()
+
     def reset_pause_button(self):
         """Reset pause button to 'Pause' state"""
         self.pause_button.SetLabel("Pause")

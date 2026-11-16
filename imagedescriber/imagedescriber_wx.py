@@ -6915,7 +6915,10 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 dlg.failed_count = max(
                     0, dlg.failed_count - len(getattr(event, 'halted_files', None) or ()))
             self.batch_progress_dialog.mark_complete(summary, stopped=bool(halted))
+            finished_dialog = self.batch_progress_dialog
             self.batch_progress_dialog = None  # detach ref; dialog stays visible until user closes it
+        else:
+            finished_dialog = None
 
         # Phase 3: Clear worker reference
         self.batch_worker = None
@@ -6952,8 +6955,17 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         else:
             self._auto_save_bundle()
 
-        # Return keyboard focus to image list
-        self.image_list.SetFocus()
+        # Where focus goes (#409). A clean finish goes to the completion window,
+        # so a screen reader says its "Batch Complete" title and the summary;
+        # closing it brings focus back to the image list. Moving focus straight
+        # to the image list left that window behind, never heard. Failures and
+        # stops get a message box below, which speaks for itself.
+        if (finished_dialog and not halted and not failures and not video_failures
+                and finished_dialog.IsShown()):
+            # After this handler, so the image list rebuild below can't take it back.
+            wx.CallAfter(finished_dialog.focus_completion)
+        else:
+            self.image_list.SetFocus()
 
         refusals_halt = bool(halted) and getattr(event, 'halted_refusals', False)
         self.SetStatusText("Batch stopped: the provider declined many images" if refusals_halt
