@@ -115,21 +115,47 @@ def _display_value(setting_info: Dict[str, Any], value: Any) -> Any:
     return _choice_label(setting_info, value)
 
 
-def _validate_auto_number(setting_info: Dict[str, Any], text: str):
-    """``(value, error)`` for a float/int_or_auto entry. Empty is automatic."""
-    text = text.strip()
-    if text == "" or text.lower() in ("auto", "automatic"):
-        return None, None
+#: Setting types typed as numbers. Every one is checked on OK (validate_number).
+NUMBER_TYPES = ("float", "int", "int_or_null", "float_or_auto", "int_or_auto")
+_WHOLE_NUMBER_TYPES = ("int", "int_or_null", "int_or_auto")
+#: What an empty entry means, for the types where empty is allowed.
+_EMPTY_MEANS = {"float_or_auto": "Automatic", "int_or_auto": "Automatic",
+                "int_or_null": "no limit"}
+_EMPTY_WORDS = {"float_or_auto": ("auto", "automatic"),
+                "int_or_auto": ("auto", "automatic"),
+                "int_or_null": ("null", "none", "unlimited")}
+
+
+def validate_number(setting_info: Dict[str, Any], text: str):
+    """``(value, error)`` for a number typed into a setting.
+
+    ``error`` is the message to show, or None. Text that isn't a number, a
+    fraction where a whole number is needed, and anything outside the setting's
+    range are refused rather than saved as something else: a plain float field
+    saved "abc" as 0.0, "max frames" saved it as unlimited, and a spin box
+    saved 150 as its maximum, all without a word.
+    """
+    import math
+
     kind = setting_info.get("type")
+    text = (text or "").strip()
+    empty_means = _EMPTY_MEANS.get(kind)
+    if empty_means and (text == "" or text.lower() in _EMPTY_WORDS[kind]):
+        return None, None
+
     low, high = setting_info.get("range", (None, None))
     span = f" from {low} to {high}" if low is not None else ""
+    tail = f", or leave it empty for {empty_means}." if empty_means else "."
+    whole = kind in _WHOLE_NUMBER_TYPES
+    word = "a whole number" if whole else "a number"
     try:
-        value = int(text) if kind == "int_or_auto" else float(text)
+        value = int(text) if whole else float(text)
     except ValueError:
-        word = "a whole number" if kind == "int_or_auto" else "a number"
-        return None, f"Enter {word}{span}, or leave it empty for Automatic."
+        return None, f"Enter {word}{span}{tail}"
+    if not whole and not math.isfinite(value):
+        return None, f"Enter {word}{span}{tail}"
     if low is not None and not (low <= value <= high):
-        return None, f"Enter a value{span}, or leave it empty for Automatic."
+        return None, f"Enter {word}{span}{tail}"
     return value, None
 
 
@@ -596,7 +622,13 @@ class SettingEditDialog(wx.Dialog):
             # and the setting's name is the only label it can be given: the
             # visible "Value:" static text says nothing about *which* value,
             # and on macOS nothing connects it to the field anyway.
-            self.editor.SetName(f"{self.setting_name} value")
+            # A number's range goes in the name too: the "Range:" line below is
+            # static text that JAWS and NVDA don't read when the field gets focus.
+            name = f"{self.setting_name} value"
+            if setting_type in NUMBER_TYPES and "range" in self.setting_info:
+                low, high = self.setting_info["range"]
+                name += f", {low} to {high}"
+            self.editor.SetName(name)
             
             # Add range/limits info if available
             if "range" in self.setting_info:
@@ -635,12 +667,15 @@ class SettingEditDialog(wx.Dialog):
         A message box rather than help text: JAWS does not read help text on
         focus, and a value silently replaced by a default is worse than none.
         """
-        if self.setting_info.get("type") in ("float_or_auto", "int_or_auto"):
-            _value, error = _validate_auto_number(self.setting_info, self.editor.GetValue())
+        if self.setting_info.get("type") in NUMBER_TYPES:
+            _value, error = validate_number(self.setting_info, self._typed_text())
             if error:
                 wx.MessageBox(error, f"{self.setting_name}", wx.OK | wx.ICON_WARNING, self)
                 self.editor.SetFocus()
-                self.editor.SelectAll()
+                if isinstance(self.editor, wx.SpinCtrl):
+                    self.editor.SetSelection(-1, -1)     # SpinCtrl has no SelectAll
+                else:
+                    self.editor.SelectAll()
                 return
         event.Skip()
 
@@ -663,21 +698,24 @@ class SettingEditDialog(wx.Dialog):
             except Exception as e:
                 logger.error("Failed to set focus to editor: %s", e)
     
+    def _typed_text(self) -> str:
+        """What is in the editor as typed. A spin box's GetValue() is already
+        clamped to its range (150 reads as 100), so read its text instead."""
+        if isinstance(self.editor, wx.SpinCtrl) and hasattr(self.editor, "GetTextValue"):
+            return self.editor.GetTextValue()
+        return str(self.editor.GetValue())
+
     def GetValue(self):
         """Get the new value from the editor"""
         setting_type = self.setting_info.get("type", "string")
-        
+
         if setting_type == "bool":
             return self.editor.GetValue()
-        elif setting_type == "int":
-            return self.editor.GetValue()
-        elif setting_type == "float":
-            try:
-                return float(self.editor.GetValue())
-            except ValueError:
-                return 0.0
-        elif setting_type in ("float_or_auto", "int_or_auto"):
-            value, _error = _validate_auto_number(self.setting_info, self.editor.GetValue())
+        elif setting_type in NUMBER_TYPES:
+            # _on_ok has refused anything invalid, so this is the checked value.
+            value, error = validate_number(self.setting_info, self._typed_text())
+            if error is not None:
+                return self.current_value      # never save a substitute
             return value
         elif setting_type == "choice_or_auto":
             choices = self.setting_info.get("choices", [])
@@ -686,14 +724,6 @@ class SettingEditDialog(wx.Dialog):
                 return self.current_value
             value = choices[index] if 0 <= index < len(choices) else ""
             return value or None
-        elif setting_type == "int_or_null":
-            value = self.editor.GetValue().strip()
-            if value == "" or value.lower() == "null" or value.lower() == "none":
-                return None
-            try:
-                return int(value)
-            except ValueError:
-                return None
         elif setting_type == "choice":
             value = self.editor.GetStringSelection()
             # Strip " (current)" suffix if present (added for custom values)
@@ -903,7 +933,7 @@ class ConfigureDialog(wx.Dialog):
                     "path": ["image_quality"],
                     "type": "int",
                     "range": [50, 100],
-                    "description": "JPEG quality for extracted frames (1-100). Higher = better quality but larger files. Recommended: 85-95."
+                    "description": "JPEG quality for extracted frames (50-100). Higher = better quality but larger files. Recommended: 85-95."
                 },
                 "preserve_directory_structure": {
                     "file": "video_extractor",
@@ -975,7 +1005,7 @@ class ConfigureDialog(wx.Dialog):
                     "file": "image_describer",
                     "path": ["metadata", "geocoding", "delay_seconds"],
                     "type": "float",
-                    "range": [0.5, 5.0],
+                    "range": [1.0, 5.0],
                     "description": "Delay in seconds between geocoding API requests. Minimum 1.0 second required by Nominatim usage policy."
                 },
                 "geocoding_cache_file": {
@@ -1033,7 +1063,7 @@ class ConfigureDialog(wx.Dialog):
                     "path": ["workflow", "steps", "image_conversion", "quality"],
                     "type": "int",
                     "range": [50, 100],
-                    "description": "JPEG quality for HEIC/HEIF conversion (1-100). Higher = better quality but larger files."
+                    "description": "JPEG quality for HEIC/HEIF conversion (50-100). Higher = better quality but larger files."
                 },
                 "html_report_title": {
                     "file": "workflow",
