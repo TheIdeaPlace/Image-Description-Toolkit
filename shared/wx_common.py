@@ -723,8 +723,10 @@ def show_about_dialog(parent, app_name: str, version: str,
     dlg.SetSize((500, 400))
     
     # Create HTML window for content
+    # The name carries the version: wxHtmlWindow draws its own text and screen
+    # readers may get nothing from it but this name (#415).
     html_window = wx.html.HtmlWindow(dlg, style=wx.html.HW_SCROLLBAR_AUTO,
-                                     name=f"About {app_name}")
+                                     name=f"{app_name}, version {version}")
     html_window.SetStandardFonts()
     
     # Build HTML content with semantic structure for screen readers
@@ -869,20 +871,25 @@ def get_app_version() -> str:
     """The application's version.
 
     Search order:
-    1. VERSION beside the exe or in the repo root (find_file's usual places)
-    2. VERSION in the bundled data folder, sys._MEIPASS, where the specs put it
-    3. idt_core.__version__, which the release process keeps equal to VERSION
+    1. Built: VERSION in the bundled data folder (sys._MEIPASS), where the specs
+       put it, then beside the exe. Never the current directory, which may be
+       another project's.
+       From source: VERSION in the repo root (find_file's usual places).
+    2. idt_core.__version__, which the release process keeps equal to VERSION
 
     About said "Version: 1.0.0" in every built copy (#415): the specs bundle
     VERSION into _MEIPASS, which find_file never searched, and the last resort
     was a made-up "1.0.0" rather than the version the code itself carries.
     """
     try:
-        version_file = find_file('VERSION')
-        if version_file is None and getattr(sys, '_MEIPASS', None):
-            candidate = Path(sys._MEIPASS) / 'VERSION'
-            if candidate.is_file():
-                version_file = candidate
+        if getattr(sys, 'frozen', False):
+            version_file = None
+            for folder in (getattr(sys, '_MEIPASS', None), get_base_directory()):
+                if folder and (Path(folder) / 'VERSION').is_file():
+                    version_file = Path(folder) / 'VERSION'
+                    break
+        else:
+            version_file = find_file('VERSION')
         if version_file:
             text = version_file.read_text(encoding='utf-8').strip()
             if text:

@@ -9881,11 +9881,13 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self.statusbar.SetStatusText("", 0)
 
         if error is not None:
-            logger.warning(f"Update check failed: {error}")
+            logger.warning(f"Update check failed: {type(error).__name__}: {error}")
             if not silent:
                 # Plain words, not the exception (#416); the detail is logged above.
+                # The title says which action failed, not just "Error".
                 from idt_core import updater
-                show_error(self, updater.describe_check_error(error))
+                show_error(self, updater.describe_check_error(error),
+                           title="Check for Updates")
             return
 
         if info is None:

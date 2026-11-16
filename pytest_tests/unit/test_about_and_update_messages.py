@@ -38,12 +38,31 @@ def test_a_timeout_is_treated_as_offline():
     assert "internet connection" in updater.describe_check_error(requests.Timeout("read timed out"))
 
 
-@pytest.mark.parametrize("status", [403, 429])
-def test_rate_limit_says_to_wait(status):
+def _http_error(status, **headers):
     response = requests.Response()
     response.status_code = status
-    message = updater.describe_check_error(requests.HTTPError(response=response))
-    assert "asked too often" in message
+    response.headers.update(headers)
+    return requests.HTTPError(response=response)
+
+
+def test_rate_limit_gives_the_time_github_names():
+    from datetime import datetime
+    reset = int(datetime(2026, 11, 16, 15, 42).timestamp())
+    message = updater.describe_check_error(_http_error(
+        403, **{"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(reset)}))
+    assert message == ("GitHub is limiting update checks from this network for now. "
+                       "Try again after 3:42P.")
+
+
+def test_429_without_a_time_says_later():
+    assert updater.describe_check_error(_http_error(429)) == (
+        "GitHub is limiting update checks from this network for now. Try again later.")
+
+
+def test_a_403_that_is_not_a_limit_is_not_called_one():
+    """GitHub sends 403 for other reasons too, e.g. a blocked network."""
+    assert updater.describe_check_error(_http_error(403)) == (
+        "GitHub couldn't answer the update check (error 403). Try again later.")
 
 
 def test_another_http_error_names_its_status():
