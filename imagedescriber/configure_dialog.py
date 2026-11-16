@@ -793,69 +793,39 @@ class ConfigureDialog(wx.Dialog):
         return [DEFAULT_OLLAMA_MODEL, "llava", "llama3.2-vision", "moondream"]
     
     def find_scripts_directory(self) -> Path:
-        """Find the scripts directory containing config files.
+        """The folder Configure reads and saves: the user config dir, always.
 
-        In frozen (onefile) mode the .app/.exe may be read-only (macOS SIP,
-        Windows Program Files).  We write to the platform-standard user data
-        directory and seed it with bundled defaults on first run.
+        config_loader reads this folder before the shipped defaults, so what is
+        saved here is what processing, the Prompt Editor and the CLI use.
 
         macOS  : ~/Library/Application Support/IDT/
         Windows: %APPDATA%/IDT/
         Linux  : ~/.config/IDT/
+
+        It used to be this folder only in a built copy, and the repo's scripts/
+        folder when run from source, while config_loader read the exe's
+        scripts folder (and on an installed copy, IDT_CONFIG_DIR) first. So on
+        an installed copy nothing saved here reached processing (NVDA bug bash,
+        11/15/2026). A file not saved yet is seeded from the same shipped
+        defaults config_loader would read.
         """
-        if getattr(sys, 'frozen', False):
-            # --- Frozen mode: write to user-writable location ---
-            import shutil
-            try:
-                from idt_core.config_loader import get_user_config_dir
-            except Exception:
-                get_user_config_dir = None  # type: ignore
+        import shutil
+        from idt_core.config_loader import get_user_config_dir, resolve_defaults
 
-            if get_user_config_dir is not None:
-                user_dir = get_user_config_dir()
-            else:
-                # Ultimate fallback — should never reach here
-                user_dir = Path.home() / 'IDT'
-
-            user_dir.mkdir(parents=True, exist_ok=True)
-
-            # Copy bundled defaults on first run (don't overwrite existing user configs)
-            bundled_scripts: Optional[Path] = None
-            _meipass = getattr(sys, '_MEIPASS', None)
-            if _meipass:
-                candidate = Path(_meipass) / 'scripts'
-                if candidate.is_dir():
-                    bundled_scripts = candidate
-            if bundled_scripts is None:
-                # Fallback: look next to the executable (onedir layout)
-                candidate = Path(sys.executable).parent / 'scripts'
-                if candidate.is_dir():
-                    bundled_scripts = candidate
-
-            if bundled_scripts:
-                for json_file in bundled_scripts.glob('*.json'):
-                    dest = user_dir / json_file.name
-                    if not dest.exists():
-                        try:
-                            shutil.copy2(json_file, dest)
-                        except Exception:
-                            pass  # Non-fatal; app still works with defaults
-
-            return user_dir
-        else:
-            # --- Dev mode: project root scripts/ directory ---
-            app_dir = Path(__file__).parent.parent
-            scripts_dir = app_dir / "scripts"
-            if scripts_dir.exists():
-                return scripts_dir
-
-            # Try current directory
-            scripts_dir = Path.cwd() / "scripts"
-            if scripts_dir.exists():
-                return scripts_dir
-
-            # Default fallback
-            return Path.cwd()
+        user_dir = get_user_config_dir()
+        user_dir.mkdir(parents=True, exist_ok=True)
+        for name in ("image_describer_config.json", "video_frame_extractor_config.json",
+                     "workflow_config.json"):
+            dest = user_dir / name
+            if dest.exists():
+                continue
+            defaults, _source = resolve_defaults(name)
+            if defaults.is_file():
+                try:
+                    shutil.copy2(defaults, dest)
+                except OSError as e:
+                    logger.warning("Could not copy default %s to %s: %s", defaults, dest, e)
+        return user_dir
     
     def build_settings_metadata(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """Build metadata for all settings organized by category"""

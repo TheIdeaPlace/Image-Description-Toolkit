@@ -45,6 +45,20 @@ _stop_wx_app_restoring_stdio()
 # test runs, so it also covers windows built by module-scoped fixtures.
 os.environ["IDT_SKIP_STARTUP_MODEL_REFRESH"] = "1"
 
+# The user config dir (%APPDATA%\IDT and the like) is read before the shipped
+# defaults, and Configure writes to it. Point it at scratch before anything is
+# imported -- idt_core.config reads the config at import time -- so a
+# developer's own saved settings never change a test, and no test writes to
+# them. isolate_user_config gives each test a fresh one.
+import tempfile as _tempfile
+os.environ["IDT_USER_CONFIG_DIR"] = _tempfile.mkdtemp(prefix="idt-user-config-")
+
+
+@pytest.fixture(autouse=True)
+def isolate_user_config(tmp_path, monkeypatch):
+    """A fresh, empty user config dir for every test."""
+    monkeypatch.setenv("IDT_USER_CONFIG_DIR", str(tmp_path / "user_config"))
+
 
 @pytest.fixture(autouse=True)
 def isolate_model_cache(tmp_path, monkeypatch):

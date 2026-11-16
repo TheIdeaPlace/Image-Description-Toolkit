@@ -81,12 +81,15 @@ def test_import_configuration_never_writes_into_the_lib_folder(folder_build):
     assert user.is_dir()
 
 
-def test_import_configuration_writes_beside_the_installed_exe(folder_build):
+def test_import_configuration_writes_to_the_user_dir_on_an_installed_copy(folder_build, monkeypatch):
+    """Not {app}\\scripts: the installer replaces those files on every upgrade,
+    and the user's copy is read first (#407)."""
     pytest.importorskip("wx", reason="wxPython not installed")
     from shared import wx_common
     app, lib, user = folder_build
+    monkeypatch.setenv("IDT_USER_CONFIG_DIR", str(user))
     (app / "scripts").mkdir()
-    assert wx_common.writable_scripts_directory() == app / "scripts"
+    assert wx_common.writable_scripts_directory() == user
 
 
 # --------------------------------------------------------------------------- #

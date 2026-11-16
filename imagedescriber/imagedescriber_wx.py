@@ -9682,11 +9682,13 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 show_error(self, "Could not find scripts directory.")
                 return
 
-            # Create ZIP with all config files
+            # Create ZIP with all config files: the ones in use (the user's saved
+            # copy where there is one), not the shipped defaults beside the exe.
             import zipfile
+            from idt_core.config_loader import resolve_config
             with zipfile.ZipFile(file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 for config_file in ['image_describer_config.json', 'video_frame_extractor_config.json', 'workflow_config.json']:
-                    config_path = scripts_dir / config_file
+                    config_path, _source = resolve_config(config_file)
                     if config_path.exists():
                         zipf.write(config_path, config_file)
 

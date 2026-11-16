@@ -54,10 +54,13 @@ def _load_shared_config() -> tuple[dict[str, str], str, str]:
     default_prompt = (config.get("default_prompt_style") or "").strip()
     if default_prompt not in variations:
         default_prompt = "narrative" if "narrative" in variations else next(iter(variations))
-    # Strip tag suffix (e.g. "llama3.2-vision:latest" → "llama3.2-vision") for
-    # consistency with how the CLI and workspace record model names.
+    # Keep the tag. It used to be cut off ("moondream:1.8b" became "moondream"),
+    # which names a different Ollama model or none at all: with moondream:1.8b
+    # as the default, every `idt describe` failed with a 404 (NVDA bug bash,
+    # 11/15/2026), and "qwen3-vl:8b-instruct" would have become the thinking
+    # "qwen3-vl". Only ":latest" says nothing, so only that is dropped.
     raw_model = (config.get("default_model") or "llama3.2-vision").strip()
-    default_model = raw_model.split(":")[0] if ":" in raw_model else raw_model
+    default_model = raw_model[:-len(":latest")] if raw_model.endswith(":latest") else raw_model
     return variations, default_prompt, default_model
 
 
