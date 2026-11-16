@@ -853,8 +853,8 @@ To disable all metadata extraction: `--no-metadata`.
 |---|---|---|
 | `ANTHROPIC_API_KEY` | idt, GUI | Anthropic Claude API key |
 | `OPENAI_API_KEY` | idt, GUI | OpenAI API key |
-| `IDT_CONFIG_DIR` | idt, GUI | Override default config directory |
-| `IDT_IMAGE_DESCRIBER_CONFIG` | idt, GUI | Explicit path to config file |
+| `IDT_USER_CONFIG_DIR` | idt, GUI | Use this folder for your settings instead of the usual one (`%APPDATA%\IDT` on Windows, `~/Library/Application Support/IDT` on macOS). Configure and the Prompt Editor save there, and it's read first. |
+| `IDT_CONFIG_DIR` | idt, GUI | A folder of default settings, used for anything your own settings don't set |
 
 ---
 

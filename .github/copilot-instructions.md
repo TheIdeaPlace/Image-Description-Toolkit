@@ -240,14 +240,13 @@ The workflow orchestrator (`scripts/workflow.py`, 2468 lines) coordinates four s
 Workflow directories: `wf_YYYY-MM-DD_HHMMSS_{model}_{prompt}` (via `get_path_identifier_2_components()`)
 
 ### Configuration System
-Layered resolution via `scripts/config_loader.py` (search order):
+Layered resolution via `idt_core/config_loader.py`: the user's saved settings over the shipped defaults (search order):
 1. Explicit path passed by caller
-2. File environment variable (e.g., `IDT_IMAGE_DESCRIBER_CONFIG`)
-3. `IDT_CONFIG_DIR` env var + filename
-4. Frozen exe dir `/scripts/<filename>`
-5. Frozen exe dir `/<filename>`
-6. Current working directory
-7. Bundled script directory (fallback)
+2. File environment variable, when a caller passes one
+3. The user config dir (`%APPDATA%\IDT` and equivalents; `IDT_USER_CONFIG_DIR` replaces it) — where every save goes (`writable_config_path()`)
+4. Shipped defaults: `IDT_CONFIG_DIR`, frozen exe dir `/scripts/`, `_MEIPASS/scripts/`, the repo's `scripts/` from source, cwd
+
+Any top-level section missing from the user copy is filled in from the defaults.
 
 **Key configs**: `workflow_config.json`, `image_describer_config.json`
 
