@@ -69,6 +69,7 @@ from idt_core.chat.messages import Attachment as ChatAttachment
 from idt_core.chat.providers import create_chat_provider
 from idt_core.keys import resolve_api_key
 from shared.chat_worker_wx import ChatWorker
+from shared.uia_notify import notify as notify_screen_reader
 
 # Provider attachment capabilities.
 #
@@ -766,9 +767,15 @@ class ChatWindow(wx.Dialog):
             return
             
         if self.is_processing:
-            show_warning(self, "Please wait for the AI response to complete.")
+            # The message box stays usable during a turn (#410), so this can
+            # happen: keep what was typed and say why nothing was sent, without
+            # a modal box that takes focus away.
+            self.status_text.SetLabel("Still waiting for the reply. Your message is kept.")
+            notify_screen_reader(self.GetHandle(),
+                                 "Still waiting for the reply. Your message is kept.",
+                                 activity_id="idt-chat-busy")
             return
-        
+
         # Validate any queued attachments still exist on disk
         missing = [a for a in self.pending_attachments if not Path(a['path']).exists()]
         if missing:
@@ -823,10 +830,13 @@ class ChatWindow(wx.Dialog):
         self.status_text.SetLabel("AI is typing...")
         self.is_processing = True
         
-        # Disable input while processing
-        self.input_text.Enable(False)
+        # Only Send is disabled while processing (on_send_message refuses a
+        # second message). The message box stays enabled: disabling the control
+        # with focus sent focus to the next one, so Enter was answered with
+        # "unavailable" and a jump to Clear Input, and the reply announcement
+        # bounced focus from there (#410).
         self.send_btn.Enable(False)
-        
+
         # Initialize response buffer
         self.current_response_chunks = []
         
@@ -1086,8 +1096,9 @@ class ChatWindow(wx.Dialog):
         self.history_list.SetSelection(last_idx)
         self._update_message_detail(last_idx)
 
-        # Force screen reader announcement by setting focus briefly then returning it
-        wx.CallAfter(self._announce_new_message, display_text)
+        # Have the screen reader speak the reply (#410). After this handler, so
+        # it comes after _finish_processing below.
+        wx.CallAfter(self._announce_new_message, full_response)
         
         # Update message count
         msg_count = len(self.session['messages'])
@@ -1106,15 +1117,21 @@ class ChatWindow(wx.Dialog):
         self._finish_processing()
 
     def _announce_new_message(self, message_text: str):
-        """Force screen reader to announce new AI message
-        
-        This is done by briefly moving focus to the history list,
-        then returning it to the input field.
+        """Have the screen reader speak a new reply, leaving focus where it is.
+
+        On Windows this raises a UI Automation notification, which NVDA,
+        Narrator and current JAWS speak. Elsewhere, or if UIA refuses, focus
+        is moved to the history list and back, as before.
+
+        That bounce alone was all there was, and with NVDA nothing was spoken
+        (#410, NVDA bug bash 11/15/2026).
         """
-        # Temporarily move focus to history list (triggers announcement)
+        if not self or not message_text:
+            return
+        if notify_screen_reader(self.GetHandle(), message_text, activity_id="idt-chat-reply"):
+            return
+        # Fallback: briefly move focus to the history list, then back.
         self.history_list.SetFocus()
-        
-        # Return focus to input after brief delay
         wx.CallLater(100, self.input_text.SetFocus)
         
     def on_chat_error(self, event):
@@ -1540,8 +1557,7 @@ class ChatWindow(wx.Dialog):
         })
 
         self.status_text.SetLabel("Summarizing conversation…")
-        self.send_btn.Enable(False)
-        self.input_text.Enable(False)
+        self.send_btn.Enable(False)     # the message box stays enabled, as for a turn (#410)
         self.is_processing = True
         self.current_response_chunks = []
 
