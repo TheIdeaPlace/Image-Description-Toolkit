@@ -1473,6 +1473,14 @@ class ChatWindow(wx.Dialog):
         self._thinking = value
         ChatWindow._last_thinking = value
         self.status_text.SetLabel(status)
+        if value is True:
+            # On is dropped for a model that can't think (resolve_think); say so
+            # now rather than leave an answer that just came back unthinking.
+            from idt_core.providers.ollama import thinking_on_note
+            note = thinking_on_note(self.provider, self.model)
+            if note:
+                self.status_text.SetLabel(note)
+                wx.MessageBox(note, "Thinking", wx.OK | wx.ICON_INFORMATION, self)
 
     def on_commands_menu(self, event):
         """Show the Session commands popup menu."""

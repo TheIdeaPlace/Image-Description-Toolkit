@@ -178,6 +178,14 @@ def test_the_range_is_part_of_the_field_name(cfg, monkeypatch):
         # Spaces, not underscores, which JAWS and NVDA read as "underline".
         assert dlg.editor.GetName() == "time interval seconds value, 0.5 to 30"
         assert dlg.GetTitle() == "Edit: time interval seconds"
+        # What a screen reader gets on Windows: the accessible object's name, not
+        # the "Value:" label before the field (installed-build settings check).
+        try:
+            acc = dlg.editor.GetAccessible()
+        except (NotImplementedError, AttributeError):       # macOS: no wx.Accessible
+            acc = None
+        if acc is not None:
+            assert acc.GetName(0)[1] == "time interval seconds value, 0.5 to 30"
     finally:
         dlg.Destroy()
 

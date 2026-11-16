@@ -313,9 +313,9 @@ class OllamaChatProvider(ChatProvider):
         An explicit False is also gated on the capability: ``--no-think``
         against a model that cannot think is already satisfied, and sending
         the field would fail the very turn the flag exists to speed up. An
-        explicit True is passed through unprobed — the user asked for
-        thinking, and if the model cannot do it the API error saying so is
-        the honest answer.
+        explicit True is gated the same way: sent to a thinking model, and
+        dropped (logged once) for one that can't think, rather than sent to
+        fail the turn with a 400.
         """
         # One policy for chat and descriptions (issue #392): see resolve_think.
         from ..generation import thinking_mode
