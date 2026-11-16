@@ -665,7 +665,10 @@ def show_about_dialog(parent, app_name: str, version: str,
     dlg.SetSize((500, 400))
     
     # Create HTML window for content
-    html_window = wx.html.HtmlWindow(dlg, style=wx.html.HW_SCROLLBAR_AUTO)
+    # The name carries the version: wxHtmlWindow draws its own text and screen
+    # readers may get nothing from it but this name (#415).
+    html_window = wx.html.HtmlWindow(dlg, style=wx.html.HW_SCROLLBAR_AUTO,
+                                     name=f"{app_name}, version {version}")
     html_window.SetStandardFonts()
     
     # Build HTML content with semantic structure for screen readers
@@ -807,27 +810,40 @@ def format_timestamp(dt: Union[datetime, str, None], include_seconds: bool = Fal
 
 
 def get_app_version() -> str:
-    """
-    Get application version from VERSION file or versioning module.
-    
+    """The application's version.
+
     Search order:
-    1. scripts/versioning.py get_full_version()
-    2. VERSION file in base directory
-    3. Default "1.0.0"
-    
-    Returns:
-        Version string
+    1. Built: VERSION in the bundled data folder (sys._MEIPASS), where the specs
+       put it, then beside the exe. Never the current directory, which may be
+       another project's.
+       From source: VERSION in the repo root (find_file's usual places).
+    2. idt_core.__version__, which the release process keeps equal to VERSION
+
+    About said "Version: 1.0.0" in every built copy (#415): the specs bundle
+    VERSION into _MEIPASS, which find_file never searched, and the last resort
+    was a made-up "1.0.0" rather than the version the code itself carries.
     """
-    # Try VERSION file
     try:
-        version_file = find_file('VERSION')
+        if getattr(sys, 'frozen', False):
+            version_file = None
+            for folder in (getattr(sys, '_MEIPASS', None), get_base_directory()):
+                if folder and (Path(folder) / 'VERSION').is_file():
+                    version_file = Path(folder) / 'VERSION'
+                    break
+        else:
+            version_file = find_file('VERSION')
         if version_file:
-            return version_file.read_text().strip()
+            text = version_file.read_text(encoding='utf-8').strip()
+            if text:
+                return text
     except Exception:
         pass
-    
-    # Default
-    return "1.0.0"
+
+    try:
+        from idt_core import __version__
+        return __version__
+    except Exception:
+        return "unknown"
 
 
 # ==================== ACCESSIBLE LISTBOX COMPONENTS ====================

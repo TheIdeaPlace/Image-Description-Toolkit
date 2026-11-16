@@ -240,7 +240,7 @@ def test_current_version_matches_package():
     """The checker must compare against idt_core.__version__, not a file lookup."""
     from idt_core import __version__
     assert updater.current_version() == __version__
-    assert updater.current_version() != "1.0.0"  # wx_common's bad fallback
+    assert updater.current_version() != "1.0.0"  # wx_common's old fallback, before #415
 
 
 def test_unknown_current_version_suppresses_check(feed, monkeypatch):
