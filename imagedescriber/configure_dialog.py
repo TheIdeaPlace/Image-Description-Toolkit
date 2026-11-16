@@ -496,7 +496,7 @@ class SettingEditDialog(wx.Dialog):
     """Dialog for editing a single setting value"""
     
     def __init__(self, parent, setting_name: str, current_value: Any, setting_info: Dict[str, Any]):
-        super().__init__(parent, title=f"Edit: {setting_name}", size=(450, 250))
+        super().__init__(parent, title=f"Edit: {setting_name.replace('_', ' ')}", size=(450, 250))
         
         logger.info("SettingEditDialog.__init__ started for: %s", setting_name)
         
@@ -548,12 +548,11 @@ class SettingEditDialog(wx.Dialog):
                 form_sizer.Add(self.editor, 0, wx.EXPAND)
                 
             elif setting_type == "int":
-                self.editor = wx.SpinCtrl(panel)
-                if "range" in self.setting_info:
-                    self.editor.SetRange(self.setting_info["range"][0], self.setting_info["range"][1])
-                else:
-                    self.editor.SetRange(-999999, 999999)
-                self.editor.SetValue(int(self.current_value or 0))
+                # A text box, not a SpinCtrl: a spin box rewrites a typed 150 to
+                # its maximum as soon as it loses focus (Tab to OK), so the value
+                # was changed without a word. Checked on OK like every number.
+                self.editor = wx.TextCtrl(panel)
+                self.editor.SetValue("" if self.current_value is None else str(self.current_value))
                 form_sizer.Add(self.editor, 0, wx.EXPAND)
                 
             elif setting_type == "float":
@@ -624,10 +623,13 @@ class SettingEditDialog(wx.Dialog):
             # and on macOS nothing connects it to the field anyway.
             # A number's range goes in the name too: the "Range:" line below is
             # static text that JAWS and NVDA don't read when the field gets focus.
-            name = f"{self.setting_name} value"
+            # Spaces, not underscores: JAWS and NVDA read "_" as "underline".
+            name = f"{self._spoken_name()} value"
             if setting_type in NUMBER_TYPES and "range" in self.setting_info:
                 low, high = self.setting_info["range"]
                 name += f", {low} to {high}"
+                if setting_type in _EMPTY_MEANS:
+                    name += f", or empty for {_EMPTY_MEANS[setting_type]}"
             self.editor.SetName(name)
             
             # Add range/limits info if available
@@ -668,14 +670,11 @@ class SettingEditDialog(wx.Dialog):
         focus, and a value silently replaced by a default is worse than none.
         """
         if self.setting_info.get("type") in NUMBER_TYPES:
-            _value, error = validate_number(self.setting_info, self._typed_text())
+            _value, error = validate_number(self.setting_info, self.editor.GetValue())
             if error:
-                wx.MessageBox(error, f"{self.setting_name}", wx.OK | wx.ICON_WARNING, self)
+                wx.MessageBox(error, self._spoken_name(), wx.OK | wx.ICON_WARNING, self)
                 self.editor.SetFocus()
-                if isinstance(self.editor, wx.SpinCtrl):
-                    self.editor.SetSelection(-1, -1)     # SpinCtrl has no SelectAll
-                else:
-                    self.editor.SelectAll()
+                self.editor.SelectAll()
                 return
         event.Skip()
 
@@ -698,12 +697,9 @@ class SettingEditDialog(wx.Dialog):
             except Exception as e:
                 logger.error("Failed to set focus to editor: %s", e)
     
-    def _typed_text(self) -> str:
-        """What is in the editor as typed. A spin box's GetValue() is already
-        clamped to its range (150 reads as 100), so read its text instead."""
-        if isinstance(self.editor, wx.SpinCtrl) and hasattr(self.editor, "GetTextValue"):
-            return self.editor.GetTextValue()
-        return str(self.editor.GetValue())
+    def _spoken_name(self) -> str:
+        """The setting's name as a screen reader should say it."""
+        return self.setting_name.replace("_", " ")
 
     def GetValue(self):
         """Get the new value from the editor"""
@@ -713,7 +709,7 @@ class SettingEditDialog(wx.Dialog):
             return self.editor.GetValue()
         elif setting_type in NUMBER_TYPES:
             # _on_ok has refused anything invalid, so this is the checked value.
-            value, error = validate_number(self.setting_info, self._typed_text())
+            value, error = validate_number(self.setting_info, self.editor.GetValue())
             if error is not None:
                 return self.current_value      # never save a substitute
             return value

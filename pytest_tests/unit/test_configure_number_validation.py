@@ -111,15 +111,52 @@ def test_ok_refuses_a_bad_entry_and_keeps_the_dialog_open(cfg, monkeypatch, info
         dlg.Destroy()
 
 
-def test_spin_box_reads_what_was_typed_not_the_clamped_value(cfg, monkeypatch):
+@pytest.mark.parametrize("info", [FLOAT, INT, INT_OR_NULL, FLOAT_AUTO, INT_AUTO],
+                         ids=lambda i: i["type"])
+def test_every_number_editor_is_a_text_box(cfg, monkeypatch, info):
+    """Not a SpinCtrl: a spin box rewrites a typed 150 to its maximum when it
+    loses focus, so Tab to OK saved 100 without a word."""
     configure_dialog, wx = cfg
-    dlg, _shown = _dialog(cfg, monkeypatch, "image_quality", 85, INT)
+    dlg, _shown = _dialog(cfg, monkeypatch, "Setting", None, info)
     try:
-        dlg.editor.SetValue("150")
-        assert dlg.editor.GetValue() == 100          # wx clamps silently
-        assert dlg._typed_text() == "150"
+        assert type(dlg.editor) is wx.TextCtrl
     finally:
         dlg.Destroy()
+
+
+def test_tabbing_away_to_ok_does_not_change_the_entry(cfg, monkeypatch):
+    """The usual screen reader path: type, Tab to OK, press Space."""
+    configure_dialog, wx = cfg
+    dlg, shown = _dialog(cfg, monkeypatch, "image_quality", 85, INT)
+    try:
+        dlg.Show()
+        dlg.editor.SetFocus()
+        dlg.editor.SetValue("150")
+        dlg.FindWindowById(wx.ID_OK).SetFocus()     # focus leaves the field
+        wx.Yield()
+        ok = _Ok()
+        dlg._on_ok(ok)
+        assert dlg.editor.GetValue() == "150"
+        assert not ok.skipped and shown == ["Enter a whole number from 50 to 100."]
+    finally:
+        dlg.Destroy()
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("+85", (85, None)), (" 85 ", (85, None)),
+    ("1e2", (None, "Enter a whole number from 50 to 100.")),
+    ("85.0", (None, "Enter a whole number from 50 to 100.")),
+    ("", (None, "Enter a whole number from 50 to 100.")),
+])
+def test_whole_number_edge_cases(cfg, text, expected):
+    configure_dialog, _wx = cfg
+    assert configure_dialog.validate_number(INT, text) == expected
+
+
+@pytest.mark.parametrize("text", ["NULL", "Unlimited", " none "])
+def test_no_limit_words(cfg, text):
+    configure_dialog, _wx = cfg
+    assert configure_dialog.validate_number(INT_OR_NULL, text) == (None, None)
 
 
 def test_a_good_entry_closes_and_is_saved(cfg, monkeypatch):
@@ -138,7 +175,30 @@ def test_the_range_is_part_of_the_field_name(cfg, monkeypatch):
     """The visible "Range:" line is static text a screen reader doesn't read on focus."""
     dlg, _shown = _dialog(cfg, monkeypatch, "time_interval_seconds", 5.0, FLOAT)
     try:
-        assert dlg.editor.GetName() == "time_interval_seconds value, 0.5 to 30.0"
+        # Spaces, not underscores, which JAWS and NVDA read as "underline".
+        assert dlg.editor.GetName() == "time interval seconds value, 0.5 to 30.0"
+        assert dlg.GetTitle() == "Edit: time interval seconds"
+    finally:
+        dlg.Destroy()
+
+
+def test_the_name_says_what_empty_means(cfg, monkeypatch):
+    dlg, _shown = _dialog(cfg, monkeypatch, "max_frames_per_video", None, INT_OR_NULL)
+    try:
+        assert dlg.editor.GetName() == "max frames per video value, 1 to 1000, or empty for no limit"
+    finally:
+        dlg.Destroy()
+
+
+def test_the_message_box_title_is_spoken_cleanly(cfg, monkeypatch):
+    configure_dialog, wx = cfg
+    titles = []
+    monkeypatch.setattr(wx, "MessageBox", lambda msg, title, *a, **k: titles.append(title))
+    dlg = configure_dialog.SettingEditDialog(None, "batch_delay", 1.0, FLOAT)
+    try:
+        dlg.editor.SetValue("x")
+        dlg._on_ok(_Ok())
+        assert titles == ["batch delay"]
     finally:
         dlg.Destroy()
 
@@ -149,7 +209,9 @@ def test_every_number_setting_in_the_dialog_is_checked(cfg):
     from types import SimpleNamespace
     meta = configure_dialog.ConfigureDialog.build_settings_metadata(
         SimpleNamespace(_get_ollama_models=lambda: []))
-    types = {info.get("type") for cat in meta.values() for info in cat.values()}
+    # The Mac-only Generation entries too, whichever platform runs this.
+    meta["Generation (with Mac)"] = configure_dialog.generation_settings_metadata(include_mac=True)
+    types ={info.get("type") for cat in meta.values() for info in cat.values()}
     numeric = {t for t in types if t and ("int" in t or "float" in t)}
     assert numeric <= set(configure_dialog.NUMBER_TYPES)
     for cat in meta.values():
