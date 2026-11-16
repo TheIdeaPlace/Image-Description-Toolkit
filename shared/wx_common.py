@@ -522,6 +522,36 @@ class ModifiedStateMixin:
             return False
 
 
+# ==================== NUMBER FIELDS ====================
+
+def number_field(parent, info: Dict[str, Any], value: Any, name: str) -> wx.TextCtrl:
+    """A text field for a number, named with its range for screen readers.
+
+    A text field, not a SpinCtrl: a spin box rewrites a typed 150 to its
+    maximum as soon as focus leaves it, so Tab to OK saved 100 without a word
+    (#405, #406). Check it on OK with refuse_bad_number().
+    """
+    from shared.number_entry import spoken_range
+    text = "" if value is None else str(value)
+    return wx.TextCtrl(parent, value=text, name=f"{name}{spoken_range(info)}")
+
+
+def refuse_bad_number(parent, control: wx.TextCtrl, info: Dict[str, Any], title: str):
+    """``(True, value)`` for a good entry; for a bad one, say why and ``(False, None)``.
+
+    A message box rather than help text: JAWS doesn't read help text on focus.
+    Focus goes back to the field with its text selected.
+    """
+    from shared.number_entry import validate_number
+    value, error = validate_number(info, control.GetValue())
+    if error:
+        wx.MessageBox(error, title, wx.OK | wx.ICON_WARNING, parent)
+        control.SetFocus()
+        control.SelectAll()
+        return False, None
+    return True, value
+
+
 # ==================== DIALOGS ====================
 
 def show_error(parent, message: str, title: str = "Error"):

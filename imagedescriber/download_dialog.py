@@ -9,6 +9,15 @@ import wx
 import re
 from pathlib import Path
 
+from shared.number_entry import validate_number
+from shared.wx_common import number_field, refuse_bad_number
+
+# Text fields checked on OK, not spin boxes, which clamped a typed value to
+# their limit when focus left them (#406). Empty Maximum images means no limit
+# (-1, the old way to say so, still works).
+MIN_SIZE_INFO = {"type": "int", "range": [0, 10000]}
+MAX_IMAGES_INFO = {"type": "int_or_null", "range": [1, 10000]}
+
 
 class DownloadSettingsDialog(wx.Dialog):
     """
@@ -61,14 +70,12 @@ class DownloadSettingsDialog(wx.Dialog):
         size_label = wx.StaticText(panel, label="Minimum image size:")
         size_sizer.Add(size_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         
-        self.min_width = wx.SpinCtrl(panel, value="0", min=0, max=10000,
-                                      name="Minimum width")
+        self.min_width = number_field(panel, MIN_SIZE_INFO, 0, "Minimum width in pixels")
         size_sizer.Add(self.min_width, 0, wx.RIGHT, 5)
         size_sizer.Add(wx.StaticText(panel, label="×"), 0, 
                       wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         
-        self.min_height = wx.SpinCtrl(panel, value="0", min=0, max=10000,
-                                       name="Minimum height")
+        self.min_height = number_field(panel, MIN_SIZE_INFO, 0, "Minimum height in pixels")
         size_sizer.Add(self.min_height, 0, wx.RIGHT, 5)
         size_sizer.Add(wx.StaticText(panel, label="pixels"), 0,
                       wx.ALIGN_CENTER_VERTICAL)
@@ -80,10 +87,9 @@ class DownloadSettingsDialog(wx.Dialog):
         max_label = wx.StaticText(panel, label="Maximum images to download:")
         max_sizer.Add(max_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         
-        self.max_images = wx.SpinCtrl(panel, value="100", min=-1, max=10000,
-                                       name="Maximum images")
+        self.max_images = number_field(panel, MAX_IMAGES_INFO, 100, "Maximum images")
         max_sizer.Add(self.max_images, 0, wx.RIGHT, 5)
-        max_sizer.Add(wx.StaticText(panel, label="(-1 for unlimited)"), 0,
+        max_sizer.Add(wx.StaticText(panel, label="(leave empty for no limit)"), 0,
                      wx.ALIGN_CENTER_VERTICAL)
         
         settings_box.Add(max_sizer, 0, wx.ALL, 10)
@@ -173,6 +179,12 @@ class DownloadSettingsDialog(wx.Dialog):
             self.url_input.SetFocus()
             return
         
+        for control, info in ((self.min_width, MIN_SIZE_INFO), (self.min_height, MIN_SIZE_INFO),
+                              (self.max_images, MAX_IMAGES_INFO)):
+            ok, _value = refuse_bad_number(self, control, info, "Download Images")
+            if not ok:
+                return
+
         # Accept dialog
         self.EndModal(wx.ID_OK)
     
@@ -184,15 +196,15 @@ class DownloadSettingsDialog(wx.Dialog):
             dict with keys: url, min_width, min_height, max_images, process_after,
             preserve_alt_text
         """
-        max_imgs = self.max_images.GetValue()
-        if max_imgs == -1:
-            max_imgs = None  # Unlimited
+        def number(control, info, fallback):
+            value, error = validate_number(info, control.GetValue())
+            return fallback if error else value     # on_ok has refused errors
 
         return {
             'url': self.url_input.GetValue().strip(),
-            'min_width': self.min_width.GetValue(),
-            'min_height': self.min_height.GetValue(),
-            'max_images': max_imgs,
+            'min_width': number(self.min_width, MIN_SIZE_INFO, 0),
+            'min_height': number(self.min_height, MIN_SIZE_INFO, 0),
+            'max_images': number(self.max_images, MAX_IMAGES_INFO, 100),  # None = no limit
             'process_after': self.process_after.GetValue(),
             'preserve_alt_text': self.preserve_alt_text.GetValue(),
         }

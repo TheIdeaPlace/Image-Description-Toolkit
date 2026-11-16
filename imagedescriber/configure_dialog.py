@@ -115,48 +115,11 @@ def _display_value(setting_info: Dict[str, Any], value: Any) -> Any:
     return _choice_label(setting_info, value)
 
 
-#: Setting types typed as numbers. Every one is checked on OK (validate_number).
-NUMBER_TYPES = ("float", "int", "int_or_null", "float_or_auto", "int_or_auto")
-_WHOLE_NUMBER_TYPES = ("int", "int_or_null", "int_or_auto")
-#: What an empty entry means, for the types where empty is allowed.
-_EMPTY_MEANS = {"float_or_auto": "Automatic", "int_or_auto": "Automatic",
-                "int_or_null": "no limit"}
-_EMPTY_WORDS = {"float_or_auto": ("auto", "automatic"),
-                "int_or_auto": ("auto", "automatic"),
-                "int_or_null": ("null", "none", "unlimited")}
-
-
-def validate_number(setting_info: Dict[str, Any], text: str):
-    """``(value, error)`` for a number typed into a setting.
-
-    ``error`` is the message to show, or None. Text that isn't a number, a
-    fraction where a whole number is needed, and anything outside the setting's
-    range are refused rather than saved as something else: a plain float field
-    saved "abc" as 0.0, "max frames" saved it as unlimited, and a spin box
-    saved 150 as its maximum, all without a word.
-    """
-    import math
-
-    kind = setting_info.get("type")
-    text = (text or "").strip()
-    empty_means = _EMPTY_MEANS.get(kind)
-    if empty_means and (text == "" or text.lower() in _EMPTY_WORDS[kind]):
-        return None, None
-
-    low, high = setting_info.get("range", (None, None))
-    span = f" from {low} to {high}" if low is not None else ""
-    tail = f", or leave it empty for {empty_means}." if empty_means else "."
-    whole = kind in _WHOLE_NUMBER_TYPES
-    word = "a whole number" if whole else "a number"
-    try:
-        value = int(text) if whole else float(text)
-    except ValueError:
-        return None, f"Enter {word}{span}{tail}"
-    if not whole and not math.isfinite(value):
-        return None, f"Enter {word}{span}{tail}"
-    if low is not None and not (low <= value <= high):
-        return None, f"Enter {word}{span}{tail}"
-    return value, None
+#: The number check is shared with the video extraction and Download dialogs
+#: (#406); it lives in shared/number_entry.py. These names stay importable here.
+from shared.number_entry import (NUMBER_TYPES, validate_number,  # noqa: E402
+                                 spoken_range, VIDEO_INTERVAL_RANGE,
+                                 SCENE_THRESHOLD_RANGE)
 
 
 _AUTO_NOTE = ("Leave it on Automatic to use IDT's default for the model you pick. "
@@ -624,13 +587,7 @@ class SettingEditDialog(wx.Dialog):
             # A number's range goes in the name too: the "Range:" line below is
             # static text that JAWS and NVDA don't read when the field gets focus.
             # Spaces, not underscores: JAWS and NVDA read "_" as "underline".
-            name = f"{self._spoken_name()} value"
-            if setting_type in NUMBER_TYPES and "range" in self.setting_info:
-                low, high = self.setting_info["range"]
-                name += f", {low} to {high}"
-                if setting_type in _EMPTY_MEANS:
-                    name += f", or empty for {_EMPTY_MEANS[setting_type]}"
-            self.editor.SetName(name)
+            self.editor.SetName(f"{self._spoken_name()} value{spoken_range(self.setting_info)}")
             
             # Add range/limits info if available
             if "range" in self.setting_info:
@@ -907,7 +864,7 @@ class ConfigureDialog(wx.Dialog):
                     "file": "video_extractor",
                     "path": ["time_interval_seconds"],
                     "type": "float",
-                    "range": [0.5, 30.0],
+                    "range": list(VIDEO_INTERVAL_RANGE),
                     "description": "Seconds between frame extractions when using time_interval mode. Lower = more frames. Recommended: 3-5 seconds for most videos."
                 },
                 "max_frames_per_video": {
@@ -921,7 +878,7 @@ class ConfigureDialog(wx.Dialog):
                     "file": "video_extractor",
                     "path": ["scene_change_threshold"],
                     "type": "float",
-                    "range": [10.0, 50.0],
+                    "range": list(SCENE_THRESHOLD_RANGE),
                     "description": "Sensitivity for scene change detection (higher = less sensitive). Recommended: 30 for most videos."
                 },
                 "image_quality": {
