@@ -92,6 +92,18 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 
 ### Fixed
 
+- **Settings changed in Configure now take effect on an installed Windows copy.** They
+  were saved to your settings folder, but processing and the command line read the copy
+  installed beside the app first, so nothing you changed in Configure was used, including
+  everything on the new Generation tab. Your saved settings now come first; anything they
+  don't cover comes from the installed defaults. If you saved settings in Configure in an
+  earlier version, they take effect now. One exception: a saved default model of
+  `moondream`, IDT's default before June 2026, gives way to the current default once. The
+  Prompt Editor and File → Import Configuration save to the same place, and Export
+  Configuration exports the settings in use.
+- **`idt describe` dropped the tag from the default model,** so `moondream:1.8b` became
+  `moondream` and every image failed, and `qwen3-vl:8b-instruct` would have become the
+  thinking model `qwen3-vl`. The tag is kept.
 - **Closing ImageDescriber or IDT Chat on Windows no longer leaves a "Warning" box
   behind.** After the window closed, a box titled "Warning" said *Failed to remove
   temporary directory*, and each close left another `_MEI` folder in your Temp folder.
@@ -113,7 +125,15 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
   for the frame interval, or unlimited for Max frames per video, and 150 for image quality
   became 100. Now a number that can't be used gets a message saying the range to enter,
   and nothing is saved until it can be. Each number field's range is also part of its
-  name, so a screen reader reads it when you reach the field.
+  name, so a screen reader reads it when you reach the field. The Extract Video Frames and
+  Download dialogs work the same way now; their number boxes used to change an
+  out-of-range number to the nearest limit without saying so. The frame interval is 0.5
+  to 60 seconds and the scene threshold 1 to 100 in both places, and Download's Maximum
+  images is left empty for no limit.
+- **Help → About said "Version: 1.0.0".** It shows the real version.
+- **Check for Updates without an internet connection read out a Python error.** It now
+  says it couldn't reach GitHub and to check your connection. When GitHub is limiting
+  checks from your network, it says when to try again.
 - **The default provider list offered Apple Intelligence on Windows** (and Windows AI on a
   Mac). Each is now listed only where it can run.
 - **`idt describe --provider openai` failed on every image with the default model.** It
