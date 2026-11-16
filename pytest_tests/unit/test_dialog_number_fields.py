@@ -140,7 +140,10 @@ def test_download_dialog_refuses_bad_numbers_and_reads_empty_as_no_limit(app, mo
         assert dlg.max_images.GetName() == "Maximum images, 1 to 10000, or empty for no limit"
         # The name a screen reader gets on Windows comes from the accessible
         # object, not the label before the field.
-        acc = dlg.min_height.GetAccessible() if hasattr(dlg.min_height, "GetAccessible") else None
+        try:
+            acc = dlg.min_height.GetAccessible()
+        except (NotImplementedError, AttributeError):       # macOS: no wx.Accessible
+            acc = None
         if acc is not None:
             assert acc.GetName(0)[1] == "Minimum height in pixels, 0 to 10000"
         dlg.min_width.SetValue("abc")
