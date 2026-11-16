@@ -2735,8 +2735,10 @@ def cmd_update(args):
     try:
         info = updater.check_for_update()
     except Exception as exc:
-        print(f"Couldn't check for updates: {exc}")
+        # Plain words first (#416); the exception goes to stderr for whoever needs it.
+        print(updater.describe_check_error(exc))
         print(f"Releases: {updater.RELEASES_PAGE}")
+        print(f"Detail: {exc}", file=sys.stderr)
         return
 
     if info is None:

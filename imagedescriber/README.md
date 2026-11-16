@@ -266,7 +266,7 @@ Items in the tree view show status with accessible prefixes:
 ## Configuration
 
 ### Prompt Styles
-The app reads prompt configurations from `../scripts/image_describer_config.json`. You can add custom prompt styles by editing this file:
+The app reads prompt styles from your saved settings (`%APPDATA%\IDT\image_describer_config.json` on Windows, `~/Library/Application Support/IDT/` on macOS), with the shipped `scripts/image_describer_config.json` as the defaults. Add or edit styles with **Tools → Edit Prompts**, which saves to your settings. The shipped file looks like this:
 
 ```json
 {

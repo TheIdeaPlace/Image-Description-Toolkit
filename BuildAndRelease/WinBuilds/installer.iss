@@ -187,12 +187,20 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
+  ConfigDir: String;
 begin
   if CurStep = ssPostInstall then
   begin
-    // Set IDT_CONFIG_DIR environment variable to point to scripts directory
-    RegWriteStringValue(HKEY_CURRENT_USER, EnvironmentKey, 'IDT_CONFIG_DIR', ExpandConstant('{app}\scripts'));
-    Log('Set IDT_CONFIG_DIR environment variable to: ' + ExpandConstant('{app}\scripts'));
+    // Earlier installers set IDT_CONFIG_DIR to {app}\scripts, the shipped
+    // defaults. IDT finds that folder by itself; the variable only made the
+    // defaults look like an override. Remove it, but only when it still points
+    // there: a folder someone set themselves is theirs.
+    if RegQueryStringValue(HKEY_CURRENT_USER, EnvironmentKey, 'IDT_CONFIG_DIR', ConfigDir) and
+       (CompareText(RemoveBackslashUnlessRoot(ConfigDir), ExpandConstant('{app}\scripts')) = 0) then
+    begin
+      RegDeleteValue(HKEY_CURRENT_USER, EnvironmentKey, 'IDT_CONFIG_DIR');
+      Log('Removed IDT_CONFIG_DIR, set by an earlier version to ' + ConfigDir);
+    end;
     
     // Add to PATH if selected
     if WizardIsTaskSelected('addtopath') then
@@ -259,9 +267,12 @@ begin
 
   if CurUninstallStep = usPostUninstall then
   begin
-    // Remove IDT_CONFIG_DIR environment variable
-    RegDeleteValue(HKEY_CURRENT_USER, 'Environment', 'IDT_CONFIG_DIR');
-    
+    // Remove IDT_CONFIG_DIR only if an earlier installer set it (to {app}\scripts);
+    // a folder someone set themselves is theirs, as at install.
+    if RegQueryStringValue(HKEY_CURRENT_USER, 'Environment', 'IDT_CONFIG_DIR', Path) and
+       (CompareText(RemoveBackslashUnlessRoot(Path), ExpandConstant('{app}\scripts')) = 0) then
+      RegDeleteValue(HKEY_CURRENT_USER, 'Environment', 'IDT_CONFIG_DIR');
+
     // Remove from PATH if it was added
     AppDir := ExpandConstant('{app}');
     if RegQueryStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', Path) then

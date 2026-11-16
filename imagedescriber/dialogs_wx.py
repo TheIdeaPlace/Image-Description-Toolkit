@@ -36,7 +36,11 @@ from shared.wx_common import (
     select_directory_dialog,
     open_file_dialog,
     save_file_dialog,
+    number_field,
+    refuse_bad_number,
 )
+from shared.number_entry import (validate_number, VIDEO_INTERVAL_RANGE,
+                                 SCENE_THRESHOLD_RANGE)
 from shared.mac_accessibility import (
     set_accessible_help as set_mac_accessible_help,
     set_accessible_name as set_mac_accessible_name,
@@ -1489,7 +1493,12 @@ class ImageDetailDialog(wx.Dialog):
 
 class VideoExtractionDialog(wx.Dialog):
     """Dialog for configuring video frame extraction settings"""
-    
+
+    # Text fields checked on OK, not spin boxes, which clamped a typed value to
+    # their limit when focus left them (#406). Same ranges as Configure.
+    TIME_INFO = {"type": "float", "range": list(VIDEO_INTERVAL_RANGE)}
+    SCENE_INFO = {"type": "float", "range": list(SCENE_THRESHOLD_RANGE)}
+
     def __init__(self, parent=None, video_path: str = ""):
         super().__init__(
             parent,
@@ -1540,16 +1549,10 @@ class VideoExtractionDialog(wx.Dialog):
         # Time interval input
         time_panel = wx.Panel(panel)
         time_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        time_label = wx.StaticText(time_panel, label="Interval (seconds):")
-        self.time_input = wx.SpinCtrlDouble(
-            time_panel,
-            value="5.0",
-            min=0.1,
-            max=60.0,
-            inc=0.5,
-            name="Time interval in seconds"
-        )
-        self.time_input.SetDigits(1)
+        low, high = VIDEO_INTERVAL_RANGE
+        time_label = wx.StaticText(time_panel, label=f"Interval (seconds, {low:g} to {high:g}):")
+        self.time_input = number_field(time_panel, self.TIME_INFO, self.time_interval,
+                                       "Time interval in seconds")
         time_sizer.Add(time_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         time_sizer.Add(self.time_input, 0, wx.ALIGN_CENTER_VERTICAL)
         time_panel.SetSizer(time_sizer)
@@ -1567,16 +1570,10 @@ class VideoExtractionDialog(wx.Dialog):
         # Scene threshold input
         scene_panel = wx.Panel(panel)
         scene_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        scene_label = wx.StaticText(scene_panel, label="Sensitivity (1–100, lower = more frames):")
-        self.scene_input = wx.SpinCtrlDouble(
-            scene_panel,
-            value="30.0",
-            min=1.0,
-            max=100.0,
-            inc=1.0,
-            name="Scene change threshold"
-        )
-        self.scene_input.SetDigits(1)
+        low, high = SCENE_THRESHOLD_RANGE
+        scene_label = wx.StaticText(scene_panel, label=f"Sensitivity ({low:g} to {high:g}, lower = more frames):")
+        self.scene_input = number_field(scene_panel, self.SCENE_INFO, self.scene_threshold,
+                                        "Scene change threshold")
         scene_sizer.Add(scene_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         scene_sizer.Add(self.scene_input, 0, wx.ALIGN_CENTER_VERTICAL)
         scene_panel.SetSizer(scene_sizer)
@@ -1612,6 +1609,7 @@ class VideoExtractionDialog(wx.Dialog):
         cancel_btn = wx.Button(panel, wx.ID_CANCEL, "Cancel")
         ok_btn = wx.Button(panel, wx.ID_OK, "Extract Frames")
         ok_btn.SetDefault()
+        ok_btn.Bind(wx.EVT_BUTTON, self._on_ok)
         
         btn_sizer.Add(cancel_btn, 0, wx.ALL, 5)
         btn_sizer.Add(ok_btn, 0, wx.ALL, 5)
@@ -1647,11 +1645,27 @@ class VideoExtractionDialog(wx.Dialog):
         }
         
         if mode == "time_interval":
-            settings["time_interval_seconds"] = self.time_input.GetValue()
+            settings["time_interval_seconds"] = self._checked(self.time_input, self.TIME_INFO,
+                                                              self.time_interval)
         else:
-            settings["scene_change_threshold"] = self.scene_input.GetValue()
-        
+            settings["scene_change_threshold"] = self._checked(self.scene_input, self.SCENE_INFO,
+                                                               self.scene_threshold)
+
         return settings
+
+    @staticmethod
+    def _checked(control, info, fallback):
+        """The field's number; _on_ok has refused anything else."""
+        value, error = validate_number(info, control.GetValue())
+        return fallback if error else value
+
+    def _on_ok(self, event):
+        """Refuse a number that can't be used, saying the range; keep the dialog open."""
+        control, info = ((self.time_input, self.TIME_INFO) if self.time_radio.GetValue()
+                         else (self.scene_input, self.SCENE_INFO))
+        ok, _value = refuse_bad_number(self, control, info, "Extract Video Frames")
+        if ok:
+            event.Skip()
 
 
 class ExportHtmlGalleryDialog(wx.Dialog):

@@ -57,6 +57,7 @@ a = Analysis(
         'wx.adv',
         'wx.lib.newevent',
         'shared.wx_common',
+        'shared.number_entry',      # number fields in Configure and the dialogs (#405, #406)
         'shared',
         # Names controls for VoiceOver through NSAccessibility. Without it in
         # the bundle the macOS build starts with every text box, list and

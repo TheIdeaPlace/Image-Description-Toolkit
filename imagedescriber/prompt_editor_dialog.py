@@ -103,20 +103,19 @@ class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
         # Windows) so it could create a shadow copy next to the exe that would
         # then shadow the user's real config.  config_loader.load_json_config()
         # uses the authoritative resolution order and is consistent with the CLI.
-        from idt_core.config_loader import load_json_config, get_user_config_dir
+        from idt_core.config_loader import load_json_config, writable_config_path
         _cfg, _cfg_path, _cfg_source = load_json_config('image_describer_config.json')
-        # If config was loaded from the read-only bundled location (_MEIPASS),
-        # redirect writes to the user config dir so edits persist correctly.
-        if _cfg_source == 'bundled':
-            _user_dir = get_user_config_dir()
-            _user_dir.mkdir(parents=True, exist_ok=True)
-            _cfg_path = _user_dir / 'image_describer_config.json'
-            # Seed user dir with bundled data if the file doesn't exist yet
-            if not _cfg_path.exists() and _cfg:
-                _cfg_path.write_text(
-                    json.dumps(_cfg, indent=2, ensure_ascii=False),
-                    encoding='utf-8'
-                )
+        # Always save to the user's copy, which is read before the shipped
+        # defaults. Saving to {app}\scripts on an installed copy was undone by
+        # the next upgrade, and saving to AppData didn't reach processing at all
+        # until config_loader read it first (NVDA bug bash, 11/15/2026).
+        _cfg_path = writable_config_path('image_describer_config.json')
+        if not _cfg_path.exists() and _cfg:
+            _cfg_path.parent.mkdir(parents=True, exist_ok=True)
+            _cfg_path.write_text(
+                json.dumps(_cfg, indent=2, ensure_ascii=False),
+                encoding='utf-8'
+            )
         self.config_file = _cfg_path
         self.config_data = {}
         self.current_prompt_name = None

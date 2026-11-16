@@ -52,9 +52,9 @@ def current_version():
     """The running version, or None if it cannot be determined.
 
     Deliberately ``idt_core.__version__`` and not ``shared.wx_common.get_app_version()``:
-    the latter hunts for the VERSION file on disk and falls back to "1.0.0" when
-    it cannot find it, which would tell the user they are three major versions
-    behind. ``__version__`` is compiled into both frozen binaries.
+    the latter reads the VERSION file on disk, which can say "4.9.0Beta1 bld050"
+    or, until #415, could not be found at all in a built copy (it fell back to
+    "1.0.0"). ``__version__`` is compiled into both frozen binaries.
 
     Returns None rather than a low sentinel on failure. A sentinel like "0.0.0"
     would make every release look newer, so a user whose version lookup broke
@@ -154,6 +154,51 @@ def _fetch_releases():
     resp = requests.get(url, headers=_headers(), timeout=15)
     resp.raise_for_status()
     return resp.json() or []
+
+
+def describe_check_error(exc: BaseException) -> str:
+    """What to tell a person when an update check fails, in plain words.
+
+    The exception itself goes to the log. Shown as it was, an offline check
+    read out "HTTPSConnectionPool(host='api.github.com', port=443): Max retries
+    exceeded ... NameResolutionError ... getaddrinfo failed" (#416).
+    """
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+        return ("Couldn't reach GitHub to check for updates. "
+                "Check your internet connection, then try again.")
+    if isinstance(exc, requests.HTTPError):
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None)
+        headers = getattr(response, "headers", None) or {}
+        limited = status == 429 or (
+            status == 403 and str(headers.get("x-ratelimit-remaining", "")) == "0")
+        if limited:
+            # Unauthenticated checks get 60 an hour per IP address, so a shared
+            # office or VPN address can use them up. GitHub says when they reset.
+            when = _retry_time(headers)
+            return ("GitHub is limiting update checks from this network for now. "
+                    + (f"Try again after {when}." if when else "Try again later."))
+        if status is not None:
+            return f"GitHub couldn't answer the update check (error {status}). Try again later."
+    return "Couldn't check for updates. Try again later."
+
+
+def _retry_time(headers) -> str:
+    """When GitHub says to try again, as "3:42P" (the app's M/D/YYYY H:MMP style), or ""."""
+    import time
+    from datetime import datetime
+    try:
+        if headers.get("retry-after"):
+            moment = time.time() + int(headers["retry-after"])
+        elif headers.get("x-ratelimit-reset"):
+            moment = int(headers["x-ratelimit-reset"])
+        else:
+            return ""
+        when = datetime.fromtimestamp(moment)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
+    hour = when.hour % 12 or 12
+    return f"{hour}:{when.minute:02d}{'A' if when.hour < 12 else 'P'}"
 
 
 def check_for_update(current=None):
