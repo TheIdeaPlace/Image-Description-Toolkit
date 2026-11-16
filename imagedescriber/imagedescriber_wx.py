@@ -176,9 +176,12 @@ except ImportError:
 
 # Phase 3: Import batch progress dialog
 try:
-    from batch_progress_dialog import BatchProgressDialog
+    from batch_progress_dialog import BatchProgressDialog, say_without_moving_focus
 except ImportError:
     BatchProgressDialog = None
+
+    def say_without_moving_focus(window, text):    # no progress window, nothing to say
+        pass
 
 # Workspace Statistics dialog
 try:
@@ -6960,12 +6963,22 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # closing it brings focus back to the image list. Moving focus straight
         # to the image list left that window behind, never heard. Failures and
         # stops get a message box below, which speaks for itself.
-        if (finished_dialog and not halted and not failures and not video_failures
-                and finished_dialog.IsShown()):
+        clean_finish = not halted and not failures and not video_failures
+        if finished_dialog and clean_finish and finished_dialog.IsShown():
             # After this handler, so the image list rebuild below can't take it back.
             wx.CallAfter(finished_dialog.focus_completion)
         else:
-            self.image_list.SetFocus()
+            if finished_dialog and clean_finish:
+                # The user hid the progress window to keep working here. It
+                # can't be shown again (Show Batch Progress is off now), so
+                # close it and say the result from this window instead (#409).
+                words = finished_dialog._completion_words()
+                finished_dialog.Destroy()
+                wx.CallAfter(say_without_moving_focus, self, words)
+            active = wx.GetActiveWindow()
+            if active is None or active is self:
+                # Not out of a window the user is in, such as the chat window.
+                self.image_list.SetFocus()
 
         refusals_halt = bool(halted) and getattr(event, 'halted_refusals', False)
         self.SetStatusText("Batch stopped: the provider declined many images" if refusals_halt

@@ -2,8 +2,10 @@
 
 UI Automation's notification event is what Windows itself uses for "message
 sent", "download complete" and the like: the app hands the text to UIA and the
-screen reader speaks it, while focus stays where the user is. NVDA and Narrator
-speak it; JAWS does from 2021 on in most cases.
+screen reader speaks it, while focus stays where the user is. Narrator, NVDA and
+recent JAWS are documented to speak these; that they do for a wx window raised
+through UiaHostProviderFromHwnd has not yet been confirmed by ear (to check with
+NVDA in the test VM and JAWS by hand before 4.9.0 ships).
 
 ImageDescriber's chat window announced a reply by moving focus to the history
 list and back 100 ms later. With NVDA nothing was spoken at all (#410, NVDA bug

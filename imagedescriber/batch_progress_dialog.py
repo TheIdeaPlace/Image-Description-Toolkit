@@ -40,6 +40,22 @@ def _is_stopping_row(row: str) -> bool:
     return row.endswith(STOPPING_LINE)
 
 
+def say_without_moving_focus(window, text: str) -> None:
+    """Have the screen reader say ``text`` through ``window`` without moving
+    focus; a beep where that can't be done (macOS, Windows before 1709)."""
+    try:
+        from shared.uia_notify import notify
+    except ImportError:
+        notify = None
+    try:
+        if notify and window and notify(window.GetHandle(), text,
+                                        activity_id="idt-batch-complete"):
+            return
+    except RuntimeError:        # wrapped C++ object deleted
+        pass
+    wx.Bell()
+
+
 def _focus_if_alive(window) -> None:
     """Focus a window that may have been closed in the meantime."""
     try:
@@ -189,7 +205,18 @@ class BatchProgressDialog(wx.Dialog):
         dialog_sizer = wx.BoxSizer(wx.VERTICAL)
         dialog_sizer.Add(panel, 1, wx.EXPAND)
         self.SetSizer(dialog_sizer)
-    
+
+        # Escape, Alt+F4 and the title bar close a finished window the way its
+        # Close button does (destroy, focus back to the image list); before it
+        # finishes they hide it, as they always did (#438 review).
+        self.Bind(wx.EVT_CLOSE, self._on_close_event)
+
+    def _on_close_event(self, event):
+        if getattr(self, '_is_complete', False):
+            self.on_stop_clicked(event)
+        else:
+            event.Skip()
+
     def begin_stage(self, name: str, total: int,
                     stage_index: int = 0, stage_count: int = 0,
                     can_interrupt: bool = True, can_stop=None):
@@ -645,11 +672,24 @@ class BatchProgressDialog(wx.Dialog):
         """
         if not self or not self.IsShown():
             return
+        active = wx.GetActiveWindow()
+        if not self.IsEnabled() or (active is not None and active not in (self, self.GetParent())):
+            # Another window has the user (a modal one, such as the chat window,
+            # disables this one): don't pull focus out of it. Say it instead.
+            say_without_moving_focus(active or self, self._completion_words())
+            return
         self.Raise()
         last = self.stats_list.GetCount() - 1
         if last >= 0 and last not in self.separator_indices:
             self.stats_list.SetSelection(last)
         self.stats_list.SetFocus()
+
+    def _completion_words(self) -> str:
+        """ "Batch Complete" (or Stopped) and the summary line, for an announcement."""
+        last = self.stats_list.GetCount() - 1
+        summary = self.stats_list.GetString(last).strip() if last >= 0 else ""
+        title = self.GetTitle().split("—")[0].strip()
+        return f"{title}. {summary}" if summary else title
 
     def reset_pause_button(self):
         """Reset pause button to 'Pause' state"""

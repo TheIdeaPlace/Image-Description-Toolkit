@@ -90,10 +90,60 @@ def test_close_returns_focus_to_the_image_list(owner, monkeypatch):
     assert later == [(batch_progress_dialog._focus_if_alive, (frame.image_list,))]
 
 
-def test_the_main_window_hands_a_clean_finish_to_the_completion_window():
-    """The batch-finished handler focuses the completion window only for a clean
-    finish; failures and stops still get their message box and the image list."""
-    src = (_ROOT / "imagedescriber" / "imagedescriber_wx.py").read_text(encoding="utf-8")
-    assert "wx.CallAfter(finished_dialog.focus_completion)" in src
-    assert ("if (finished_dialog and not halted and not failures and not video_failures\n"
-            "                and finished_dialog.IsShown()):") in src
+def test_the_completion_words_name_the_result():
+    pytest.importorskip("wx")
+    import wx
+    app = wx.App.Get() or wx.App(False)
+    frame = wx.Frame(None)
+    frame.image_list = wx.ListBox(frame)
+    try:
+        dlg = _finished(frame)
+        try:
+            assert dlg._completion_words() == "Batch Complete. 3 images described"
+        finally:
+            dlg.Destroy()
+    finally:
+        frame.Destroy()
+        del app
+
+
+def test_a_window_the_user_is_in_keeps_focus_and_the_result_is_said(owner, monkeypatch):
+    """Finishing while the chat window (modal) is open must not pull focus out of it."""
+    frame, wx = owner
+    import batch_progress_dialog
+    dlg = _finished(frame)
+    try:
+        elsewhere = wx.Dialog(None, title="Chat")
+        said, focused = [], []
+        monkeypatch.setattr(wx, "GetActiveWindow", lambda: elsewhere)
+        monkeypatch.setattr(batch_progress_dialog, "say_without_moving_focus",
+                            lambda window, text: said.append((window, text)))
+        monkeypatch.setattr(dlg.stats_list, "SetFocus", lambda: focused.append(True))
+        dlg.focus_completion()
+        assert not focused
+        assert said == [(elsewhere, "Batch Complete. 3 images described")]
+        elsewhere.Destroy()
+    finally:
+        dlg.Destroy()
+
+
+def test_escape_or_alt_f4_on_a_finished_window_closes_it_like_close(owner, monkeypatch):
+    frame, wx = owner
+    import batch_progress_dialog
+    dlg = _finished(frame)
+    later = []
+    monkeypatch.setattr(wx, "CallAfter", lambda fn, *a: later.append((fn, a)))
+    dlg.Close()                         # what Escape, Alt+F4 and the title bar do
+    assert later == [(batch_progress_dialog._focus_if_alive, (frame.image_list,))]
+
+
+def test_saying_falls_back_to_a_beep(owner, monkeypatch):
+    """macOS and old Windows can't raise the notification."""
+    frame, wx = owner
+    import batch_progress_dialog
+    import shared.uia_notify as uia
+    beeps = []
+    monkeypatch.setattr(uia, "notify", lambda *a, **k: False)
+    monkeypatch.setattr(wx, "Bell", lambda: beeps.append(True))
+    batch_progress_dialog.say_without_moving_focus(frame, "Batch Complete")
+    assert beeps == [True]

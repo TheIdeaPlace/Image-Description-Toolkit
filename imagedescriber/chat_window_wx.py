@@ -763,17 +763,19 @@ class ChatWindow(wx.Dialog):
     def on_send_message(self, event):
         """Send user message and start AI processing"""
         message = self.input_text.GetValue().strip()
-        if not message:
-            return
-            
         if self.is_processing:
             # The message box stays usable during a turn (#410), so this can
             # happen: keep what was typed and say why nothing was sent, without
-            # a modal box that takes focus away.
+            # a modal box that takes focus away. Checked before the empty test,
+            # so Enter in an empty box mid-turn is answered too. A beep where
+            # the screen reader can't be asked (macOS, old Windows).
             self.status_text.SetLabel("Still waiting for the reply. Your message is kept.")
-            notify_screen_reader(self.GetHandle(),
-                                 "Still waiting for the reply. Your message is kept.",
-                                 activity_id="idt-chat-busy")
+            if not notify_screen_reader(self.GetHandle(),
+                                        "Still waiting for the reply. Your message is kept.",
+                                        activity_id="idt-chat-busy"):
+                wx.Bell()
+            return
+        if not message:
             return
 
         # Validate any queued attachments still exist on disk
@@ -1119,9 +1121,10 @@ class ChatWindow(wx.Dialog):
     def _announce_new_message(self, message_text: str):
         """Have the screen reader speak a new reply, leaving focus where it is.
 
-        On Windows this raises a UI Automation notification, which NVDA,
-        Narrator and current JAWS speak. Elsewhere, or if UIA refuses, focus
-        is moved to the history list and back, as before.
+        On Windows this raises a UI Automation notification, which screen
+        readers are documented to speak (not yet confirmed by ear for this
+        window). Elsewhere, or if UIA refuses, focus is moved to the history
+        list and back, as before.
 
         That bounce alone was all there was, and with NVDA nothing was spoken
         (#410, NVDA bug bash 11/15/2026).
