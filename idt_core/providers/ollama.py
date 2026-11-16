@@ -326,8 +326,12 @@ def resolve_think(mode: Optional[str], name: str, host: Optional[str] = None,
     The one thinking policy for every Ollama request IDT makes, description
     and chat alike (issue #392):
 
-    * ``on`` is passed through unprobed. The user asked for thinking; if the
-      model cannot do it, the API's 400 saying so is the honest answer.
+    * ``on`` is sent only to models that report the capability. For any other
+      model it is dropped and the run log says so once (note_dropped). It used
+      to be passed through unprobed, on the view that the API's 400 was the
+      honest answer -- but Thinking is one setting for every Ollama model, so a
+      saved On made every picture fail with a model that can't think, such as
+      moondream (installed-build settings check, 11/16/2026).
     * ``off`` is sent only to models that report the capability. Against any
       other model it is already satisfied, and omitting it keeps the request
       valid on servers too old to know the field.
@@ -342,9 +346,13 @@ def resolve_think(mode: Optional[str], name: str, host: Optional[str] = None,
     tag tested (2B, 8B, 32B) keeps reasoning with ``think: false``; for those
     the fix is the ``-instruct`` tag. :meth:`OllamaProvider.describe` logs it.
     """
-    if mode == THINKING_ON:
-        return True
     has_thinking = model_can_think(name, host=host, client=client)
+    if mode == THINKING_ON:
+        if has_thinking:
+            return True
+        from ..generation import note_dropped
+        note_dropped("Ollama", name, "thinking on", "this model doesn't think")
+        return None
     if mode == THINKING_OFF:
         return False if has_thinking else None
     return True if has_thinking else None

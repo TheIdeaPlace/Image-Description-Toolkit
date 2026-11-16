@@ -89,7 +89,10 @@ def first_tab_stop(window):
 
 
 def name_for_screen_readers(box, label: str) -> None:
-    """Set ``label`` as the control's name for screen readers on every platform."""
+    """Set ``label`` as the control's name for screen readers on every platform.
+
+    The same as shared.wx_common.set_screen_reader_name, kept under this name
+    for the callers and tests here."""
     box.SetName(label)
     try:
         box.SetAccessible(_NamedText(box, label))
@@ -588,7 +591,11 @@ class SettingEditDialog(wx.Dialog):
             # A number's range goes in the name too: the "Range:" line below is
             # static text that JAWS and NVDA don't read when the field gets focus.
             # Spaces, not underscores: JAWS and NVDA read "_" as "underline".
-            self.editor.SetName(f"{self._spoken_name()} value{spoken_range(self.setting_info)}")
+            # Through an accessible object, not SetName alone: on Windows an edit
+            # box takes its name from the "Value:" label before it, and the
+            # installed-build check heard just "Value:".
+            name_for_screen_readers(
+                self.editor, f"{self._spoken_name()} value{spoken_range(self.setting_info)}")
             
             # Add range/limits info if available
             if "range" in self.setting_info:
@@ -1088,8 +1095,20 @@ class ConfigureDialog(wx.Dialog):
         - Cmd+Shift+[ and Cmd+Shift+] to switch tabs (macOS standard)
         - Enter/Space to move focus to content of current tab
         """
-        # Guard: only intercept when the notebook tab bar itself is focused
         focused = wx.Window.FindFocus()
+
+        # Enter on a settings list opens Change Setting. The list's own key
+        # handler never sees Enter on Windows: the dialog's keyboard handling
+        # takes it for the default button first. This hook runs before that.
+        # (Installed-build settings check, 11/16/2026: Enter did nothing,
+        # only Space worked, though the user guide says Enter.)
+        if event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+            for category, widgets in self.category_widgets.items():
+                if widgets.get("settings_list") is focused:
+                    self.change_setting(category, event)
+                    return
+
+        # Guard: only intercept when the notebook tab bar itself is focused
         if focused is not self.notebook:
             event.Skip()
             return

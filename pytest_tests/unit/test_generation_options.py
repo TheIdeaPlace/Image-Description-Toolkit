@@ -159,9 +159,23 @@ def caps(monkeypatch):
 
 
 class TestResolveThink:
-    def test_on_is_passed_through_unprobed(self, caps):
-        caps.value = ["completion"]
+    def test_on_is_sent_to_thinking_models(self, caps):
+        caps.value = ["completion", "vision", "thinking"]
         assert ollama_mod.resolve_think(THINKING_ON, "m") is True
+
+    def test_on_is_dropped_and_logged_for_a_model_that_cannot_think(self, caps, caplog):
+        """A saved Thinking On applies to every Ollama model: sent to moondream it
+        made every picture fail (installed-build settings check, 11/16/2026)."""
+        import logging
+        caps.value = ["completion", "vision"]
+        with caplog.at_level(logging.INFO):
+            assert ollama_mod.resolve_think(THINKING_ON, "moondream-test") is None
+        assert any("not sending thinking on" in r.getMessage() for r in caplog.records)
+
+    def test_on_with_a_failed_probe_is_not_sent(self, caps):
+        """Fails closed like the others: a wrong True breaks the request."""
+        caps.value = None
+        assert ollama_mod.resolve_think(THINKING_ON, "m-unknown") is None
 
     def test_off_sent_only_to_thinking_models(self, caps):
         caps.value = ["completion", "vision", "thinking"]
@@ -272,6 +286,7 @@ class TestDescribe:
         assert client.calls[0]["options"] == {"temperature": 0.2, "num_predict": 900}
 
     def test_thinking_on_is_honoured_and_drops_the_cap(self, client, caps):
+        caps.value = ["completion", "vision", "thinking"]
         client.queue = [_response("A desk.", thinking="hmm")]
         _describe(GenerationOptions(thinking=THINKING_ON, max_output_tokens=900))
         assert client.calls[0]["think"] is True
