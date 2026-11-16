@@ -16,7 +16,7 @@ from shared.wx_common import number_field, refuse_bad_number
 # their limit when focus left them (#406). Empty Maximum images means no limit
 # (-1, the old way to say so, still works).
 MIN_SIZE_INFO = {"type": "int", "range": [0, 10000]}
-MAX_IMAGES_INFO = {"type": "int_or_null", "range": [1, 10000]}
+MAX_IMAGES_INFO = {"type": "int_or_null", "range": [1, 10000], "minus_one_empty": True}
 
 
 class DownloadSettingsDialog(wx.Dialog):
@@ -181,7 +181,7 @@ class DownloadSettingsDialog(wx.Dialog):
         
         for control, info in ((self.min_width, MIN_SIZE_INFO), (self.min_height, MIN_SIZE_INFO),
                               (self.max_images, MAX_IMAGES_INFO)):
-            ok, _value = refuse_bad_number(self, control, info, "Download Images")
+            ok, _value = refuse_bad_number(self, control, info, "Invalid number")
             if not ok:
                 return
 

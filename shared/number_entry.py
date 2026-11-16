@@ -22,10 +22,16 @@ WHOLE_NUMBER_TYPES = ("int", "int_or_null", "int_or_auto")
 #: What an empty entry means, for the types where empty is allowed.
 EMPTY_MEANS = {"float_or_auto": "Automatic", "int_or_auto": "Automatic",
                "int_or_null": "no limit"}
-#: Words (and, for "no limit", the old -1) that mean the same as empty.
+#: Words that mean the same as empty. A setting whose old way to say "no
+#: limit" was -1 (Download's Maximum images) says so with "minus_one_empty".
 EMPTY_WORDS = {"float_or_auto": ("auto", "automatic"),
                "int_or_auto": ("auto", "automatic"),
-               "int_or_null": ("null", "none", "unlimited", "-1")}
+               "int_or_null": ("null", "none", "unlimited")}
+
+
+def _n(value) -> str:
+    """A number as a person says it: 30.0 is "30", 0.5 stays "0.5"."""
+    return f"{value:g}" if isinstance(value, float) else str(value)
 
 
 def validate_number(setting_info: Dict[str, Any], text: str):
@@ -40,11 +46,12 @@ def validate_number(setting_info: Dict[str, Any], text: str):
     kind = setting_info.get("type")
     text = (text or "").strip()
     empty_means = EMPTY_MEANS.get(kind)
-    if empty_means and (text == "" or text.lower() in EMPTY_WORDS[kind]):
+    if empty_means and (text == "" or text.lower() in EMPTY_WORDS[kind]
+                        or (text == "-1" and setting_info.get("minus_one_empty"))):
         return None, None
 
     low, high = setting_info.get("range", (None, None))
-    span = f" from {low} to {high}" if low is not None else ""
+    span = f" from {_n(low)} to {_n(high)}" if low is not None else ""
     tail = f", or leave it empty for {empty_means}." if empty_means else "."
     whole = kind in WHOLE_NUMBER_TYPES
     word = "a whole number" if whole else "a number"
@@ -69,7 +76,7 @@ def spoken_range(setting_info: Dict[str, Any]) -> str:
     if kind not in NUMBER_TYPES or "range" not in setting_info:
         return ""
     low, high = setting_info["range"]
-    text = f", {low} to {high}"
+    text = f", {_n(low)} to {_n(high)}"
     if kind in EMPTY_MEANS:
         text += f", or empty for {EMPTY_MEANS[kind]}"
     return text

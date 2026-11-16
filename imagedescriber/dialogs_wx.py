@@ -1571,7 +1571,7 @@ class VideoExtractionDialog(wx.Dialog):
         scene_panel = wx.Panel(panel)
         scene_sizer = wx.BoxSizer(wx.HORIZONTAL)
         low, high = SCENE_THRESHOLD_RANGE
-        scene_label = wx.StaticText(scene_panel, label=f"Sensitivity ({low:g}–{high:g}, lower = more frames):")
+        scene_label = wx.StaticText(scene_panel, label=f"Sensitivity ({low:g} to {high:g}, lower = more frames):")
         self.scene_input = number_field(scene_panel, self.SCENE_INFO, self.scene_threshold,
                                         "Scene change threshold")
         scene_sizer.Add(scene_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)

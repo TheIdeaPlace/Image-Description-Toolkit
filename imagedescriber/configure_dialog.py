@@ -115,11 +115,6 @@ def _display_value(setting_info: Dict[str, Any], value: Any) -> Any:
     return _choice_label(setting_info, value)
 
 
-#: The number check is shared with the video extraction and Download dialogs
-#: (#406); it lives in shared/number_entry.py. These names stay importable here.
-from shared.number_entry import (NUMBER_TYPES, validate_number,  # noqa: E402
-                                 spoken_range, VIDEO_INTERVAL_RANGE,
-                                 SCENE_THRESHOLD_RANGE)
 
 
 _AUTO_NOTE = ("Leave it on Automatic to use IDT's default for the model you pick. "
@@ -452,6 +447,12 @@ except ImportError as e:
     print("This indicates a PyInstaller build issue or missing dependency.")
     sys.exit(1)
 
+# The number check is shared with the video extraction and Download dialogs
+# (#406); it lives in shared/number_entry.py. These names stay importable here.
+# Below the sys.path set-up above, like the wx_common import.
+from shared.number_entry import (NUMBER_TYPES, validate_number,  # noqa: E402
+                                 spoken_range, VIDEO_INTERVAL_RANGE,
+                                 SCENE_THRESHOLD_RANGE)
 from idt_core.providers.registry import typed_name as typed_provider_name  # noqa: E402
 
 

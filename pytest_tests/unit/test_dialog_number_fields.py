@@ -24,16 +24,31 @@ for _p in (str(_ROOT), str(_ROOT / "imagedescriber")):
 from shared import number_entry  # noqa: E402
 
 
-def test_the_old_minus_one_still_means_no_limit():
-    info = {"type": "int_or_null", "range": [1, 10000]}
+def test_the_old_minus_one_still_means_no_limit_where_it_did():
+    """Download's Maximum images said "-1 for unlimited"; it still works there."""
+    info = {"type": "int_or_null", "range": [1, 10000], "minus_one_empty": True}
     assert number_entry.validate_number(info, "-1") == (None, None)
     assert number_entry.validate_number(info, "") == (None, None)
     assert number_entry.validate_number(info, "0")[1] == (
         "Enter a whole number from 1 to 10000, or leave it empty for no limit.")
 
 
+def test_minus_one_is_refused_elsewhere():
+    """Configure's Max frames per video never took -1; it isn't quietly made "no limit"."""
+    info = {"type": "int_or_null", "range": [1, 1000]}
+    assert number_entry.validate_number(info, "-1") == (
+        None, "Enter a whole number from 1 to 1000, or leave it empty for no limit.")
+
+
+def test_ranges_read_as_people_say_them():
+    """ "1 to 100", not "1.0 to 100.0" (one point zero to one hundred point zero)."""
+    info = {"type": "float", "range": [1.0, 100.0]}
+    assert number_entry.spoken_range(info) == ", 1 to 100"
+    assert number_entry.validate_number(info, "x")[1] == "Enter a number from 1 to 100."
+
+
 def test_spoken_range():
-    assert number_entry.spoken_range({"type": "float", "range": [0.5, 60.0]}) == ", 0.5 to 60.0"
+    assert number_entry.spoken_range({"type": "float", "range": [0.5, 60.0]}) == ", 0.5 to 60"
     assert number_entry.spoken_range({"type": "int_or_null", "range": [1, 10000]}) == (
         ", 1 to 10000, or empty for no limit")
     assert number_entry.spoken_range({"type": "string"}) == ""
@@ -86,11 +101,11 @@ def test_video_dialog_refuses_an_interval_out_of_range(app, monkeypatch):
     dlg = VideoExtractionDialog(None)
     try:
         assert type(dlg.time_input) is wx.TextCtrl
-        assert dlg.time_input.GetName() == "Time interval in seconds, 0.5 to 60.0"
+        assert dlg.time_input.GetName() == "Time interval in seconds, 0.5 to 60"
         dlg.time_input.SetValue("500")
         ok = _Ok()
         dlg._on_ok(ok)
-        assert shown == ["Enter a number from 0.5 to 60.0."] and not ok.skipped
+        assert shown == ["Enter a number from 0.5 to 60."] and not ok.skipped
         dlg.time_input.SetValue("2.5")
         ok = _Ok()
         dlg._on_ok(ok)
