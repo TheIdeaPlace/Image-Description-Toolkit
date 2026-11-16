@@ -156,6 +156,26 @@ def _fetch_releases():
     return resp.json() or []
 
 
+def describe_check_error(exc: BaseException) -> str:
+    """What to tell a person when an update check fails, in plain words.
+
+    The exception itself goes to the log. Shown as it was, an offline check
+    read out "HTTPSConnectionPool(host='api.github.com', port=443): Max retries
+    exceeded ... NameResolutionError ... getaddrinfo failed" (#416).
+    """
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+        return ("Couldn't reach GitHub to check for updates. "
+                "Check your internet connection, then try again.")
+    if isinstance(exc, requests.HTTPError):
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status in (403, 429):
+            return ("GitHub turned the update check away because it was asked too "
+                    "often. Try again in an hour.")
+        if status is not None:
+            return f"GitHub couldn't answer the update check (error {status}). Try again later."
+    return "Couldn't check for updates. Try again later."
+
+
 def check_for_update(current=None):
     """Return details of the newest release if it is newer than the running one.
 
