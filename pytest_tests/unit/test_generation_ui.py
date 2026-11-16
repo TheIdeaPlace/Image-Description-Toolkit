@@ -144,19 +144,19 @@ class TestGenerationTab:
     ])
     def test_float_entry(self, cfg, text, expected):
         info = cfg.generation_settings_metadata()["Ollama temperature"]
-        assert cfg._validate_auto_number(info, text) == expected
+        assert cfg.validate_number(info, text) == expected
 
     @pytest.mark.parametrize("text", ["warm", "-1", "2.5"])
     def test_bad_float_entry_says_what_to_do(self, cfg, text):
         info = cfg.generation_settings_metadata()["Ollama temperature"]
-        value, error = cfg._validate_auto_number(info, text)
+        value, error = cfg.validate_number(info, text)
         assert value is None and "leave it empty for Automatic" in error
 
     def test_int_entry(self, cfg):
         info = cfg.generation_settings_metadata()["Ollama output limit"]
-        assert cfg._validate_auto_number(info, "800") == (800, None)
-        assert "whole number" in cfg._validate_auto_number(info, "8.5")[1]
-        assert cfg._validate_auto_number(info, "10")[1]    # below the range
+        assert cfg.validate_number(info, "800") == (800, None)
+        assert "whole number" in cfg.validate_number(info, "8.5")[1]
+        assert cfg.validate_number(info, "10")[1]    # below the range
 
     def test_automatic_removes_the_key_and_empty_sections(self, cfg):
         config = {"generation": {"ollama": {"temperature": 0.2}, "openai": {"effort": "low"}},
