@@ -54,6 +54,57 @@ def test_without_uia_it_says_so_so_the_caller_can_fall_back(monkeypatch):
     assert uia_notify.notify(123, "hello") is False
 
 
+class _FakeNvda:
+    """nvdaControllerClient.dll's two calls used here."""
+
+    def __init__(self, running=True, speak_rc=0):
+        self.running, self.speak_rc, self.spoken = running, speak_rc, []
+
+    def nvdaController_testIfRunning(self):
+        return 0 if self.running else 1717      # RPC_S_UNKNOWN_IF when NVDA isn't running
+
+    def nvdaController_speakText(self, text):
+        self.spoken.append(text.value)
+        return self.speak_rc
+
+
+def test_nvda_speaks_it_and_uia_is_not_used():
+    """NVDA ignores UIA notifications from wx windows; its controller client
+    spoke the whole reply in the test VM (NVDA 2026.2, 11/16/2026)."""
+    nvda, uia = _FakeNvda(), _FakeUia()
+    assert uia_notify.notify(123, "A red barn.", api=(uia, _FakeOle()), nvda=nvda) is True
+    assert nvda.spoken == ["A red barn."] and uia.raised == []
+
+
+def test_without_nvda_running_uia_is_used(monkeypatch):
+    uia = _FakeUia()
+
+    def host(hwnd, out):
+        ctypes.cast(out, ctypes.POINTER(ctypes.c_void_p))[0] = 4242
+        return 0
+    uia.UiaHostProviderFromHwnd = host
+    monkeypatch.setattr(uia_notify, "_release", lambda p: None)
+    nvda = _FakeNvda(running=False)
+    assert uia_notify.notify(123, "hello", api=(uia, _FakeOle()), nvda=nvda) is True
+    assert nvda.spoken == [] and len(uia.raised) == 1
+
+
+def test_a_test_passing_only_api_never_reaches_nvda(monkeypatch):
+    called = []
+    monkeypatch.setattr(uia_notify, "speak_with_nvda", lambda *a, **k: called.append(a) or True)
+    uia_notify.notify(123, "hello", api=(_FakeUia(), _FakeOle()))
+    assert called == []
+
+
+def test_the_controller_client_is_shipped_for_each_build_architecture():
+    for arch in ("x64", "arm64"):
+        dll = _ROOT / "shared" / "nvda" / arch / "nvdaControllerClient.dll"
+        assert dll.is_file() and dll.stat().st_size > 100_000, arch
+    assert (_ROOT / "shared" / "nvda" / "license.txt").is_file()
+    spec = (_ROOT / "imagedescriber" / "imagedescriber_wx.spec").read_text(encoding="utf-8")
+    assert "'shared/nvda/x64'" in spec and "'shared/nvda/arm64'" in spec
+
+
 def test_not_on_windows_there_is_no_api(monkeypatch):
     monkeypatch.setattr(sys, "platform", "darwin")
     assert uia_notify._api() is None

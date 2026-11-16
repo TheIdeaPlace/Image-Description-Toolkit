@@ -62,6 +62,16 @@ _atexit.register(_shutil.rmtree, _SCRATCH_USER_CONFIG, True)
 
 
 @pytest.fixture(autouse=True)
+def no_real_screen_reader_speech(monkeypatch):
+    """Tests never speak through a developer's running NVDA (shared.uia_notify)."""
+    try:
+        from shared import uia_notify
+    except Exception:                                   # noqa: BLE001
+        return
+    monkeypatch.setattr(uia_notify, "_nvda_client", lambda: None)
+
+
+@pytest.fixture(autouse=True)
 def isolate_user_config(tmp_path, monkeypatch):
     """A fresh, empty user config dir for every test, and no IDT_CONFIG_DIR."""
     monkeypatch.setenv("IDT_USER_CONFIG_DIR", str(tmp_path / "user_config"))

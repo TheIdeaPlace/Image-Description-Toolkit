@@ -208,8 +208,17 @@ class BatchProgressDialog(wx.Dialog):
 
         # Escape, Alt+F4 and the title bar close a finished window the way its
         # Close button does (destroy, focus back to the image list); before it
-        # finishes they hide it, as they always did (#438 review).
+        # finishes they hide it, as they always did (#438 review). Escape needs
+        # its own hook: this dialog has no Cancel button, so wx ignored it
+        # (found under NVDA in the test VM).
         self.Bind(wx.EVT_CLOSE, self._on_close_event)
+        self.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
+
+    def _on_char_hook(self, event):
+        if event.GetKeyCode() == wx.WXK_ESCAPE and getattr(self, '_is_complete', False):
+            self.on_stop_clicked(event)
+            return
+        event.Skip()
 
     def _on_close_event(self, event):
         if getattr(self, '_is_complete', False):

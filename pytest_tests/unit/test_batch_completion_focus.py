@@ -137,6 +137,25 @@ def test_escape_or_alt_f4_on_a_finished_window_closes_it_like_close(owner, monke
     assert later == [(batch_progress_dialog._focus_if_alive, (frame.image_list,))]
 
 
+def test_escape_on_a_finished_window_closes_it(owner, monkeypatch):
+    """The dialog has no Cancel button, so wx ignored Escape (seen under NVDA)."""
+    frame, wx = owner
+    import batch_progress_dialog
+    dlg = _finished(frame)
+    later = []
+    monkeypatch.setattr(wx, "CallAfter", lambda fn, *a: later.append((fn, a)))
+
+    class _Key:
+        def GetKeyCode(self):
+            return wx.WXK_ESCAPE
+
+        def Skip(self, skip=True):
+            raise AssertionError("Escape must be handled, not passed on")
+
+    dlg._on_char_hook(_Key())
+    assert later == [(batch_progress_dialog._focus_if_alive, (frame.image_list,))]
+
+
 def test_saying_falls_back_to_a_beep(owner, monkeypatch):
     """macOS and old Windows can't raise the notification."""
     frame, wx = owner

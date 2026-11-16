@@ -49,6 +49,11 @@ a = Analysis(
     datas=[
         (str(project_root / 'scripts' / '*.json'), 'scripts'),
         (str(project_root / 'VERSION'), '.'),
+        # NVDA's controller client, so NVDA speaks chat replies and a finished
+        # batch (#409, #410); shared/uia_notify.py loads it from beside itself.
+        (str(project_root / 'shared' / 'nvda' / 'x64' / 'nvdaControllerClient.dll'), 'shared/nvda/x64'),
+        (str(project_root / 'shared' / 'nvda' / 'arm64' / 'nvdaControllerClient.dll'), 'shared/nvda/arm64'),
+        (str(project_root / 'shared' / 'nvda' / 'license.txt'), 'shared/nvda'),
     ] + wx_datas + cv2_datas + mlx_vlm_datas + mlx_datas + torch_datas,
     hiddenimports=[
         # jaraco packages required by pkg_resources (setuptools >= 75)
@@ -57,6 +62,7 @@ a = Analysis(
         'wx.adv',
         'wx.lib.newevent',
         'shared.wx_common',
+        'shared.uia_notify',        # screen reader announcements (#409, #410)
         'shared.number_entry',      # number fields in Configure and the dialogs (#405, #406)
         'shared',
         # Names controls for VoiceOver through NSAccessibility. Without it in
