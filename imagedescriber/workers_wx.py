@@ -510,17 +510,21 @@ class ProcessingWorker(threading.Thread):
         """Load prompt configuration
         
         Resolution order:
-        1) Explicit path provided via prompt_config_path
-        2) External scripts/image_describer_config.json (frozen)
-        3) Bundled scripts/image_describer_config.json (frozen)
-        4) Repository scripts/image_describer_config.json (dev)
+        1) The path the main window resolved (prompt_config_path), read through
+           config_loader so a user copy gets the shipped defaults filled in
+        2) config_loader's own order: the user's settings, then the shipped defaults
+        3) Only if config_loader can't be imported: the files beside the exe or repo
         """
         try:
             # Use explicit override if available
             if self._prompt_config_path and self._prompt_config_path.exists():
-                with open(self._prompt_config_path, 'r', encoding='utf-8') as f:
-                    cfg = json.load(f)
-                    return self._normalize_prompt_config(cfg)
+                if load_json_config:
+                    cfg, _, _ = load_json_config('image_describer_config.json',
+                                                 explicit=str(self._prompt_config_path))
+                else:
+                    with open(self._prompt_config_path, 'r', encoding='utf-8') as f:
+                        cfg = json.load(f)
+                return self._normalize_prompt_config(cfg)
 
             # Try to find the config file
             config = None

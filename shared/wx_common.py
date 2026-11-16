@@ -127,73 +127,19 @@ def writable_scripts_directory() -> Optional[Path]:
 
 
 def find_config_file(filename: str) -> Optional[Path]:
+    """The config file in use for ``filename``: config_loader's answer.
+
+    Kept for older callers. It used to search its own order and, in a frozen
+    build, create {exe}\\scripts and copy a template there -- a third place
+    settings could land, which an upgrade replaces. Read with
+    config_loader.load_json_config; save to config_loader.writable_config_path.
     """
-    Find a configuration file using standard search order.
-    
-    Search order:
-    1. scripts/ directory next to exe (writable)
-    2. Base directory (exe directory or project root)
-    3. Current working directory
-    4. PyInstaller temp directory (frozen mode only, read-only)
-    
-    If no writable config found in frozen mode, creates scripts/ directory
-    next to exe and copies bundled config as template.
-    
-    Args:
-        filename: Config filename (e.g., 'image_describer_config.json')
-        
-    Returns:
-        Path to config file if found, None otherwise
-    """
-    scripts_dir = find_scripts_directory()
-    base_dir = get_base_directory()
-    
-    candidates = []
-    
-    # Add scripts directory if found
-    if scripts_dir:
-        candidates.append(scripts_dir / filename)
-    
-    # Add base directory
-    candidates.append(base_dir / filename)
-    
-    # Add current directory
-    candidates.append(Path.cwd() / filename)
-    
-    # Return first existing writable file
-    for path in candidates:
-        if path.exists() and path.is_file():
-            return path
-    
-    # In frozen mode, if no writable config found, create one from bundled template
-    if getattr(sys, 'frozen', False):
-        # Check if bundled config exists in _MEIPASS
-        bundled_candidates = [
-            Path(sys._MEIPASS) / 'scripts' / filename,
-            Path(sys._MEIPASS) / filename,
-        ]
-        
-        bundled_config = None
-        for bundled_path in bundled_candidates:
-            if bundled_path.exists() and bundled_path.is_file():
-                bundled_config = bundled_path
-                break
-        
-        # Create writable config location next to exe
-        writable_scripts = base_dir / 'scripts'
-        writable_scripts.mkdir(exist_ok=True)
-        writable_config = writable_scripts / filename
-        
-        # Copy bundled config as template if available and target doesn't exist
-        if bundled_config and not writable_config.exists():
-            try:
-                writable_config.write_bytes(bundled_config.read_bytes())
-            except Exception:
-                pass  # If copy fails, return path anyway for creation
-        
-        return writable_config
-    
-    return None
+    try:
+        from idt_core.config_loader import resolve_config
+    except ImportError:
+        return None
+    path, source = resolve_config(filename)
+    return None if source == 'missing_fallback' else path
 
 
 # ==================== CONFIG MANAGEMENT ====================
@@ -244,7 +190,10 @@ class ConfigManager:
         try:
             # Try config_loader first for frozen mode compatibility
             if load_json_config:
-                self.config_data, _, _ = load_json_config(explicit=str(self.config_file))
+                # The filename argument is required; it was missing, so this
+                # raised TypeError and fell to the except below.
+                self.config_data, _, _ = load_json_config(self.config_file.name,
+                                                          explicit=str(self.config_file))
             else:
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     self.config_data = json.load(f)

@@ -334,17 +334,25 @@ def store_api_key(provider: str, value: str) -> str:
     try:
         import json
 
-        from .config_loader import load_json_config
+        from .config_loader import writable_config_path
 
-        loaded = load_json_config("image_describer_config.json")
-        if isinstance(loaded, tuple):
-            config, path = loaded[0], loaded[1]
-        else:  # pragma: no cover - older loader shape
-            return ""
+        # The user's own file, as saved -- not load_json_config's result, which
+        # has the shipped defaults filled in (writing that back would freeze
+        # them) and may come from {app}\scripts, which an upgrade replaces. A
+        # file holding only api_keys is fine: the rest is filled in on read.
+        path = writable_config_path("image_describer_config.json")
+        try:
+            config = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            config = {}
         if not isinstance(config, dict):
             config = {}
-        config.setdefault("api_keys", {})[name] = value
-        Path(path).write_text(json.dumps(config, indent=2), encoding="utf-8")
+        keys = config.get("api_keys")
+        if not isinstance(keys, dict):
+            keys = config["api_keys"] = {}
+        keys[name] = value
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(config, indent=2), encoding="utf-8")
         return "config file"
     except Exception:
         return ""

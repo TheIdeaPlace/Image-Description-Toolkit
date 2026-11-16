@@ -162,6 +162,46 @@ def test_installer_no_longer_sets_idt_config_dir():
 
 
 # --------------------------------------------------------------------------- #
+# The one-time fix-up of copies Configure seeded before 4.9 read them           #
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("old", ["moondream:latest", "moondream", "gemma3:latest"])
+def test_an_old_shipped_default_model_gives_way_to_the_current_one(installed, old):
+    """Seeded Feb-Jun 2026 with moondream:latest, which the installer no longer
+    pulls: once that copy is read, every description would 404."""
+    app, user = installed
+    _save_user(user, dict(SHIPPED, default_model=old))
+    config, _p, _s = config_loader.load_json_config(NAME)
+    assert config["default_model"] == "minicpm-v4.6"
+    on_disk = json.loads((user / NAME).read_text(encoding="utf-8"))
+    assert "default_model" not in on_disk and on_disk[config_loader.MIGRATED_KEY] == "4.9"
+
+
+def test_the_fix_up_runs_once_so_a_later_choice_sticks(installed):
+    app, user = installed
+    _save_user(user, dict(SHIPPED, default_model="moondream:latest"))
+    config_loader.load_json_config(NAME)                     # the one-time fix-up
+    saved = json.loads((user / NAME).read_text(encoding="utf-8"))
+    saved["default_model"] = "moondream:latest"              # chosen again in Configure
+    (user / NAME).write_text(json.dumps(saved), encoding="utf-8")
+    assert config_loader.load_json_config(NAME)[0]["default_model"] == "moondream:latest"
+
+
+def test_any_other_saved_model_is_kept(installed):
+    app, user = installed
+    _save_user(user, dict(SHIPPED, default_model="qwen3-vl:8b-instruct"))
+    assert config_loader.load_json_config(NAME)[0]["default_model"] == "qwen3-vl:8b-instruct"
+
+
+def test_from_source_the_repo_defaults_are_found_from_any_folder(tmp_path, monkeypatch):
+    """CLAUDE.md's dev command runs from imagedescriber/, where cwd has no scripts/."""
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    monkeypatch.chdir(tmp_path)
+    path, source = config_loader.resolve_defaults(NAME)
+    assert path == _ROOT / "scripts" / NAME
+
+
+# --------------------------------------------------------------------------- #
 # #411: the CLI kept the default model's tag                                    #
 # --------------------------------------------------------------------------- #
 

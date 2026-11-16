@@ -64,8 +64,9 @@ def _load_shared_config() -> tuple[dict[str, str], str, str]:
     return variations, default_prompt, default_model
 
 
-# Loaded once at import time from the shared config JSON.
-# To change defaults project-wide, edit scripts/image_describer_config.json.
+# Loaded once at import time from the shared config JSON, through config_loader:
+# the user's saved settings first, then the shipped scripts/image_describer_config.json.
+# Editing the shipped file changes the default for anyone who hasn't saved their own.
 BUILT_IN_PROMPTS, DEFAULT_PROMPT_NAME, DEFAULT_OLLAMA_MODEL = _load_shared_config()
 
 _CONFIG_FILE = Path.home() / ".idt" / "config.json"

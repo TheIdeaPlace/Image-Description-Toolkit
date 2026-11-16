@@ -1304,11 +1304,14 @@ class ConfigureDialog(wx.Dialog):
     
     def load_all_configs(self):
         """Load all configuration files"""
+        from idt_core.config_loader import load_json_config
         for name, path in self.config_files.items():
             try:
                 if path.exists():
-                    with open(path, 'r', encoding='utf-8') as f:
-                        self.configs[name] = json.load(f)
+                    # Through config_loader, so Configure shows what processing
+                    # uses: the saved copy with any section it lacks filled in
+                    # from the shipped defaults, after the one-time fix-up.
+                    self.configs[name], _p, _s = load_json_config(path.name, explicit=str(path))
                 else:
                     self.configs[name] = {}
                     print(f"Warning: {path} not found")

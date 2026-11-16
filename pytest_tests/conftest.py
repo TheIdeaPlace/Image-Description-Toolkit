@@ -50,14 +50,22 @@ os.environ["IDT_SKIP_STARTUP_MODEL_REFRESH"] = "1"
 # imported -- idt_core.config reads the config at import time -- so a
 # developer's own saved settings never change a test, and no test writes to
 # them. isolate_user_config gives each test a fresh one.
+# IDT_CONFIG_DIR goes too: earlier Windows installers set it to C:\idt\scripts,
+# so tests read whichever version happened to be installed, not this repo's.
+import atexit as _atexit
+import shutil as _shutil
 import tempfile as _tempfile
-os.environ["IDT_USER_CONFIG_DIR"] = _tempfile.mkdtemp(prefix="idt-user-config-")
+os.environ.pop("IDT_CONFIG_DIR", None)
+_SCRATCH_USER_CONFIG = _tempfile.mkdtemp(prefix="idt-user-config-")
+os.environ["IDT_USER_CONFIG_DIR"] = _SCRATCH_USER_CONFIG
+_atexit.register(_shutil.rmtree, _SCRATCH_USER_CONFIG, True)
 
 
 @pytest.fixture(autouse=True)
 def isolate_user_config(tmp_path, monkeypatch):
-    """A fresh, empty user config dir for every test."""
+    """A fresh, empty user config dir for every test, and no IDT_CONFIG_DIR."""
     monkeypatch.setenv("IDT_USER_CONFIG_DIR", str(tmp_path / "user_config"))
+    monkeypatch.delenv("IDT_CONFIG_DIR", raising=False)
 
 
 @pytest.fixture(autouse=True)

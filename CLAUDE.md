@@ -68,12 +68,14 @@ Four sequential steps:
 
 Output directories: `wf_YYYY-MM-DD_HHMMSS_{model}_{prompt}`
 
-### Configuration Resolution Order (`scripts/config_loader.py`)
+### Configuration Resolution Order (`idt_core/config_loader.py`)
+Two layers: the user's saved settings over the shipped defaults.
 1. Explicit path from caller
-2. File environment variable (e.g., `IDT_IMAGE_DESCRIBER_CONFIG`)
-3. `IDT_CONFIG_DIR` env var + filename
-4. Frozen exe dir + `/scripts/<filename>` or `/<filename>`
-5. Current working directory → bundled script dir (fallback)
+2. File environment variable, when a caller passes one
+3. **The user config dir** (`%APPDATA%\IDT`, `~/Library/Application Support/IDT`, `~/.config/IDT`; `IDT_USER_CONFIG_DIR` replaces it) — what Configure, the Prompt Editor and Import Configuration save
+4. The shipped defaults: `IDT_CONFIG_DIR` → frozen exe dir `/scripts/` → `_MEIPASS/scripts/` → the repo's `scripts/` (from source) → cwd
+
+`load_json_config` fills any top-level section the user copy lacks from the defaults (top level only, so deleted prompt styles stay deleted). Save with `writable_config_path()`, never to `scripts/` beside the exe: the installer replaces it on every upgrade. Before #407 the exe's `scripts/` came first, so nothing saved in Configure reached processing on an installed Windows copy. The test suite points `IDT_USER_CONFIG_DIR` at scratch and clears `IDT_CONFIG_DIR`.
 
 ### AI Model Registry (Single Source of Truth)
 All model lists live in the provider modules under `idt_core/providers/`:

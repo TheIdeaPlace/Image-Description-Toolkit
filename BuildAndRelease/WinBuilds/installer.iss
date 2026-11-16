@@ -267,9 +267,12 @@ begin
 
   if CurUninstallStep = usPostUninstall then
   begin
-    // Remove IDT_CONFIG_DIR environment variable
-    RegDeleteValue(HKEY_CURRENT_USER, 'Environment', 'IDT_CONFIG_DIR');
-    
+    // Remove IDT_CONFIG_DIR only if an earlier installer set it (to {app}\scripts);
+    // a folder someone set themselves is theirs, as at install.
+    if RegQueryStringValue(HKEY_CURRENT_USER, 'Environment', 'IDT_CONFIG_DIR', Path) and
+       (CompareText(RemoveBackslashUnlessRoot(Path), ExpandConstant('{app}\scripts')) = 0) then
+      RegDeleteValue(HKEY_CURRENT_USER, 'Environment', 'IDT_CONFIG_DIR');
+
     // Remove from PATH if it was added
     AppDir := ExpandConstant('{app}');
     if RegQueryStringValue(HKEY_CURRENT_USER, 'Environment', 'Path', Path) then

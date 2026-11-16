@@ -1,9 +1,5 @@
 """Layered configuration loader for Image Description Toolkit.
 
-Non-breaking helper used to allow external overrides of bundled JSON config
-files without requiring a rebuild. If a higher-precedence source is not
-present, existing bundled behavior is preserved.
-
 Two layers: the user's settings over the shipped defaults.
 
 Resolution order (first existing file wins):
@@ -139,6 +135,10 @@ def resolve_defaults(filename: str) -> Tuple[Path, str]:
     if meipass_dir:
         candidates.append(meipass_dir / 'scripts' / filename)
         candidates.append(meipass_dir / filename)
+    if not exe_dir:
+        # Run from source: the repo's scripts/ folder, wherever the cwd is
+        # (CLAUDE.md's dev command runs from imagedescriber/).
+        candidates.append(Path(__file__).resolve().parent.parent / 'scripts' / filename)
     candidates.append(Path.cwd() / 'scripts' / filename)
     candidates.append(Path.cwd() / filename)
     candidates.append(script_dir / filename)
@@ -203,10 +203,42 @@ def load_json_config(
     path, source = resolve_config(filename, explicit=explicit, env_var_file=env_var_file)
     config = _read_json(path)
     if _is_user_file(path, filename):
+        config = _migrate_once(path, filename, config)
         defaults_path, _ = resolve_defaults(filename)
         if _exists_file(defaults_path):
             config = merge_defaults(config, _read_json(defaults_path))
     return config, path, source
+
+
+#: Marks a user copy as checked by _migrate_once, so it is checked only once.
+MIGRATED_KEY = "_settings_checked_by"
+#: Default models IDT shipped before minicpm-v4.6 (June 2026).
+_OLD_SHIPPED_MODELS = {"moondream", "moondream:latest", "gemma3:latest"}
+
+
+def _migrate_once(path: Path, filename: str, config: dict) -> dict:
+    """One-time fix-up of a user copy written before 4.9 read it first.
+
+    Configure copied every shipped file into the user folder the first time it
+    opened. On an installed Windows copy those copies were never read, so the
+    one that can now hurt is a stale shipped default model: moondream:latest
+    until June 2026, which the installer no longer pulls, so every
+    description would fail with a 404. A default model equal to an old shipped
+    default is removed, so the current one fills in. Done once, and marked, so
+    choosing moondream yourself afterwards sticks.
+    """
+    if filename != 'image_describer_config.json' or MIGRATED_KEY in config:
+        return config
+    config = dict(config)
+    if config.get('default_model') in _OLD_SHIPPED_MODELS:
+        del config['default_model']
+    config[MIGRATED_KEY] = "4.9"
+    try:
+        import json
+        path.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding='utf-8')
+    except OSError:
+        pass        # read-only or locked: fixed in memory now, and again next time
+    return config
 
 
 def _is_user_file(path: Path, filename: str) -> bool:
