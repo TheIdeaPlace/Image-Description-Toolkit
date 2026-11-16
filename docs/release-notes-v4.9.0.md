@@ -108,6 +108,12 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
   an address you've set to `localhost` is changed the same way. The dialog opens in about
   half a second. If you set Ollama up to listen only on IPv6, set the address to
   `http://[::1]:11434`.
+- **The Configure dialog now checks every number you type.** Outside the Generation tab,
+  a mistyped number was saved as something else without a word: "abc" became 0 seconds
+  for the frame interval, or unlimited for Max frames per video, and 150 for image quality
+  became 100. Now a number that can't be used gets a message saying the range to enter,
+  and nothing is saved until it can be. Each number field's range is also part of its
+  name, so a screen reader reads it when you reach the field.
 - **The default provider list offered Apple Intelligence on Windows** (and Windows AI on a
   Mac). Each is now listed only where it can run.
 - **`idt describe --provider openai` failed on every image with the default model.** It
