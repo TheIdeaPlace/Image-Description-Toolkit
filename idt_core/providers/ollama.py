@@ -259,11 +259,36 @@ def model_has_vision(name: str, host: Optional[str] = None, client=None) -> bool
 
 def model_can_think(name: str, host: Optional[str] = None, client=None) -> bool:
     """True when /api/show lists `thinking`. Fails CLOSED (see resolve_think)."""
+    return _think_capability(name, host=host, client=client) is True
+
+
+def _think_capability(name: str, host: Optional[str] = None, client=None) -> Optional[bool]:
+    """True or False from /api/show, or None when it couldn't be asked."""
     try:
         caps = model_capabilities(name, host=host, client=client)
     except Exception:                                            # noqa: BLE001
-        return False
-    return bool(caps) and "thinking" in caps
+        return None
+    if not caps:
+        return None
+    return "thinking" in caps
+
+
+#: Models already warned about a dropped Thinking On, so a batch says it once.
+_THINK_ON_WARNED: set = set()
+
+
+def thinking_on_note(provider: str, model: Optional[str]) -> Optional[str]:
+    """What to tell someone who picks Thinking On for a model that can't think.
+
+    For a chat window's Thinking menu: On is dropped for such a model
+    (resolve_think), and without a word the answer just came back unthinking.
+    None when the model can think, isn't an Ollama model, or couldn't be asked.
+    """
+    if (provider or "").lower() != "ollama" or not model:
+        return None
+    if _think_capability(model) is False:
+        return f"{model} doesn't think, so Thinking On has no effect with it."
+    return None
 
 
 #: Shown after a thinking model's name in describe pickers. Short on purpose:
@@ -346,12 +371,23 @@ def resolve_think(mode: Optional[str], name: str, host: Optional[str] = None,
     tag tested (2B, 8B, 32B) keeps reasoning with ``think: false``; for those
     the fix is the ``-instruct`` tag. :meth:`OllamaProvider.describe` logs it.
     """
-    has_thinking = model_can_think(name, host=host, client=client)
+    capability = _think_capability(name, host=host, client=client)
+    has_thinking = capability is True
     if mode == THINKING_ON:
         if has_thinking:
             return True
         from ..generation import note_dropped
-        note_dropped("Ollama", name, "thinking on", "this model doesn't think")
+        note_dropped("Ollama", name, "thinking on",
+                     "this model doesn't think" if capability is False
+                     else "couldn't check whether this model thinks")
+        # Also a warning, once per model, so `idt describe --think` and
+        # `idt chat --think` say it on the console, which shows warnings and not
+        # the run log's notes.
+        if name not in _THINK_ON_WARNED:
+            _THINK_ON_WARNED.add(name)
+            logger.warning("Thinking On isn't sent to %s: %s", name,
+                           "it doesn't think" if capability is False
+                           else "couldn't check whether it thinks")
         return None
     if mode == THINKING_OFF:
         return False if has_thinking else None

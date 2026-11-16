@@ -3086,7 +3086,7 @@ Supported providers:
                               "OLLAMA_API_KEY)"))
     p_chat.add_argument("--think", dest="thinking", action="store_const",
                         const=True, default=None,
-                        help="Force reasoning-model thinking on (Ollama)")
+                        help="Turn thinking on, for models that can think (Ollama)")
     p_chat.add_argument("--no-think", dest="thinking", action="store_const",
                         const=False,
                         help="Force thinking off for faster answers (Ollama)")

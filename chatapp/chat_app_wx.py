@@ -1381,6 +1381,14 @@ class ChatFrame(wx.Frame):
         """Chat > Thinking. Applies from the next message on."""
         self._thinking = value
         self._set_status(status)
+        if value is True:
+            # On is dropped for a model that can't think (resolve_think); say so
+            # now rather than leave an answer that just came back unthinking.
+            from idt_core.providers.ollama import thinking_on_note
+            note = thinking_on_note(self.provider_name, self.model_name)
+            if note:
+                self._set_status(note)
+                self._announce(note)
 
     def on_toggle_web_search(self, _event):
         if not self.web_search_item.IsChecked():
