@@ -58,17 +58,17 @@ def test_good_entries_are_accepted(cfg, info, text, expected):
 
 
 @pytest.mark.parametrize("info, text, says", [
-    (FLOAT, "abc", "Enter a number from 0.5 to 30.0."),     # was saved as 0.0
-    (FLOAT, "", "Enter a number from 0.5 to 30.0."),        # empty isn't allowed here
-    (FLOAT, "0", "Enter a number from 0.5 to 30.0."),
-    (FLOAT, "500", "Enter a number from 0.5 to 30.0."),
-    (FLOAT, "nan", "Enter a number from 0.5 to 30.0."),
-    (FLOAT, "inf", "Enter a number from 0.5 to 30.0."),
+    (FLOAT, "abc", "Enter a number from 0.5 to 30."),     # was saved as 0.0
+    (FLOAT, "", "Enter a number from 0.5 to 30."),        # empty isn't allowed here
+    (FLOAT, "0", "Enter a number from 0.5 to 30."),
+    (FLOAT, "500", "Enter a number from 0.5 to 30."),
+    (FLOAT, "nan", "Enter a number from 0.5 to 30."),
+    (FLOAT, "inf", "Enter a number from 0.5 to 30."),
     (INT_OR_NULL, "abc", "Enter a whole number from 1 to 1000, or leave it empty for no limit."),
     (INT_OR_NULL, "5000", "Enter a whole number from 1 to 1000, or leave it empty for no limit."),
     (INT_OR_NULL, "2.5", "Enter a whole number from 1 to 1000, or leave it empty for no limit."),
     (INT, "150", "Enter a whole number from 50 to 100."),    # a spin box clamped it to 100
-    (FLOAT_AUTO, "5", "Enter a number from 0.0 to 2.0, or leave it empty for Automatic."),
+    (FLOAT_AUTO, "5", "Enter a number from 0 to 2, or leave it empty for Automatic."),
     (INT_AUTO, "1.5", "Enter a whole number from 1 to 100000, or leave it empty for Automatic."),
 ])
 def test_bad_entries_are_refused_with_the_range(cfg, info, text, says):
@@ -176,7 +176,7 @@ def test_the_range_is_part_of_the_field_name(cfg, monkeypatch):
     dlg, _shown = _dialog(cfg, monkeypatch, "time_interval_seconds", 5.0, FLOAT)
     try:
         # Spaces, not underscores, which JAWS and NVDA read as "underline".
-        assert dlg.editor.GetName() == "time interval seconds value, 0.5 to 30.0"
+        assert dlg.editor.GetName() == "time interval seconds value, 0.5 to 30"
         assert dlg.GetTitle() == "Edit: time interval seconds"
     finally:
         dlg.Destroy()
