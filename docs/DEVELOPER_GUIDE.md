@@ -355,7 +355,7 @@ Default model is loaded **once at import time** from `scripts/image_describer_co
 2. Edit `BuildAndRelease/WinBuilds/installer.iss` → update the bundled config in the installer (search for `[InstallDelete]` section)
 3. Rebuild the executables
 
-**All Python code picks up the new default automatically** — no code changes needed. The pre-build validation script (`tools/pre_build_validation.py`) checks that the JSON is well-formed and the model is recognized.
+**All Python code picks up the new default automatically** — no code changes needed. The exception is anyone whose saved settings (in the user config dir, see Configuration Resolution Order) already name a model: theirs wins. That includes a developer whose copy Configure created from an older `scripts/`. If the old default must give way, add it to `_OLD_SHIPPED_MODELS` in `idt_core/config_loader.py` and bump the fix-up marker so it runs again. The pre-build validation script (`tools/pre_build_validation.py`) checks that the JSON is well-formed and the model is recognized.
 
 ## Model Registry
 
@@ -490,13 +490,16 @@ Always show progress stats in window titles:
 
 ### Configuration Resolution Order
 
-When `idt_core.config` loads a config file:
+`idt_core/config_loader.py` has two layers, the user's saved settings over the shipped defaults:
 
 1. Explicit path from caller
-2. Environment variable (e.g., `IDT_IMAGE_DESCRIBER_CONFIG`)
-3. `IDT_CONFIG_DIR` env var + filename
-4. Frozen exe directory + `/scripts/<filename>` or `/<filename>`
-5. Current working directory → bundled script directory (fallback)
+2. File environment variable, when a caller passes one
+3. The user config dir: `%APPDATA%\IDT` (Windows), `~/Library/Application Support/IDT` (macOS), `~/.config/IDT` (Linux). `IDT_USER_CONFIG_DIR` replaces it. Configure, the Prompt Editor and Import Configuration all save here, through `writable_config_path()`.
+4. The shipped defaults: `IDT_CONFIG_DIR`, then the frozen exe's `scripts/`, `_MEIPASS/scripts/`, the repo's `scripts/` when run from source, and the cwd.
+
+`load_json_config()` fills any top-level section the user copy lacks from the defaults. Only the top level, so a prompt style the user deleted stays deleted. Never save beside the exe: the installer replaces `{app}\scripts` on every upgrade.
+
+Running from source shares the user config dir with any installed copy on the same PC, so a setting changed while developing changes the installed app too. The test suite points `IDT_USER_CONFIG_DIR` at a scratch folder and clears `IDT_CONFIG_DIR`.
 
 See `scripts/config_loader.py` for full details.
 

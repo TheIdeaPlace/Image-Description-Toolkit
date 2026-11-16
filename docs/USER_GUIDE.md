@@ -853,8 +853,8 @@ To disable all metadata extraction: `--no-metadata`.
 |---|---|---|
 | `ANTHROPIC_API_KEY` | idt, GUI | Anthropic Claude API key |
 | `OPENAI_API_KEY` | idt, GUI | OpenAI API key |
-| `IDT_CONFIG_DIR` | idt, GUI | Override default config directory |
-| `IDT_IMAGE_DESCRIBER_CONFIG` | idt, GUI | Explicit path to config file |
+| `IDT_USER_CONFIG_DIR` | idt, GUI | Use this folder for your settings instead of the usual one (`%APPDATA%\IDT` on Windows, `~/Library/Application Support/IDT` on macOS). Configure and the Prompt Editor save there, and it's read first. |
+| `IDT_CONFIG_DIR` | idt, GUI | A folder of default settings, used for anything your own settings don't set |
 
 ---
 
@@ -981,11 +981,22 @@ A hierarchical tree showing all items in the workspace:
 
 - Folder nodes (expandable) — represent subfolder groups from your source directory
 - Video nodes (expandable) — videos with their extracted frames as child items
-- Image items — individual files with status icons:
-  - `[✓]` — has at least one description (screen readers announce "described")
-  - `[ ]` — no description yet (screen readers announce "undescribed")
-  - `[!]` — file no longer exists on disk (screen readers announce "missing"; descriptions preserved)
+- Image items — individual files, with short status codes in front of the name
 - Chat nodes — saved conversation sessions
+
+**Status codes.** An image's state is a short code in front of its name, for example `d1 Polidor.jpg`, `d2P Arena.jpg` or `X beach.jpg`. The codes are short on purpose: moving through a long list, you hear an item's state in a syllable or two and then its name, rather than a longer word on every item. An image with no code has no description yet.
+
+| Code | Meaning |
+|---|---|
+| `d1`, `d2`, … | Has that many descriptions |
+| `P` | Being described now |
+| `.` | Waiting its turn in a batch |
+| `!` | In a paused batch |
+| `X` | Describing it failed (Describe All Undescribed tries again) |
+| `E12`, … | A video, with that many frames extracted |
+| `[!]` | The file is no longer on disk (its descriptions are kept) |
+
+Codes run together in this order: missing, descriptions, state, frames. So `[!]d2 old.jpg` is a missing file with two descriptions, and `d1X` has one description and failed when described again.
 
 Use **View → Find Images** (`Ctrl+F`) to show a search bar that filters by filename, description text, or metadata content. Supports `and` / `or` operators: for example, `house and garage or backyard`.
 

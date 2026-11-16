@@ -403,17 +403,29 @@ class TestStoreApiKeyFallback:
         plaintext config the app has always supported."""
         import json
 
-        import idt_core.config_loader as loader
-
-        config_path = tmp_path / "image_describer_config.json"
+        user = tmp_path / "user"
+        monkeypatch.setenv("IDT_USER_CONFIG_DIR", str(user))
         monkeypatch.setattr(key_module, "credential_store_name", lambda: "")
-        monkeypatch.setattr(
-            loader, "load_json_config",
-            lambda *a, **k: ({"api_keys": {}}, config_path, "test"))
 
         assert key_module.store_api_key("Anthropic", "sk-x") == "config file"
-        written = json.loads(config_path.read_text(encoding="utf-8"))
+        written = json.loads((user / "image_describer_config.json").read_text(encoding="utf-8"))
         assert written["api_keys"]["claude"] == "sk-x", "canonical name, not the alias"
+
+    def test_the_fallback_writes_the_users_file_as_saved(self, monkeypatch, tmp_path):
+        """Not the merged config (that would freeze the shipped defaults into
+        it), and never the shipped defaults' own file (#432 review)."""
+        import json
+
+        user = tmp_path / "user"
+        user.mkdir()
+        (user / "image_describer_config.json").write_text(
+            json.dumps({"default_prompt_style": "artistic"}), encoding="utf-8")
+        monkeypatch.setenv("IDT_USER_CONFIG_DIR", str(user))
+        monkeypatch.setattr(key_module, "credential_store_name", lambda: "")
+
+        assert key_module.store_api_key("claude", "sk-x") == "config file"
+        written = json.loads((user / "image_describer_config.json").read_text(encoding="utf-8"))
+        assert written == {"default_prompt_style": "artistic", "api_keys": {"claude": "sk-x"}}
 
     def test_returns_empty_when_both_destinations_fail(self, monkeypatch):
         import idt_core.config_loader as loader
@@ -423,7 +435,7 @@ class TestStoreApiKeyFallback:
         def boom(*a, **k):
             raise OSError("no config")
 
-        monkeypatch.setattr(loader, "load_json_config", boom)
+        monkeypatch.setattr(loader, "writable_config_path", boom)
         assert key_module.store_api_key("claude", "sk-x") == ""
 
     def test_rejects_blank_input_before_touching_anything(self, monkeypatch):
@@ -518,12 +530,12 @@ class TestDeleteAndPlatforms:
         """A corrupt config payload becomes a fresh dict, not a crash."""
         import json as json_mod
 
-        import idt_core.config_loader as loader
-
-        config_path = tmp_path / "image_describer_config.json"
+        user = tmp_path / "user"
+        user.mkdir()
+        config_path = user / "image_describer_config.json"
+        config_path.write_text('"not-a-dict"', encoding="utf-8")
+        monkeypatch.setenv("IDT_USER_CONFIG_DIR", str(user))
         monkeypatch.setattr(key_module, "credential_store_name", lambda: "")
-        monkeypatch.setattr(loader, "load_json_config",
-                            lambda *a, **k: ("not-a-dict", config_path, "t"))
 
         assert key_module.store_api_key("claude", "sk-x") == "config file"
         written = json_mod.loads(config_path.read_text(encoding="utf-8"))
