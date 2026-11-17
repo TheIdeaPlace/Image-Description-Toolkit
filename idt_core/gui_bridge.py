@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from .workspace import Workspace, WorkspaceItem, WorkspaceDescription
+from .workspace import Workspace, WorkspaceItem, WorkspaceDescription, first_token_count
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +53,18 @@ _ITEM_CORE_GUI_KEYS = {
 
 def _gui_desc_to_ws(d: dict) -> WorkspaceDescription:
     token_usage = d.get("token_usage") or {}
-    input_tokens = token_usage.get("prompt_tokens")
-    output_tokens = token_usage.get("completion_tokens")
-    if output_tokens is None:
-        output_tokens = d.get("completion_tokens") or None
-
     metadata = d.get("metadata") or {}
+    # A described picture's counts are in metadata; token_usage is only set
+    # by chat turns and by a reload (#446: input_tokens was never saved for
+    # ImageDescriber's descriptions, so `idt stats` left out the input cost).
+    input_tokens = first_token_count(token_usage.get("prompt_tokens"),
+                                     token_usage.get("input_tokens"),
+                                     metadata.get("input_tokens"))
+    output_tokens = first_token_count(token_usage.get("completion_tokens"),
+                                      token_usage.get("output_tokens"),
+                                      metadata.get("output_tokens"),
+                                      d.get("completion_tokens"))
+
     metadata_context = metadata.get("prompt_context")
 
     # Everything GUI-specific not represented above is preserved verbatim.
