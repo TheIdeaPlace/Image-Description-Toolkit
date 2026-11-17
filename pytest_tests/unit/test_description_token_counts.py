@@ -115,5 +115,52 @@ def test_idt_stats_prices_a_picture_imagedescriber_described(tmp_path, capsys):
     cli_main.cmd_stats(SimpleNamespace(source=str(ws.path), all=False, json_out=True))
     row = json.loads(capsys.readouterr().out)["token_breakdown"][0]
     assert row["input_tokens"] == 3925
-    # Fable 5.2 at $8 / $40 per million: 0.0314 + 0.02372
-    assert row["estimated_cost_usd"] == pytest.approx(0.0551, abs=0.0001)
+    rate_in, rate_out = cli_main.STATS_COST_TABLE["claude-fable-5-2"]
+    expected = 3925 / 1e6 * rate_in + 593 / 1e6 * rate_out
+    assert row["estimated_cost_usd"] == pytest.approx(expected, abs=0.0001)
+    assert row["estimated_cost_usd"] > 593 / 1e6 * rate_out   # the input is in it
+
+
+def test_a_stale_zero_is_repaired_when_a_description_is_loaded():
+    """A workspace saved before the fix carries token_usage {prompt_tokens: 0}.
+    Loading it must hand the GUI the real count, so nothing sees the 0 again."""
+    from idt_core.gui_bridge import _ws_desc_to_gui
+
+    saved = WorkspaceDescription.from_dict(
+        {"id": "x", "text": "Salmon.", "input_tokens": 0, "output_tokens": 274,
+         "extra": {"metadata": {"input_tokens": 1535, "output_tokens": 274},
+                   "token_usage": {"prompt_tokens": 0, "completion_tokens": 274,
+                                   "total_tokens": 274}}})
+    tu = _ws_desc_to_gui(saved)["token_usage"]
+    assert tu == {"prompt_tokens": 1535, "completion_tokens": 274, "total_tokens": 1809}
+
+
+def test_counts_survive_save_reload_save_through_the_real_gui_model(tmp_path):
+    """A description built as ImageDescriber builds one after describing a
+    picture (counts in metadata only), saved, loaded into the GUI's own
+    workspace class, and saved again."""
+    sys.path.insert(0, str(_ROOT / "imagedescriber"))
+    from PIL import Image
+    from data_models import ImageDescription, ImageItem, ImageWorkspace
+
+    from idt_core.gui_bridge import bundle_to_gui_workspace_dict, gui_workspace_to_bundle
+
+    src = tmp_path / "Photos"
+    src.mkdir()
+    Image.new("RGB", (8, 8)).save(src / "salmon.jpg", "JPEG")
+    gui = ImageWorkspace(new_workspace=True)
+    gui.add_directory(str(src))
+    item = ImageItem(str(src / "salmon.jpg"))
+    item.add_description(ImageDescription(
+        text="A salmon leaps.", model="claude-fable-5-2", prompt_style="narrative",
+        provider="claude", completion_tokens=593,
+        metadata={"input_tokens": 3925, "output_tokens": 593, "total_tokens": 4518}))
+    gui.add_item(item)
+
+    first = gui_workspace_to_bundle(gui.to_dict(), tmp_path / "One")
+    assert next(i for i in first.items() if i.described).active_description.input_tokens == 3925
+
+    reloaded = ImageWorkspace.from_dict(bundle_to_gui_workspace_dict(first))
+    second = gui_workspace_to_bundle(reloaded.to_dict(), tmp_path / "Two")
+    d = next(i for i in second.items() if i.described).active_description
+    assert (d.input_tokens, d.output_tokens) == (3925, 593)

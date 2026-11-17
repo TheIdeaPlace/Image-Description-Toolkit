@@ -5669,7 +5669,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         try:
             from idt_core.project import Project
             from idt_core.image_item import ImageItem as IdtImageItem, Description as IdtDescription
-            from idt_core.workspace import first_token_count
+            from idt_core.gui_bridge import gui_token_counts
         except ImportError:
             show_error(self, "idt_core is not available in this build.\n"
                              "This feature requires idt_core to be installed.")
@@ -5731,7 +5731,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     # Map GUI descriptions → idt_core Description objects
                     import uuid as _uuid
                     for gui_desc in gui_item.descriptions:
-                        tu = gui_desc.token_usage or {}
+                        # The same rule as the .idtw save (#446).
+                        input_tokens, output_tokens = gui_token_counts(gui_desc.to_dict())
                         idt_desc = IdtDescription(
                             id=str(_uuid.uuid4()),
                             text=gui_desc.text,
@@ -5740,15 +5741,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                             timestamp=gui_desc.created or datetime.now().isoformat(),
                             prompt_name=gui_desc.prompt_style or "",
                             prompt_text=gui_desc.custom_prompt or "",
-                            # Counts for a described picture are in metadata,
-                            # not token_usage (#446).
-                            input_tokens=first_token_count(
-                                tu.get("prompt_tokens"), tu.get("input_tokens"),
-                                (gui_desc.metadata or {}).get("input_tokens")),
-                            output_tokens=first_token_count(
-                                tu.get("completion_tokens"), tu.get("output_tokens"),
-                                (gui_desc.metadata or {}).get("output_tokens"),
-                                gui_desc.completion_tokens),
+                            input_tokens=input_tokens,
+                            output_tokens=output_tokens,
                             metadata_context=gui_desc.metadata.get("prompt_context") if gui_desc.metadata else None,
                         )
                         # Avoid duplicating descriptions already in the sidecar

@@ -51,12 +51,16 @@ _ITEM_CORE_GUI_KEYS = {
 # GUI description <-> WorkspaceDescription                                      #
 # --------------------------------------------------------------------------- #
 
-def _gui_desc_to_ws(d: dict) -> WorkspaceDescription:
+def gui_token_counts(d: dict) -> tuple:
+    """(input_tokens, output_tokens) of a GUI description dict.
+
+    A described picture's counts are in ``metadata``; ``token_usage`` is set
+    only by chat turns and by a reload (#446: input_tokens was never saved for
+    ImageDescriber's descriptions, so `idt stats` left out the input cost).
+    The one rule for every path that saves a GUI description.
+    """
     token_usage = d.get("token_usage") or {}
     metadata = d.get("metadata") or {}
-    # A described picture's counts are in metadata; token_usage is only set
-    # by chat turns and by a reload (#446: input_tokens was never saved for
-    # ImageDescriber's descriptions, so `idt stats` left out the input cost).
     input_tokens = first_token_count(token_usage.get("prompt_tokens"),
                                      token_usage.get("input_tokens"),
                                      metadata.get("input_tokens"))
@@ -64,6 +68,12 @@ def _gui_desc_to_ws(d: dict) -> WorkspaceDescription:
                                       token_usage.get("output_tokens"),
                                       metadata.get("output_tokens"),
                                       d.get("completion_tokens"))
+    return input_tokens, output_tokens
+
+
+def _gui_desc_to_ws(d: dict) -> WorkspaceDescription:
+    metadata = d.get("metadata") or {}
+    input_tokens, output_tokens = gui_token_counts(d)
 
     metadata_context = metadata.get("prompt_context")
 
@@ -111,6 +121,16 @@ def _ws_desc_to_gui(w: WorkspaceDescription) -> dict:
     if w.metadata_context and "prompt_context" not in out.get("metadata", {}):
         out.setdefault("metadata", {})
         out["metadata"]["prompt_context"] = w.metadata_context
+    # A token_usage saved before #446 can carry prompt_tokens 0 (synthesized
+    # by a reload when the real count was only in metadata). Repair it from
+    # the count we now have, so nothing reading it later sees the 0.
+    tu = out.get("token_usage")
+    if (isinstance(tu, dict) and "prompt_tokens" in tu
+            and not first_token_count(tu.get("prompt_tokens")) and w.input_tokens):
+        output = first_token_count(tu.get("completion_tokens"), w.output_tokens, default=0)
+        out["token_usage"] = {**tu, "prompt_tokens": w.input_tokens,
+                              "completion_tokens": output,
+                              "total_tokens": w.input_tokens + output}
     # If extra didn't carry token_usage but we have token counts, synthesize it
     if "token_usage" not in out and (w.input_tokens or w.output_tokens):
         out["token_usage"] = {
