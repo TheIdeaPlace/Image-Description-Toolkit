@@ -93,7 +93,7 @@ def test_list_models_does_not_reach_the_network(monkeypatch):
 def test_model_info_carries_the_curated_metadata():
     entry = ai_providers.model_info("claude", "claude-opus-5")
     assert entry.name == "Claude Opus 5"
-    assert entry.context_window == 200_000
+    assert entry.context_window == 1_000_000
 
 
 def test_model_info_for_an_unknown_model_invents_nothing():

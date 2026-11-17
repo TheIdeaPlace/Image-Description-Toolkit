@@ -2503,6 +2503,33 @@ def cmd_prompts(args):
 # config                                                               #
 # ------------------------------------------------------------------ #
 
+#: Rough cost table for `idt stats` (USD per 1M tokens, input/output):
+#: Anthropic's list prices as of November 2026. Haiku 5.5's is the price for
+#: prompts up to 100K tokens, which every image description is. A test checks
+#: every model in the built-in Claude list has an entry.
+STATS_COST_TABLE = {
+    "claude-fable-5-2":            (8.0,   40.0),
+    "claude-fable-5-1":            (10.0,  50.0),
+    "claude-fable-5":              (10.0,  50.0),
+    "claude-opus-5-5":             (4.0,   20.0),
+    "claude-opus-5":               (5.0,   25.0),
+    "claude-opus-4-8":             (5.0,   25.0),
+    "claude-opus-4-7":             (5.0,   25.0),
+    "claude-opus-4-6":             (5.0,   25.0),
+    "claude-opus-4-5-20251101":    (5.0,   25.0),
+    "claude-opus-4-1-20250805":    (15.0,  75.0),
+    "claude-sonnet-5-5":           (2.0,   10.0),
+    "claude-sonnet-5":             (2.0,   10.0),
+    "claude-sonnet-4-6":           (3.0,   15.0),
+    "claude-sonnet-4-5-20250929":  (3.0,   15.0),
+    "claude-haiku-5-5":            (0.10,  0.50),
+    "claude-haiku-4-5-20251001":   (1.0,   5.0),
+    "claude-haiku-3-5-20241022":   (0.8,   4.0),
+    "gpt-4o":                      (2.5,   10.0),
+    "gpt-4o-mini":                 (0.15,  0.6),
+}
+
+
 def cmd_stats(args):
     """
     Show progress and token/cost breakdown across one or more workspaces.
@@ -2515,17 +2542,7 @@ def cmd_stats(args):
     from idt_core.workspace import Workspace
 
     root = Path(args.source).resolve()
-
-    # Rough cost table (USD per 1M tokens, input/output)
-    COST_TABLE = {
-        "claude-opus-4-8":             (15.0,  75.0),
-        "claude-opus-4-6":             (15.0,  75.0),
-        "claude-sonnet-4-6":           (3.0,   15.0),
-        "claude-haiku-4-5-20251001":   (0.8,   4.0),
-        "claude-haiku-3-5-20241022":   (0.8,   4.0),
-        "gpt-4o":                      (2.5,   10.0),
-        "gpt-4o-mini":                 (0.15,  0.6),
-    }
+    COST_TABLE = STATS_COST_TABLE
 
     # workspace_rows: [(name, total, described, undescribed), ...]
     workspace_rows = []
@@ -2774,7 +2791,7 @@ def build_parser() -> argparse.ArgumentParser:
 Examples:
   idt guideme                                            # start here — interactive wizard
   idt describe ~/Pictures/Vacation/
-  idt describe ~/Pictures/Vacation/ --provider anthropic --model claude-opus-4-6
+  idt describe ~/Pictures/Vacation/ --provider anthropic --model claude-opus-5-5
   idt describe ~/Pictures/Vacation/ --provider ollama --model llava
   idt describe ~/Pictures/Vacation/ --prompt concise --limit 10 --embed
   idt describe ~/Pictures/Vacation/ --geocode            # add city/state to prompt context
@@ -2801,7 +2818,7 @@ Examples:
   idt stats ~/Pictures/Vacation/
   idt stats ~/Pictures/ --all                           # across entire photo library
   idt config --set default_provider=anthropic
-  idt config --set default_model=claude-opus-4-6
+  idt config --set default_model=claude-opus-5-5
   idt update                                            # is a newer release out?
 
 Supported providers:

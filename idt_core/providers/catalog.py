@@ -240,7 +240,7 @@ def merge(provider: str, live: Sequence[dict], *,
     #    real enough that the user selected it, so it must remain selectable.
     for model_id in keep_ids:
         if model_id not in seen:
-            out.append(_unknown_entry(canonical, model_id, live_by_id.get(model_id)))
+            out.append(_live_entry(canonical, model_id, metadata, live_by_id))
             seen.add(model_id)
 
     # 3. Live-only, newest first. Newest first because the entire point is that
@@ -248,9 +248,22 @@ def merge(provider: str, live: Sequence[dict], *,
     fresh = [m for m in live_ids if m not in seen]
     fresh.sort(key=lambda m: live_by_id[m].get("created") or 0, reverse=True)
     for model_id in fresh:
-        out.append(_unknown_entry(canonical, model_id, live_by_id[model_id]))
+        out.append(_live_entry(canonical, model_id, metadata, live_by_id))
 
     return out
+
+
+def _live_entry(provider: str, model_id: str, metadata: dict,
+                live_by_id: dict) -> ModelEntry:
+    """An entry for a listed id that isn't in the offered list.
+
+    Some have metadata although we don't offer them offline -- Claude's Mythos
+    models, which only verified organizations get -- and an account that has
+    them should see their name and description, not "new — details unknown".
+    """
+    if model_id in live_by_id and metadata.get(model_id):
+        return _entry_from_metadata(model_id, provider, metadata[model_id])
+    return _unknown_entry(provider, model_id, live_by_id.get(model_id))
 
 
 def _unknown_entry(provider: str, model_id: str,
