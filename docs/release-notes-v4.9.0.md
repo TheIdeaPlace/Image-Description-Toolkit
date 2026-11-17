@@ -40,6 +40,21 @@ You can leave all of it alone. Every setting starts on **Automatic**, which mean
 own choice for the provider and model you picked. The changes below fix problems that came
 from IDT not doing this consistently, and add controls for people who want them.
 
+### Claude's newest models, and Haiku 5.5 as the default
+
+- **Claude Haiku 5.5, Sonnet 5.5, Opus 5.5 and Fable 5.2 are in the model lists,** even
+  before IDT has asked Anthropic for the current list, and without a network connection.
+- **Haiku 5.5 is the new default Claude model.** With the Detailed prompt it cost about
+  $1 per 1,000 pictures, against about $13 for Sonnet 5.5, $30 for Opus 5.5 and $55 for
+  Fable 5.2. Its descriptions held up well against the more expensive models. Choose
+  another model in Configure, or with `--model`, when a picture needs more.
+  If you've already chosen a Claude model, IDT keeps using it.
+- **Long Claude chats stay affordable.** Claude models now accept far longer
+  conversations, but every turn re-sends the whole conversation, so IDT still drops the
+  oldest turns once a chat reaches about 160,000 tokens.
+- **`idt stats` prices every Claude model correctly.** It showed no cost for the 5.x
+  models and charged Opus 4.8 three times its real price.
+
 ### Descriptions with Ollama thinking models are faster and no longer come back blank
 
 - **Thinking is off for descriptions by default.** Models that reason before they answer
@@ -768,7 +783,7 @@ models each provider recommends for describing images:
 
 | Provider | Recommended models |
 |---|---|
-| Claude | `claude-opus-5`, `claude-sonnet-5`, `claude-opus-4-8`, `claude-haiku-4-5-20251001` |
+| Claude | `claude-haiku-5-5` (the default), `claude-sonnet-5-5`, `claude-opus-5-5` |
 | OpenAI | `gpt-5.2`, `gpt-5.1`, `gpt-5-mini`, `gpt-5-nano`, `o3` |
 | Ollama | whatever you've pulled — `idt models --provider ollama` |
 | Claude Code | `haiku`, `sonnet`, `opus` — aliases that always point at the current model of each tier |

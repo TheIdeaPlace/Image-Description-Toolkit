@@ -9,6 +9,12 @@
 - IDT Chat has a **Chat → Thinking** menu and ImageDescriber's chat window has **Session → Thinking**, each with Automatic, On and Off. Before, a thinking model always thought in both, with no way to turn it off. The choice now reaches Claude, OpenAI reasoning models and Claude Code as well as Ollama. Where reasoning can't be switched off, Off asks for the least effort the model takes.
 - Ollama model pickers in ImageDescriber mark thinking models "(thinks, slower)" and name the installed `-instruct` edition when there is one.
 
+**Claude 5.5 models; Haiku 5.5 the default (#445)**
+- The built-in Claude list adds Haiku 5.5, Sonnet 5.5, Opus 5.5 and Fable 5.1 and 5.2, so they're offered before a live refresh and offline. Mythos (verified organizations only) and the retired Opus 4.1 are no longer offered, but old workspaces still show their names.
+- The default Claude model is `claude-haiku-5-5` (was `claude-opus-4-8`). With the Detailed prompt it cost about $1 per 1,000 images, against $13 for Sonnet 5.5, $30 for Opus 5.5 and $25 for Opus 4.8.
+- Context and output limits match Anthropic's model list (1M context from 4.6 on). Claude chats still drop their oldest turns past 200K tokens, so a long chat doesn't re-send up to 800K tokens a turn.
+- `idt stats` has a price for every listed Claude model; it had none for 5.x and charged Opus 4.8 and 4.6 at $15/$75 instead of $5/$25.
+
 ### ✨ Improvements
 
 **Ollama descriptions: thinking off by default, and no more blank answers (#392)**
