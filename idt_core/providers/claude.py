@@ -256,6 +256,26 @@ OPTIONAL_PARAMS = {"output_config": ("effort", "output_config"),
 
 _EFFORT_MAP = {"minimal": "low", "low": "low", "medium": "medium", "high": "high"}
 
+#: The smallest thinking budget the API takes.
+_MIN_THINKING_BUDGET = 1024
+
+
+def thinking_fallbacks(max_tokens: int) -> tuple:
+    """Thinking settings to try when a model refuses ``{"type": "adaptive"}``.
+
+    Older models, Claude Haiku 4.5 among them, think only with a token budget,
+    so Thinking On came back as "sent again without thinking" and no thinking
+    happened (real-service check of the installed build, 11/16/2026). Half the
+    output limit goes to thinking, leaving the other half for the answer; the
+    API's smallest budget is 1,024, so below a 2,048 limit there's no room for
+    both and thinking is dropped as before (a 1,024 budget under a 1,100 limit
+    left nothing for the description).
+    """
+    budget = max_tokens // 2
+    if budget < _MIN_THINKING_BUDGET:
+        return ()
+    return ({"type": "enabled", "budget_tokens": budget},)
+
 
 def describe_request_params(model: str, opts) -> dict:
     """Messages-API keyword arguments (all but ``messages``) for a description.
@@ -345,7 +365,13 @@ class ClaudeProvider(BaseProvider):
         self._model = model
         #: GenerationOptions; None means automatic.
         self._options = options
-        # api_key=None → SDK reads ANTHROPIC_API_KEY from environment
+        # No key given: the shared lookup (environment, then the credential store
+        # Configure saves to, then the config file). Leaving it to the SDK read
+        # only ANTHROPIC_API_KEY, so `idt describe` failed with "Missing
+        # credentials" for a key saved in Configure (real-service check, 11/16/2026).
+        if not api_key:
+            from ..keys import resolve_api_key
+            api_key = resolve_api_key("claude")
         self._client = __import__("anthropic").Anthropic(api_key=api_key)
 
     @property
@@ -383,7 +409,9 @@ class ClaudeProvider(BaseProvider):
         ]
         message = send_with_fallback(self._client.messages.create, params,
                                      with_extra_body(OPTIONAL_PARAMS, params),
-                                     "claude", self._model)
+                                     "claude", self._model,
+                                     fallback_values={"thinking":
+                                                      thinking_fallbacks(params["max_tokens"])})
         text = response_text(message)
         stop_reason = getattr(message, "stop_reason", None)
         truncated = stop_reason == "max_tokens"

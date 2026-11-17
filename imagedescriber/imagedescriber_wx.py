@@ -10438,14 +10438,19 @@ def main():
     elif args.path:
         # Load directory or workspace normally
         path = Path(args.path)
-        if path.suffix == '.idt':
+        # A .idtw workspace is a folder too: check for it first, or it was loaded
+        # as a folder of pictures (only the old .idt file name was recognised;
+        # real-service check of the installed build, 11/16/2026).
+        from idt_core.workspace import Workspace
+        is_workspace = path.suffix.lower() == '.idt' or Workspace.is_bundle(path)
+        if is_workspace:
             wx.CallAfter(lambda: frame.load_workspace(path))
         elif path.is_dir():
             wx.CallAfter(lambda: frame.load_directory(path))
 
         # --autostart: begin the batch right after the directory loads. on_process_all
         # defers itself until the scan finishes, so this is safe to queue immediately.
-        if args.autostart and path.is_dir():
+        if args.autostart and path.is_dir() and not is_workspace:
             wx.CallAfter(lambda: frame.autostart_batch(
                 provider=args.provider,
                 model=args.model,

@@ -180,13 +180,29 @@ def merge_defaults(user: dict, defaults: dict) -> dict:
 
 
 def _read_json(path: Path):
+    """The file's settings: a dict, or None if the file exists but can't be read.
+
+    utf-8-sig accepts a byte-order mark: PowerShell 5's ``-Encoding UTF8``
+    writes one, and plain utf-8 then failed to parse the whole file, so every
+    saved setting was dropped without a word (real-service check, 11/16/2026).
+    None (with a warning) rather than {}, so a caller never mistakes a file it
+    couldn't read -- one caught mid-save, say -- for an empty one and writes
+    over it (#441 review: _migrate_once did exactly that, deleting the file's
+    settings and API keys).
+    """
     import json
+    import logging
+    if not _exists_file(path):
+        return {}
     try:
-        with path.open('r', encoding='utf-8') as f:
+        with path.open('r', encoding='utf-8-sig') as f:
             data = json.load(f)
         return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    except Exception as exc:                                     # noqa: BLE001
+        logging.getLogger(__name__).warning(
+            "Couldn't read the settings in %s, so they weren't used this time "
+            "(the file is left as it is): %s", path, exc)
+        return None
 
 
 def load_json_config(
@@ -198,15 +214,19 @@ def load_json_config(
 
     The user's saved copy (or an explicit path naming it) has the shipped
     defaults filled in under it; an explicit path or file env var to some other
-    file is read as it is.
+    file is read as it is. A user file that can't be read is left untouched and
+    the defaults are used.
     """
     path, source = resolve_config(filename, explicit=explicit, env_var_file=env_var_file)
     config = _read_json(path)
+    readable = config is not None
+    config = config or {}
     if _is_user_file(path, filename):
-        config = _migrate_once(path, filename, config)
+        if readable:
+            config = _migrate_once(path, filename, config)
         defaults_path, _ = resolve_defaults(filename)
         if _exists_file(defaults_path):
-            config = merge_defaults(config, _read_json(defaults_path))
+            config = merge_defaults(config, _read_json(defaults_path) or {})
     return config, path, source
 
 
@@ -226,6 +246,9 @@ def _migrate_once(path: Path, filename: str, config: dict) -> dict:
     description would fail with a 404. A default model equal to an old shipped
     default is removed, so the current one fills in. Done once, and marked, so
     choosing moondream yourself afterwards sticks.
+
+    Only ever called with a file that was read successfully, and written
+    through a temporary file, so a reader never sees it half-written.
     """
     if filename != 'image_describer_config.json' or MIGRATED_KEY in config:
         return config
@@ -235,7 +258,9 @@ def _migrate_once(path: Path, filename: str, config: dict) -> dict:
     config[MIGRATED_KEY] = "4.9"
     try:
         import json
-        path.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding='utf-8')
+        temp = path.with_name(path.name + ".tmp")
+        temp.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding='utf-8')
+        os.replace(temp, path)
     except OSError:
         pass        # read-only or locked: fixed in memory now, and again next time
     return config
