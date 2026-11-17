@@ -175,7 +175,7 @@ def test_json_details_carry_the_richer_information(monkeypatch, capsys):
     payload = json.loads(_run(_Args(provider="anthropic", json_out=True), capsys))
     detail = payload["anthropic"]["details"][0]
     assert detail["id"] == CLAUDE_MODELS[0]
-    assert detail["context_window"] == 200_000
+    assert detail["context_window"] == 1_000_000
     assert detail["source"] == "curated"
 
 

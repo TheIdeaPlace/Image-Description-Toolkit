@@ -438,7 +438,8 @@ def test_short_conversations_are_left_alone():
 
 def test_per_model_context_window_beats_the_provider_default():
     """The old code used a flat 200k for every Claude model, ignoring metadata."""
-    assert token_tools.context_window_for("claude", "claude-opus-5") == 200_000
+    assert token_tools.context_window_for("claude", "claude-opus-5") == 1_000_000
+    assert token_tools.context_window_for("claude", "claude-haiku-4-5-20251001") == 200_000
     assert token_tools.context_window_for("ollama", "") == 32_768
     assert token_tools.context_window_for("nonsense", "") == 32_768
 
