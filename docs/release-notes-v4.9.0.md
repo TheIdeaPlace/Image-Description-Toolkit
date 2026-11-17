@@ -101,6 +101,23 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
   `moondream`, IDT's default before June 2026, gives way to the current default once. The
   Prompt Editor and File → Import Configuration save to the same place, and Export
   Configuration exports the settings in use.
+- **Thinking On no longer breaks models that can't think.** Ollama's Thinking setting
+  applies to every Ollama model, and with it On, a model that can't think (moondream, for
+  one) failed on every picture. On is now sent only to models that can think; the run log
+  says when it was left out, and the chat windows tell you when you choose it. With Claude
+  Haiku 4.5, which doesn't take the newer kind of thinking, Thinking On now uses a thinking
+  budget instead of being dropped.
+- **`idt describe` now uses an API key saved in Configure.** It only found keys in the
+  `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` environment variables, so OpenAI and Claude runs
+  failed with "Missing credentials" for a key saved in Configure.
+- **Enter on a Configure settings list opens Change Setting,** as the user guide says.
+  Only Space did. And the field in Change Setting is read with the setting's name and its
+  range, where it was read as just "Value:".
+- **A settings file edited by hand and saved with a byte-order mark** (as Windows
+  PowerShell 5 does) was ignored as a whole without a word. It's read now, and a settings
+  file that can't be read is reported in the log and left as it is.
+- **`ImageDescriber <folder>.idtw`** from a command line opens the workspace; it was
+  loaded as a folder of pictures.
 - **`idt describe` dropped the tag from the default model,** so `moondream:1.8b` became
   `moondream` and every image failed, and `qwen3-vl:8b-instruct` would have become the
   thinking model `qwen3-vl`. The tag is kept.
