@@ -21,10 +21,10 @@ from .base import BaseProvider, DescriptionResult
 # organizations only) and Opus 4.1 (retired) are no longer offered offline,
 # but keep their metadata below so workspaces that used them still show a name.
 CLAUDE_MODELS = [
-    # Current generation — 5.5, the default tier first
-    "claude-opus-5-5",
-    "claude-sonnet-5-5",
+    # Current generation — 5.5, the default first, then by price
     "claude-haiku-5-5",
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
     "claude-fable-5-2",
     # Earlier 5.x
     "claude-opus-5",
@@ -42,7 +42,11 @@ CLAUDE_MODELS = [
     "claude-sonnet-4-5-20250929",
 ]
 
-DEFAULT_MODEL = "claude-opus-5-5"
+#: Haiku 5.5: in a side-by-side test of the Detailed prompt (11/17/2026) it
+#: cost about $1 per 1,000 images against $30 for Opus 5.5, and its
+#: descriptions were close enough on everyday pictures not to justify the
+#: difference. Opus, Sonnet and Fable are a choice away for pictures that need them.
+DEFAULT_MODEL = "claude-haiku-5-5"
 
 #: Cost buckets, from the input price per million tokens: $ under $1,
 #: $$ under $3, $$$ under $6, $$$$ above.

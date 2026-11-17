@@ -33,12 +33,14 @@ def test_the_current_models_are_offered_offline(model_id):
 
 def test_the_newest_models_come_first():
     """Pickers fall back to the first entry, so the first must be current."""
-    assert CLAUDE_MODELS[:3] == ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]
+    assert CLAUDE_MODELS[:3] == ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"]
 
 
-def test_the_default_is_offered_and_current():
-    assert DEFAULT_MODEL == "claude-opus-5-5"
-    assert DEFAULT_MODEL in CLAUDE_MODELS
+def test_the_default_is_offered_and_first():
+    """Haiku 5.5: about $1 per 1,000 images against $30 for Opus 5.5. First
+    in the list too, so a picker's index-0 fallback agrees with the default."""
+    assert DEFAULT_MODEL == "claude-haiku-5-5"
+    assert CLAUDE_MODELS[0] == DEFAULT_MODEL
 
 
 @pytest.mark.parametrize("model_id", ["claude-mythos-5", "claude-mythos-preview",
@@ -85,4 +87,4 @@ def test_idt_stats_has_a_price_for_every_offered_model():
 
 def test_recommended_models_are_the_current_tier():
     recommended = [m for m in CLAUDE_MODELS if CLAUDE_MODEL_METADATA[m]["recommended"]]
-    assert recommended == ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]
+    assert recommended == ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"]

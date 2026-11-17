@@ -1272,10 +1272,12 @@ IDT asks Anthropic which models your account can use, so the list in every picke
 
 | Model | Characteristics |
 |---|---|
-| `claude-opus-5-5` | The default. Detailed, accurate descriptions |
-| `claude-sonnet-5-5` | Best balance of speed, quality and price |
-| `claude-haiku-5-5` | Fastest and cheapest, a small fraction of Opus's price; good for large batches |
-| `claude-fable-5-2` | Anthropic's most capable model; slowest and most expensive |
+| `claude-haiku-5-5` | The default. Fastest and cheapest, about $1 per 1,000 images with the Detailed prompt, and detailed enough for most pictures |
+| `claude-sonnet-5-5` | More thorough, about $13 per 1,000 images |
+| `claude-opus-5-5` | Richer descriptions, about $30 per 1,000 images |
+| `claude-fable-5-2` | Anthropic's most capable model and the most precise reader of small detail; slowest and most expensive, about $55 per 1,000 images |
+
+The prices are from a November 2026 test of the Detailed prompt; a longer prompt or bigger pictures cost more.
 
 Your account may show more or fewer than these. A model Anthropic has released since your copy of IDT was built appears too, marked `new — details unknown`.
 

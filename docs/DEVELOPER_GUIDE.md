@@ -361,7 +361,7 @@ Default model is loaded **once at import time** from `scripts/image_describer_co
 
 Model lists live in the provider modules under `idt_core/providers/`:
 
-- `claude.py` — the built-in Claude list (`CLAUDE_MODELS`, newest first, `claude-opus-5-5` the default) and its metadata. It is the offline fallback; `catalog.py` merges it with Anthropic's live `GET /v1/models`, and the metadata (limits, cost, recommended) always wins. When Anthropic releases models, add them here and give each a price in `STATS_COST_TABLE` in `cli/main.py`; `test_claude_model_list.py` checks both.
+- `claude.py` — the built-in Claude list (`CLAUDE_MODELS`, newest first, `claude-haiku-5-5` the default and first, since pickers fall back to index 0) and its metadata. It is the offline fallback; `catalog.py` merges it with Anthropic's live `GET /v1/models`, and the metadata (limits, cost, recommended) always wins. When Anthropic releases models, add them here and give each a price in `STATS_COST_TABLE` in `cli/main.py`; `test_claude_model_list.py` checks both.
 - `openai_provider.py` — OpenAI models, the same way.
 - `catalog.py` — the merge, the disk cache and `model_entry()`.
 
