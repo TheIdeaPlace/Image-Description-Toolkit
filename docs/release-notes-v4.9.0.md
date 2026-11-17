@@ -54,6 +54,11 @@ from IDT not doing this consistently, and add controls for people who want them.
   oldest turns once a chat reaches about 160,000 tokens.
 - **`idt stats` prices every Claude model correctly.** It showed no cost for the 5.x
   models and charged Opus 4.8 three times its real price.
+- **`idt stats` now counts the input for pictures described in ImageDescriber.**
+  ImageDescriber didn't save those token counts where `idt stats` reads them, so the
+  cost it showed covered only the output. On one real workspace of 6,800 pictures it
+  showed $10 where the true figure was $21. Workspaces you already have now report
+  correctly, with nothing to redo.
 
 ### Descriptions with Ollama thinking models are faster and no longer come back blank
 
