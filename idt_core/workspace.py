@@ -306,6 +306,10 @@ class WorkspaceDescription:
 
     @classmethod
     def from_dict(cls, d: dict) -> "WorkspaceDescription":
+        # ImageDescriber before #446 saved token counts only in extra.metadata,
+        # leaving input_tokens null or 0, so `idt stats` left out the input
+        # cost. Read them from there when the field itself has nothing.
+        gui_metadata = (d.get("extra") or {}).get("metadata") or {}
         return cls(
             id=d.get("id") or str(uuid.uuid4()),
             text=d.get("text", ""),
@@ -314,14 +318,35 @@ class WorkspaceDescription:
             prompt_name=d.get("prompt_name", d.get("prompt_style", "")),
             prompt_text=d.get("prompt_text", d.get("custom_prompt", "")),
             created=d.get("created", d.get("timestamp", _now())),
-            input_tokens=d.get("input_tokens"),
-            output_tokens=d.get("output_tokens"),
+            input_tokens=first_token_count(d.get("input_tokens"),
+                                           gui_metadata.get("input_tokens"),
+                                           default=d.get("input_tokens")),
+            output_tokens=first_token_count(d.get("output_tokens"),
+                                            gui_metadata.get("output_tokens"),
+                                            default=d.get("output_tokens")),
             metadata_context=d.get("metadata_context"),
             detection_data=d.get("detection_data", []),
             finish_reason=d.get("finish_reason", ""),
             response_id=d.get("response_id", ""),
             extra=d.get("extra", {}),
         )
+
+
+def first_token_count(*candidates, default=None):
+    """The first candidate that is a positive token count, else ``default``.
+
+    A count of 0 is treated as missing: no request that describes an image
+    or answers a chat turn uses no tokens, and the GUI wrote 0 where it had
+    no figure.
+    """
+    for value in candidates:
+        try:
+            count = int(value)
+        except (TypeError, ValueError):
+            continue
+        if count > 0:
+            return count
+    return default
 
 
 # --------------------------------------------------------------------------- #
