@@ -121,15 +121,20 @@ def test_a_file_with_a_byte_order_mark_is_read(installed):
     assert config_loader.load_json_config(NAME)[0]["default_prompt_style"] == "artistic"
 
 
-def test_an_unreadable_file_is_ignored_with_a_warning(installed, caplog):
+def test_an_unreadable_file_is_used_as_defaults_and_left_untouched(installed, caplog):
+    """A file caught mid-save (or, before utf-8-sig, any file with a BOM) used to
+    be overwritten by the one-time check with just its marker, deleting every
+    setting and API key in it (#441 review)."""
     import logging
     app, user = installed
     user.mkdir(parents=True, exist_ok=True)
-    (user / NAME).write_text("{ not json", encoding="utf-8")
+    cut_off = b'{"default_prompt_style": "artistic", "api_keys": {"claude": "sk-ant-'
+    (user / NAME).write_bytes(cut_off)
     with caplog.at_level(logging.WARNING):
         config = config_loader.load_json_config(NAME)[0]
-    assert config["default_prompt_style"] == "narrative"        # the defaults
+    assert config["default_prompt_style"] == "narrative"        # the defaults, this time
     assert "Couldn't read the settings" in caplog.text
+    assert (user / NAME).read_bytes() == cut_off                 # byte for byte
 
 
 def test_another_explicit_file_is_read_as_it_is(installed, tmp_path):

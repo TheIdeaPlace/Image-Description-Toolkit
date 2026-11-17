@@ -436,7 +436,10 @@ class TestClaudeDescribe:
         be retried without thinking (real-service check, 11/16/2026)."""
         from idt_core.generation import THINKING_ON
         provider, calls = _core_claude(
-            [BadRequest("thinking.type: adaptive thinking is not supported on this model"),
+            # The real API's words for Haiku 4.5, captured 11/16/2026.
+            [BadRequest("Error code: 400 - {'type': 'error', 'error': {'type': "
+                        "'invalid_request_error', 'message': 'adaptive thinking is "
+                        "not supported on this model'}}"),
              _claude_message([_block("thinking"), _block("text", "A desk.")])],
             options=GenerationOptions(thinking=THINKING_ON))
         provider._model = "claude-haiku-4-5-budget-test"
@@ -446,9 +449,23 @@ class TestClaudeDescribe:
 
     def test_thinking_budgets(self):
         assert claude_mod.thinking_fallbacks(4096) == ({"type": "enabled", "budget_tokens": 2048},)
-        assert claude_mod.thinking_fallbacks(1500) == ({"type": "enabled", "budget_tokens": 1024},)
-        assert claude_mod.thinking_fallbacks(1024) == ()       # no room under the limit
+        assert claude_mod.thinking_fallbacks(2048) == ({"type": "enabled", "budget_tokens": 1024},)
+        assert claude_mod.thinking_fallbacks(1100) == ()       # no room for an answer too
         assert claude_mod.thinking_fallbacks(400) == ()
+
+    def test_the_budget_is_remembered_so_a_batch_asks_once(self):
+        """Every picture used to try adaptive first and fail (#441 review)."""
+        from idt_core.generation import THINKING_ON
+        model = "claude-haiku-4-5-remember-test"
+        refusal = BadRequest("adaptive thinking is not supported on this model")
+        provider, calls = _core_claude(
+            [refusal, _claude_message([_block("text", "One.")]),
+             _claude_message([_block("text", "Two.")])],
+            options=GenerationOptions(thinking=THINKING_ON))
+        provider._model = model
+        provider.describe(b"x", "image/jpeg", "Describe.")
+        provider.describe(b"x", "image/jpeg", "Describe.")
+        assert [c["thinking"]["type"] for c in calls] == ["adaptive", "enabled", "enabled"]
 
     def test_no_key_given_uses_the_shared_lookup(self, monkeypatch):
         """`idt describe` built the provider without a key and the SDK read only

@@ -265,12 +265,14 @@ def thinking_fallbacks(max_tokens: int) -> tuple:
 
     Older models, Claude Haiku 4.5 among them, think only with a token budget,
     so Thinking On came back as "sent again without thinking" and no thinking
-    happened (real-service check of the installed build, 11/16/2026). The budget
-    must be at least 1,024 and below max_tokens; with a lower output limit there
-    is no room for one, and thinking is dropped as before.
+    happened (real-service check of the installed build, 11/16/2026). Half the
+    output limit goes to thinking, leaving the other half for the answer; the
+    API's smallest budget is 1,024, so below a 2,048 limit there's no room for
+    both and thinking is dropped as before (a 1,024 budget under a 1,100 limit
+    left nothing for the description).
     """
-    budget = max(_MIN_THINKING_BUDGET, max_tokens // 2)
-    if budget >= max_tokens:
+    budget = max_tokens // 2
+    if budget < _MIN_THINKING_BUDGET:
         return ()
     return ({"type": "enabled", "budget_tokens": budget},)
 

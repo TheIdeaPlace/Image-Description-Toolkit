@@ -555,6 +555,16 @@ class ClaudeChatProvider(ChatProvider):
         for parameter in OPTIONAL_PARAMS:
             if ("claude", model, parameter) in generation._REJECTED:
                 kwargs.pop(parameter, None)
+        # A model that refused adaptive thinking before (describing or an earlier
+        # turn) gets a budget straight away, sized for this turn's output limit.
+        if (kwargs.get("thinking", {}).get("type") == "adaptive"
+                and ("claude", model, "thinking") in generation._ACCEPTED):
+            budget = thinking_fallbacks(kwargs["max_tokens"])
+            if budget:
+                kwargs["thinking"] = budget[0]
+            else:
+                kwargs.pop("thinking")
+        switched_to_budget = False
 
         final = None
         while True:
@@ -566,6 +576,9 @@ class ClaudeChatProvider(ChatProvider):
                             started = True
                             yield ChatDelta(text)
                     final = stream.get_final_message()
+                if switched_to_budget and "thinking" in kwargs:
+                    generation._ACCEPTED[("claude", model, "thinking")] = (
+                        {"type": "adaptive"}, kwargs["thinking"])
                 break
             except Exception as exc:                             # noqa: BLE001
                 # The request is made when the stream opens, so a rejected
@@ -579,6 +592,7 @@ class ClaudeChatProvider(ChatProvider):
                         and thinking_fallbacks(kwargs["max_tokens"])):
                     # Older models (Claude Haiku 4.5) think only with a budget.
                     kwargs["thinking"] = thinking_fallbacks(kwargs["max_tokens"])[0]
+                    switched_to_budget = True
                     continue
                 if not any(w in str(exc).lower() for w in generation._VALUE_PROBLEM_WORDS):
                     generation._REJECTED.add(("claude", model, culprit))

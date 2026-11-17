@@ -10441,11 +10441,8 @@ def main():
         # A .idtw workspace is a folder too: check for it first, or it was loaded
         # as a folder of pictures (only the old .idt file name was recognised;
         # real-service check of the installed build, 11/16/2026).
-        try:
-            from idt_core.workspace import Workspace
-            is_workspace = path.suffix.lower() == '.idt' or Workspace.is_bundle(path)
-        except ImportError:
-            is_workspace = path.suffix.lower() in ('.idt', '.idtw')
+        from idt_core.workspace import Workspace
+        is_workspace = path.suffix.lower() == '.idt' or Workspace.is_bundle(path)
         if is_workspace:
             wx.CallAfter(lambda: frame.load_workspace(path))
         elif path.is_dir():
