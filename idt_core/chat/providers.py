@@ -539,7 +539,7 @@ class ClaudeChatProvider(ChatProvider):
         import anthropic
 
         from .. import generation
-        from ..providers.claude import OPTIONAL_PARAMS
+        from ..providers.claude import OPTIONAL_PARAMS, thinking_fallbacks
 
         client = (
             anthropic.Anthropic(api_key=self._api_key)
@@ -575,6 +575,11 @@ class ClaudeChatProvider(ChatProvider):
                      if p in kwargs and generation._is_rejection_of(exc, words)), None)
                 if culprit is None:
                     raise
+                if (culprit == "thinking" and kwargs["thinking"].get("type") == "adaptive"
+                        and thinking_fallbacks(kwargs["max_tokens"])):
+                    # Older models (Claude Haiku 4.5) think only with a budget.
+                    kwargs["thinking"] = thinking_fallbacks(kwargs["max_tokens"])[0]
+                    continue
                 if not any(w in str(exc).lower() for w in generation._VALUE_PROBLEM_WORDS):
                     generation._REJECTED.add(("claude", model, culprit))
                 generation.note_dropped("claude", model, culprit,

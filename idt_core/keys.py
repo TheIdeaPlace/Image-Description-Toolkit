@@ -342,7 +342,7 @@ def store_api_key(provider: str, value: str) -> str:
         # file holding only api_keys is fine: the rest is filled in on read.
         path = writable_config_path("image_describer_config.json")
         try:
-            config = json.loads(path.read_text(encoding="utf-8"))
+            config = json.loads(path.read_text(encoding="utf-8-sig"))
         except (OSError, ValueError):
             config = {}
         if not isinstance(config, dict):

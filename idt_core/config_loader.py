@@ -180,12 +180,23 @@ def merge_defaults(user: dict, defaults: dict) -> dict:
 
 
 def _read_json(path: Path):
+    """The file's settings, or {} with a warning if it can't be read.
+
+    utf-8-sig accepts a byte-order mark: PowerShell 5's ``-Encoding UTF8``
+    writes one, and plain utf-8 then failed to parse the whole file, so every
+    saved setting was dropped without a word (real-service check, 11/16/2026).
+    """
     import json
+    import logging
+    if not _exists_file(path):
+        return {}
     try:
-        with path.open('r', encoding='utf-8') as f:
+        with path.open('r', encoding='utf-8-sig') as f:
             data = json.load(f)
         return data if isinstance(data, dict) else {}
-    except Exception:
+    except Exception as exc:                                     # noqa: BLE001
+        logging.getLogger(__name__).warning(
+            "Couldn't read the settings in %s, so they were ignored: %s", path, exc)
         return {}
 
 

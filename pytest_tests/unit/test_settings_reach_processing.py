@@ -112,6 +112,26 @@ def test_reading_the_user_file_by_path_fills_in_too(installed):
     assert config["prompt_variations"] == SHIPPED["prompt_variations"]
 
 
+def test_a_file_with_a_byte_order_mark_is_read(installed):
+    """PowerShell 5's -Encoding UTF8 writes one; plain utf-8 dropped every setting."""
+    app, user = installed
+    user.mkdir(parents=True, exist_ok=True)
+    (user / NAME).write_bytes(b"\xef\xbb\xbf" + json.dumps(
+        dict(SHIPPED, default_prompt_style="artistic")).encode("utf-8"))
+    assert config_loader.load_json_config(NAME)[0]["default_prompt_style"] == "artistic"
+
+
+def test_an_unreadable_file_is_ignored_with_a_warning(installed, caplog):
+    import logging
+    app, user = installed
+    user.mkdir(parents=True, exist_ok=True)
+    (user / NAME).write_text("{ not json", encoding="utf-8")
+    with caplog.at_level(logging.WARNING):
+        config = config_loader.load_json_config(NAME)[0]
+    assert config["default_prompt_style"] == "narrative"        # the defaults
+    assert "Couldn't read the settings" in caplog.text
+
+
 def test_another_explicit_file_is_read_as_it_is(installed, tmp_path):
     other = tmp_path / "mine.json"
     other.write_text(json.dumps({"default_prompt_style": "concise"}), encoding="utf-8")

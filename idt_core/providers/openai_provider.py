@@ -402,7 +402,13 @@ class OpenAIProvider(BaseProvider):
         self._model = model
         #: GenerationOptions; None means automatic.
         self._options = options
-        # api_key=None → SDK reads OPENAI_API_KEY from environment
+        # No key given: the shared lookup (environment, then the credential store
+        # Configure saves to, then the config file). Leaving it to the SDK read
+        # only OPENAI_API_KEY, so `idt describe` failed with "Missing
+        # credentials" for a key saved in Configure (real-service check, 11/16/2026).
+        if not api_key:
+            from ..keys import resolve_api_key
+            api_key = resolve_api_key("openai")
         self._client = OpenAI(api_key=api_key)
 
     @property
