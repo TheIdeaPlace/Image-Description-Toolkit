@@ -14,7 +14,7 @@ Both apps open and write the same `.idtw` bundle format. Users' source images ar
 
 - Ollama (local/cloud models: llama3.2-vision, qwen2-vl, llava, etc.)
 - OpenAI (GPT-4o, GPT-4o-mini)
-- Anthropic Claude (claude-opus-4-6, claude-haiku-4-5-20251001)
+- Anthropic Claude (claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, claude-fable-5-2)
 - Claude Code (`claude-code`): Claude on the user's Pro/Max subscription through the `claude` CLI. Each request is one `claude -p` run with stream-json input, a short `--system-prompt` and no tools, so an image costs about what it does through the API (1,876 input tokens for a 12-megapixel photo, measured). Earlier chat turns are sent as a labelled transcript, because the CLI ignores assistant turns on stdin. See `idt_core/providers/claude_code.py` and `idt_core/chat/claude_code.py`.
 - Apple Intelligence (`apple`): Apple's on-device model on macOS 27+, reached through a local `fm serve` the app starts on a Unix socket and kills at exit. The wire format is OpenAI's, but the endpoint is **not** a drop-in for the OpenAI SDK: `stream` defaults to *true*, `max_tokens` is ignored in favour of `max_completion_tokens`, and requests serialize server-side. Needs a one-time machine-wide `sudo fm license`, which the provider detects and reports. See `idt_core/providers/apple.py` and `idt_core/chat/apple.py`. Safety refusals also arrive as HTTP 500 and are rewritten as permanent errors naming the fix — measurements in `docs/apple-intelligence-safety-refusals.md`.
 - Windows AI (key `windows-ai`, written `Windows-AI` wherever someone reads or types it -- a screen reader says a lowercase "ai" as a word; `registry.typed_name()` gives that form, and `--provider` takes any case): Windows' on-device `ImageDescriptionGenerator` on Copilot+ PCs. The API only works from a packaged app, so the provider drives a small packaged C# helper (`windows_ai_helper/`, the `idt-windows-ai` command) over JSON lines on stdin and stdout, one long-lived `--serve` process shared by every request. It takes no prompt: its models are the four description kinds, runs record the prompt as `none`, and the registry's `chat=False` and `uses_prompt=False` keep it out of chat and every prompt-only surface. The installer installs the signed `.msix`. See `idt_core/providers/windows_ai.py` and `windows_ai_helper/README.md`.
@@ -359,11 +359,11 @@ Default model is loaded **once at import time** from `scripts/image_describer_co
 
 ## Model Registry
 
-Central model lists live in `models/`:
+Model lists live in the provider modules under `idt_core/providers/`:
 
-- `models/claude_models.py` — Claude versions (latest: claude-opus-4-6, claude-haiku-4-5-20251001)
-- `models/openai_models.py` — OpenAI models (latest: gpt-4o, gpt-4o-mini, o1)
-- `models/model_registry.py` — unified interface to query models by provider
+- `claude.py` — the built-in Claude list (`CLAUDE_MODELS`, newest first, `claude-haiku-5-5` the default and first, since pickers fall back to index 0) and its metadata. It is the offline fallback; `catalog.py` merges it with Anthropic's live `GET /v1/models`, and the metadata (limits, cost, recommended) always wins. When Anthropic releases models, add them here and give each a price in `STATS_COST_TABLE` in `cli/main.py`; `test_claude_model_list.py` checks both.
+- `openai_provider.py` — OpenAI models, the same way.
+- `catalog.py` — the merge, the disk cache and `model_entry()`.
 
 **Never duplicate model lists elsewhere.** The CLI, GUI, and provider factory all import from these files.
 

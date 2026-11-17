@@ -39,6 +39,16 @@ DEFAULT_CONTEXT_WINDOWS = {
 
 FALLBACK_CONTEXT_WINDOW = 32_768
 
+#: Most history a chat sends per turn, whatever the model could take. Every
+#: turn re-sends the whole history, so when Claude's recorded windows went from
+#: 200K to 1M (November 2026) an uncapped chat would have kept growing to ~800K
+#: tokens, about five times the input cost of every turn, and past Haiku 5.5's
+#: 100K-token price tier. The model's real window stays in the registry.
+CHAT_WINDOW_CAPS = {
+    "claude": 200_000,
+    "anthropic": 200_000,
+}
+
 #: Fraction of the window a conversation may occupy before turns are dropped.
 #: The remainder is headroom for the reply itself.
 DEFAULT_BUDGET_FRACTION = 0.80
@@ -48,6 +58,18 @@ TOKENS_PER_IMAGE = 1_000
 
 
 def context_window_for(provider: str, model: str = "") -> int:
+    """The window a chat with this provider/model budgets against.
+
+    The model's own window, capped by :data:`CHAT_WINDOW_CAPS` so a long chat
+    doesn't grow without bound just because the model would accept it. The
+    token gauge and the budgeter both read this, so they agree.
+    """
+    window = _model_window(provider, model)
+    cap = CHAT_WINDOW_CAPS.get((provider or "").lower())
+    return min(window, cap) if cap else window
+
+
+def _model_window(provider: str, model: str = "") -> int:
     """Best known context window for a provider/model pair."""
     canonical = (provider or "").lower()
     if model:

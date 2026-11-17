@@ -229,7 +229,7 @@ If you installed via a virtual environment, activate it first (`.winenv\Scripts\
 idt describe ~/Pictures/Vacation
 
 # With Claude for highest quality
-idt describe ~/Pictures/Vacation --provider anthropic --model claude-opus-4-6
+idt describe ~/Pictures/Vacation --provider anthropic --model claude-opus-5-5
 
 # If you've never run idt before, the interactive wizard walks you through everything
 idt guideme
@@ -281,7 +281,7 @@ idt describe <source> [options]
 | Option | Default | Description |
 |---|---|---|
 | `--provider {anthropic\|ollama\|openai}` | From config | AI provider to use |
-| `--model NAME` | Provider default | Model name (e.g., `claude-opus-4-6`, `gpt-4o`, `minicpm-v4.6`) |
+| `--model NAME` | Provider default | Model name (e.g., `claude-opus-5-5`, `gpt-4o`, `minicpm-v4.6`) |
 | `--ollama-host URL` | `http://localhost:11434` | Ollama server address |
 
 **Prompt Options**
@@ -332,7 +332,7 @@ Leave these out and IDT uses sensible defaults for the provider and model you pi
 
 ```bash
 # Describe all images in a folder using Claude
-idt describe ~/Photos/Trip --provider anthropic --model claude-opus-4-6
+idt describe ~/Photos/Trip --provider anthropic --model claude-opus-5-5
 
 # Resume an interrupted job (pass the workspace bundle)
 idt describe ~/Photos/Trip.idtw
@@ -748,7 +748,7 @@ idt config
 
 # Set Claude as default
 idt config --set default_provider=anthropic
-idt config --set default_model=claude-opus-4-6
+idt config --set default_model=claude-opus-5-5
 
 # Change workspace root
 idt config --set workspace_root=~/MyDescriptions
@@ -1272,17 +1272,19 @@ IDT asks Anthropic which models your account can use, so the list in every picke
 
 | Model | Characteristics |
 |---|---|
-| `claude-opus-5` | Flagship; highest intelligence and description depth |
-| `claude-sonnet-5` | Best balance of speed and intelligence |
-| `claude-opus-4-8` | Most intelligent 4.x model; strong value |
-| `claude-haiku-4-5-20251001` | Fastest Claude model; very good quality |
+| `claude-haiku-5-5` | The default. Fastest and cheapest, about $1 per 1,000 images with the Detailed prompt, and detailed enough for most pictures |
+| `claude-sonnet-5-5` | More thorough, about $13 per 1,000 images |
+| `claude-opus-5-5` | Richer descriptions, about $30 per 1,000 images |
+| `claude-fable-5-2` | Anthropic's most capable model and the most precise reader of small detail; slowest and most expensive, about $55 per 1,000 images |
+
+The prices are from a November 2026 test of the Detailed prompt; a longer prompt or bigger pictures cost more.
 
 Your account may show more or fewer than these. A model Anthropic has released since your copy of IDT was built appears too, marked `new — details unknown`.
 
 **CLI example**
 
 ```bash
-idt describe ~/Photos --provider anthropic --model claude-opus-5 --prompt detailed
+idt describe ~/Photos --provider anthropic --model claude-opus-5-5 --prompt detailed
 ```
 
 ---
@@ -1989,7 +1991,7 @@ The CLI uses no ANSI color codes in interactive mode (`idt guideme`) and all out
 **Processing completes but descriptions are blank or very short**
 
 - Some models (especially small Ollama models on CPU) time out if the image is very large. Try resizing images to under 2048 × 2048 pixels before describing.
-- Switch to a higher-quality model: `claude-opus-4-6` or `gpt-4o`.
+- Switch to a higher-quality model: `claude-opus-5-5` or `gpt-4o`.
 
 **Video extraction fails**
 
@@ -2116,7 +2118,7 @@ MyTrip.idtw/                        Workspace bundle (a folder ending in .idtw)
   "sources": [{"path": "/Users/you/Photos/Trip", "added": "2024-09-12T10:00:00+00:00"}],
   "defaults": {
     "provider": "anthropic",
-    "model": "claude-opus-4-6",
+    "model": "claude-opus-5-5",
     "prompt_name": "detailed"
   },
   "geocode_enabled": true,
@@ -2137,7 +2139,7 @@ MyTrip.idtw/                        Workspace bundle (a folder ending in .idtw)
       "id": "550e8400-e29b-41d4-a716-446655440000",
       "text": "A group of hikers resting on a mountain ridge...",
       "provider": "anthropic",
-      "model": "claude-opus-4-6",
+      "model": "claude-opus-5-5",
       "prompt_name": "detailed",
       "created": "2024-09-12T10:15:32+00:00",
       "input_tokens": 512,

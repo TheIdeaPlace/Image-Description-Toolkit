@@ -114,8 +114,8 @@ def test_labels_are_display_names_and_client_data_is_the_api_id(wx_app):
     """The id is what gets sent; the name is what gets read aloud."""
     dlg = _dialog()
     try:
-        assert dlg.model_choice.GetString(0) == "Claude Opus 5"
-        assert dlg.model_choice.GetClientData(0) == "claude-opus-5"
+        assert dlg.model_choice.GetString(0) == "Claude Haiku 5.5"
+        assert dlg.model_choice.GetClientData(0) == "claude-haiku-5-5"
     finally:
         dlg.Destroy()
 
