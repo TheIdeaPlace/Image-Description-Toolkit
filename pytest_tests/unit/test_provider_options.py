@@ -272,6 +272,15 @@ def _core_openai(responses, options=None, model="gpt-5.2"):
 
 
 class TestOpenAIDescribe:
+    def test_no_key_given_uses_the_shared_lookup(self, monkeypatch):
+        """A key saved in Configure (the credential store) reaches `idt describe`."""
+        import idt_core.keys as keys
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setattr(keys, "resolve_api_key",
+                            lambda provider: "sk-from-store" if provider == "openai" else None)
+        provider = oai.OpenAIProvider(model="gpt-5-nano")
+        assert provider._client.api_key == "sk-from-store"
+
     def test_success_reports_reasoning_tokens(self):
         provider, calls = _core_openai([_openai_response("A desk.", reasoning=192)])
         result = provider.describe(b"x", "image/jpeg", "Describe.")
@@ -421,6 +430,53 @@ class TestClaudeDescribe:
             options=GenerationOptions(effort="low"))
         assert provider.describe(b"x", "image/jpeg", "Describe.").text == "A desk."
         assert "output_config" in calls[0] and "output_config" not in calls[1]
+
+    def test_a_model_without_adaptive_thinking_gets_a_budget(self):
+        """Claude Haiku 4.5 thinks only with a token budget: Thinking On used to
+        be retried without thinking (real-service check, 11/16/2026)."""
+        from idt_core.generation import THINKING_ON
+        provider, calls = _core_claude(
+            # The real API's words for Haiku 4.5, captured 11/16/2026.
+            [BadRequest("Error code: 400 - {'type': 'error', 'error': {'type': "
+                        "'invalid_request_error', 'message': 'adaptive thinking is "
+                        "not supported on this model'}}"),
+             _claude_message([_block("thinking"), _block("text", "A desk.")])],
+            options=GenerationOptions(thinking=THINKING_ON))
+        provider._model = "claude-haiku-4-5-budget-test"
+        assert provider.describe(b"x", "image/jpeg", "Describe.").text == "A desk."
+        assert calls[0]["thinking"] == {"type": "adaptive"}
+        assert calls[1]["thinking"] == {"type": "enabled", "budget_tokens": 2048}
+
+    def test_thinking_budgets(self):
+        assert claude_mod.thinking_fallbacks(4096) == ({"type": "enabled", "budget_tokens": 2048},)
+        assert claude_mod.thinking_fallbacks(2048) == ({"type": "enabled", "budget_tokens": 1024},)
+        assert claude_mod.thinking_fallbacks(1100) == ()       # no room for an answer too
+        assert claude_mod.thinking_fallbacks(400) == ()
+
+    def test_the_budget_is_remembered_so_a_batch_asks_once(self):
+        """Every picture used to try adaptive first and fail (#441 review)."""
+        from idt_core.generation import THINKING_ON
+        model = "claude-haiku-4-5-remember-test"
+        refusal = BadRequest("adaptive thinking is not supported on this model")
+        provider, calls = _core_claude(
+            [refusal, _claude_message([_block("text", "One.")]),
+             _claude_message([_block("text", "Two.")])],
+            options=GenerationOptions(thinking=THINKING_ON))
+        provider._model = model
+        provider.describe(b"x", "image/jpeg", "Describe.")
+        provider.describe(b"x", "image/jpeg", "Describe.")
+        assert [c["thinking"]["type"] for c in calls] == ["adaptive", "enabled", "enabled"]
+
+    def test_no_key_given_uses_the_shared_lookup(self, monkeypatch):
+        """`idt describe` built the provider without a key and the SDK read only
+        ANTHROPIC_API_KEY, so a key saved in Configure (the credential store)
+        failed with "Missing credentials"."""
+        import idt_core.keys as keys
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setattr(keys, "resolve_api_key",
+                            lambda provider: "sk-ant-from-store" if provider == "claude" else None)
+        provider = claude_mod.ClaudeProvider(model="claude-haiku-4-5")
+        assert provider._client.api_key == "sk-ant-from-store"
 
     def test_oversized_images_are_shrunk_before_sending(self):
         import base64

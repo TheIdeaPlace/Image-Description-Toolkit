@@ -55,22 +55,6 @@ def readable_text(parent, text: str, name: str, width: int = 580) -> "wx.TextCtr
     return box
 
 
-class _NamedText(wx.Accessible):
-    """The accessible name of a read-only text box, which has no label of its own
-    (a native edit takes its name from a static label just before it, and these
-    have none). The same pattern as the chat window's message box; childId 0 only,
-    so the text itself is still read normally."""
-
-    def __init__(self, win, label: str):
-        super().__init__(win)
-        self._label = label
-
-    def GetName(self, childId):
-        if childId:
-            return (wx.ACC_NOT_IMPLEMENTED, None)
-        return (wx.ACC_OK, self._label)
-
-
 def first_tab_stop(window):
     """The first control under ``window`` that Tab would reach, depth first."""
     for child in window.GetChildren():
@@ -89,12 +73,12 @@ def first_tab_stop(window):
 
 
 def name_for_screen_readers(box, label: str) -> None:
-    """Set ``label`` as the control's name for screen readers on every platform."""
-    box.SetName(label)
-    try:
-        box.SetAccessible(_NamedText(box, label))
-    except (NotImplementedError, AttributeError):
-        pass   # no wx.Accessible on this platform (macOS); SetName is used there
+    """Set ``label`` as the control's name for screen readers on every platform.
+
+    shared.wx_common.set_screen_reader_name, kept under this name for the
+    callers here (one implementation, so the two can't drift apart)."""
+    from shared.wx_common import set_screen_reader_name
+    set_screen_reader_name(box, label)
 
 
 def _choice_label(setting_info: Dict[str, Any], value: Any) -> Any:
@@ -588,7 +572,11 @@ class SettingEditDialog(wx.Dialog):
             # A number's range goes in the name too: the "Range:" line below is
             # static text that JAWS and NVDA don't read when the field gets focus.
             # Spaces, not underscores: JAWS and NVDA read "_" as "underline".
-            self.editor.SetName(f"{self._spoken_name()} value{spoken_range(self.setting_info)}")
+            # Through an accessible object, not SetName alone: on Windows an edit
+            # box takes its name from the "Value:" label before it, and the
+            # installed-build check heard just "Value:".
+            name_for_screen_readers(
+                self.editor, f"{self._spoken_name()} value{spoken_range(self.setting_info)}")
             
             # Add range/limits info if available
             if "range" in self.setting_info:
@@ -1088,8 +1076,20 @@ class ConfigureDialog(wx.Dialog):
         - Cmd+Shift+[ and Cmd+Shift+] to switch tabs (macOS standard)
         - Enter/Space to move focus to content of current tab
         """
-        # Guard: only intercept when the notebook tab bar itself is focused
         focused = wx.Window.FindFocus()
+
+        # Enter on a settings list opens Change Setting. The list's own key
+        # handler never sees Enter on Windows: the dialog's keyboard handling
+        # takes it for the default button first. This hook runs before that.
+        # (Installed-build settings check, 11/16/2026: Enter did nothing,
+        # only Space worked, though the user guide says Enter.)
+        if event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+            for category, widgets in self.category_widgets.items():
+                if widgets.get("settings_list") is focused:
+                    self.change_setting(category, event)
+                    return
+
+        # Guard: only intercept when the notebook tab bar itself is focused
         if focused is not self.notebook:
             event.Skip()
             return

@@ -564,6 +564,16 @@ def cmd_describe(args):
         if not source.is_dir():
             print("Error: --showgui requires a source directory.", file=sys.stderr)
             sys.exit(1)
+        from idt_core.workspace import Workspace
+        if Workspace.is_bundle(source):
+            # ImageDescriber opens a workspace but doesn't start describing it,
+            # so --showgui with one would open a window that does nothing.
+            print("Error: --showgui takes a folder of pictures, not a workspace.\n"
+                  f"To carry on with this workspace, run without --showgui:\n"
+                  f"  idt describe \"{source}\"\n"
+                  "or open it in ImageDescriber and choose Process > Describe All "
+                  "Undescribed.", file=sys.stderr)
+            sys.exit(1)
         _launch_gui_describe(source, args)
         return
 
@@ -3086,7 +3096,7 @@ Supported providers:
                               "OLLAMA_API_KEY)"))
     p_chat.add_argument("--think", dest="thinking", action="store_const",
                         const=True, default=None,
-                        help="Force reasoning-model thinking on (Ollama)")
+                        help="Turn thinking on, for models that can think (Ollama)")
     p_chat.add_argument("--no-think", dest="thinking", action="store_const",
                         const=False,
                         help="Force thinking off for faster answers (Ollama)")

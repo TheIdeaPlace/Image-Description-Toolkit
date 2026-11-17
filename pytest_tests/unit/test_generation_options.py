@@ -159,9 +159,49 @@ def caps(monkeypatch):
 
 
 class TestResolveThink:
-    def test_on_is_passed_through_unprobed(self, caps):
-        caps.value = ["completion"]
+    def test_on_is_sent_to_thinking_models(self, caps):
+        caps.value = ["completion", "vision", "thinking"]
         assert ollama_mod.resolve_think(THINKING_ON, "m") is True
+
+    def test_on_is_dropped_and_logged_for_a_model_that_cannot_think(self, caps, caplog):
+        """A saved Thinking On applies to every Ollama model: sent to moondream it
+        made every picture fail (installed-build settings check, 11/16/2026)."""
+        import logging
+        caps.value = ["completion", "vision"]
+        with caplog.at_level(logging.INFO):
+            assert ollama_mod.resolve_think(THINKING_ON, "moondream-test") is None
+        assert any("not sending thinking on" in r.getMessage() for r in caplog.records)
+
+    def test_on_with_a_failed_probe_is_not_sent(self, caps, caplog):
+        """Fails closed like the others: a wrong True breaks the request. The log
+        says the check failed, not that the model doesn't think."""
+        import logging
+        caps.value = None
+        with caplog.at_level(logging.INFO):
+            assert ollama_mod.resolve_think(THINKING_ON, "m-unknown") is None
+        text = caplog.text
+        assert "couldn't check whether" in text and "doesn't think" not in text
+
+    def test_dropped_on_is_a_console_warning_once_per_model(self, caps, caplog):
+        """The CLI console shows warnings, not the run log's notes."""
+        import logging
+        caps.value = ["completion"]
+        with caplog.at_level(logging.WARNING, logger=ollama_mod.logger.name):
+            for _ in range(3):
+                ollama_mod.resolve_think(THINKING_ON, "m-once")
+        warnings = [r for r in caplog.records
+                    if r.levelno == logging.WARNING and "m-once" in r.getMessage()]
+        assert len(warnings) == 1
+
+    def test_chat_note_for_thinking_on(self, caps):
+        caps.value = ["completion", "vision"]
+        assert ollama_mod.thinking_on_note("ollama", "moondream") == (
+            "moondream doesn't think, so Thinking On has no effect with it.")
+        caps.value = ["completion", "thinking"]
+        assert ollama_mod.thinking_on_note("ollama", "qwen3") is None
+        caps.value = None                                   # couldn't ask: say nothing
+        assert ollama_mod.thinking_on_note("ollama", "x") is None
+        assert ollama_mod.thinking_on_note("openai", "gpt-5-nano") is None
 
     def test_off_sent_only_to_thinking_models(self, caps):
         caps.value = ["completion", "vision", "thinking"]
@@ -272,6 +312,7 @@ class TestDescribe:
         assert client.calls[0]["options"] == {"temperature": 0.2, "num_predict": 900}
 
     def test_thinking_on_is_honoured_and_drops_the_cap(self, client, caps):
+        caps.value = ["completion", "vision", "thinking"]
         client.queue = [_response("A desk.", thinking="hmm")]
         _describe(GenerationOptions(thinking=THINKING_ON, max_output_tokens=900))
         assert client.calls[0]["think"] is True

@@ -168,6 +168,31 @@ def test_help_boxes_fit_their_text(dialog):
     box.Destroy()
 
 
+def test_enter_on_a_settings_list_opens_change_setting(dialog, monkeypatch):
+    """The list's own handler never sees Enter on Windows (the dialog takes it
+    for the default button); the notebook's char hook, which runs first, does
+    (installed-build settings check, 11/16/2026: only Space worked)."""
+    dlg, cfg, wx = dialog
+    settings_list = dlg.category_widgets["Generation"]["settings_list"]
+    opened = []
+    monkeypatch.setattr(wx.Window, "FindFocus", staticmethod(lambda: settings_list))
+    monkeypatch.setattr(dlg, "change_setting", lambda category, event: opened.append(category))
+    for code in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+        key = _Key(code)
+        dlg.on_notebook_char(key)
+        assert not key.skipped
+    assert opened == ["Generation", "Generation"]
+
+
+def test_other_keys_on_a_settings_list_pass_through(dialog, monkeypatch):
+    dlg, cfg, wx = dialog
+    settings_list = dlg.category_widgets["Generation"]["settings_list"]
+    monkeypatch.setattr(wx.Window, "FindFocus", staticmethod(lambda: settings_list))
+    key = _Key(wx.WXK_DOWN)
+    dlg.on_notebook_char(key)
+    assert key.skipped
+
+
 def test_help_paragraphs_are_reachable_by_tab(dialog):
     dlg, cfg, wx = dialog
     names = {w.GetName() for w in _focusable(dlg.notebook, wx)}

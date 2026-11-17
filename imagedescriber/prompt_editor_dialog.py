@@ -334,7 +334,7 @@ class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
         """Load the configuration file"""
         try:
             if self.config_file.exists():
-                with open(self.config_file, 'r', encoding='utf-8') as f:
+                with open(self.config_file, 'r', encoding='utf-8-sig') as f:
                     self.config_data = json.load(f)
             else:
                 # Create default config if file doesn't exist

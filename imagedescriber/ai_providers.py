@@ -1370,6 +1370,7 @@ class ClaudeProvider(AIProvider):
             from idt_core.providers.claude import (
                 OPTIONAL_PARAMS as _CLAUDE_OPTIONAL, describe_request_params,
                 empty_answer_error as _claude_empty, response_text as _claude_text,
+                thinking_fallbacks as _claude_thinking_fallbacks,
             )
             request_params = describe_request_params(model, user_options("claude"))
             request_params["messages"] = [
@@ -1391,9 +1392,13 @@ class ClaudeProvider(AIProvider):
                     ]
                 }
             ]
-            message = send_with_fallback(self.client.messages.create, request_params,
-                                         with_extra_body(_CLAUDE_OPTIONAL, request_params),
-                                         "claude", model)
+            # The same budget fallback as idt describe and chat, so Thinking On
+            # works with Claude Haiku 4.5 here too (#441 review).
+            message = send_with_fallback(
+                self.client.messages.create, request_params,
+                with_extra_body(_CLAUDE_OPTIONAL, request_params), "claude", model,
+                fallback_values={"thinking": _claude_thinking_fallbacks(
+                    request_params["max_tokens"])})
 
             stop_reason = getattr(message, "stop_reason", None)
             # Store token usage for cost tracking and logging

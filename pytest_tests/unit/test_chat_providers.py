@@ -589,19 +589,23 @@ def test_think_is_omitted_when_the_probe_fails(monkeypatch, _no_context_probe):
     assert "think" not in calls[0]
 
 
-def test_an_explicit_think_on_skips_the_probe(monkeypatch, _no_context_probe):
-    """The user asked for thinking; if the model cannot, the API error saying
-    so is the honest answer — no probe second-guessing."""
-    from idt_core.providers import ollama as ollama_mod
-
-    def boom(*a, **k):  # pragma: no cover - the assertion is that it never runs
-        raise AssertionError("explicit think=True must not probe capabilities")
-
-    monkeypatch.setattr(ollama_mod, "model_capabilities", boom)
+def test_an_explicit_think_on_is_sent_to_thinking_models(monkeypatch, _no_context_probe):
+    _caps(monkeypatch, ["completion", "thinking"])
     calls = _scripted_ollama(monkeypatch, [{"message": {"content": "x"}, "done": True}])
     provider, request = _ollama_request(think=True)
     list(provider.chat(request))
     assert calls[0]["think"] is True
+
+
+def test_an_explicit_think_on_is_dropped_for_a_model_that_cannot_think(
+        monkeypatch, _no_context_probe):
+    """Not sent to fail the turn with a 400: Thinking On is one setting for every
+    Ollama model (installed-build settings check, 11/16/2026)."""
+    _caps(monkeypatch, ["completion"])
+    calls = _scripted_ollama(monkeypatch, [{"message": {"content": "x"}, "done": True}])
+    provider, request = _ollama_request(think=True)
+    list(provider.chat(request))
+    assert "think" not in calls[0]
 
 
 def test_no_think_is_sent_to_thinking_models(monkeypatch, _no_context_probe):

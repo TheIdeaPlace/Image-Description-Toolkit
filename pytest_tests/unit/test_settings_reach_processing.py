@@ -112,6 +112,31 @@ def test_reading_the_user_file_by_path_fills_in_too(installed):
     assert config["prompt_variations"] == SHIPPED["prompt_variations"]
 
 
+def test_a_file_with_a_byte_order_mark_is_read(installed):
+    """PowerShell 5's -Encoding UTF8 writes one; plain utf-8 dropped every setting."""
+    app, user = installed
+    user.mkdir(parents=True, exist_ok=True)
+    (user / NAME).write_bytes(b"\xef\xbb\xbf" + json.dumps(
+        dict(SHIPPED, default_prompt_style="artistic")).encode("utf-8"))
+    assert config_loader.load_json_config(NAME)[0]["default_prompt_style"] == "artistic"
+
+
+def test_an_unreadable_file_is_used_as_defaults_and_left_untouched(installed, caplog):
+    """A file caught mid-save (or, before utf-8-sig, any file with a BOM) used to
+    be overwritten by the one-time check with just its marker, deleting every
+    setting and API key in it (#441 review)."""
+    import logging
+    app, user = installed
+    user.mkdir(parents=True, exist_ok=True)
+    cut_off = b'{"default_prompt_style": "artistic", "api_keys": {"claude": "sk-ant-'
+    (user / NAME).write_bytes(cut_off)
+    with caplog.at_level(logging.WARNING):
+        config = config_loader.load_json_config(NAME)[0]
+    assert config["default_prompt_style"] == "narrative"        # the defaults, this time
+    assert "Couldn't read the settings" in caplog.text
+    assert (user / NAME).read_bytes() == cut_off                 # byte for byte
+
+
 def test_another_explicit_file_is_read_as_it_is(installed, tmp_path):
     other = tmp_path / "mine.json"
     other.write_text(json.dumps({"default_prompt_style": "concise"}), encoding="utf-8")
