@@ -72,10 +72,12 @@ def test_limits_match_what_the_api_reports():
 
 def test_idt_stats_has_a_price_for_every_offered_model():
     """`idt stats` showed no cost for any 5.x model and charged Opus 4.8 at
-    three times its real price."""
+    three times its real price. Opus 4.1 is retired but still priced, for old
+    workspaces. The Mythos models are deliberately unpriced: they're for
+    verified organizations only and we have no confirmed price for them."""
     from cli import main as cli_main
 
-    for model_id in CLAUDE_MODELS:
+    for model_id in [*CLAUDE_MODELS, "claude-opus-4-1-20250805"]:
         assert model_id in cli_main.STATS_COST_TABLE, f"no price for {model_id}"
     assert cli_main.STATS_COST_TABLE["claude-opus-4-8"] == (5.0, 25.0)
     assert cli_main.STATS_COST_TABLE["claude-haiku-5-5"] == (0.10, 0.50)

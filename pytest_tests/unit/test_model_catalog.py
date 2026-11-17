@@ -242,6 +242,18 @@ def test_a_retired_model_drops_out_of_the_list():
     assert "claude-sonnet-4-5-20250929" not in ids
 
 
+def test_a_listed_model_we_know_but_dont_offer_keeps_its_details():
+    """Mythos isn't offered offline (verified organizations only), but an
+    account whose listing has it must see its name, not 'details unknown'."""
+    merged = catalog.merge("claude", _live(("claude-opus-5-5", "Claude Opus 5.5", 2),
+                                           ("claude-mythos-5", "Claude Mythos 5", 1)))
+    entry = next(e for e in merged if e.id == "claude-mythos-5")
+    assert "claude-mythos-5" not in CLAUDE_MODELS
+    assert entry.source == "curated"
+    assert entry.description != catalog.NEW_MODEL_NOTE
+    assert entry.context_window == 1_000_000
+
+
 def test_a_retired_model_is_still_resolvable():
     """Old .idtw workspaces and chat sessions reference these by id and must
     still render a real name rather than a raw string."""

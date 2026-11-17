@@ -158,9 +158,9 @@ CLAUDE_MODEL_METADATA: dict = {
     # Retired; not in the offline list, kept for old workspaces.
     "claude-opus-4-1-20250805": {
         "name": "Claude Opus 4.1",
-        "description": "Legacy — prefer claude-opus-4-8 or claude-opus-5",
+        "description": "Retired — prefer Claude Opus 5.5",
         "generation": "4.1", "context_window": 200000, "max_output": 32000,
-        "supports_vision": True, "cost": "$$$", "recommended": False,
+        "supports_vision": True, "cost": "$$$$", "recommended": False,
     },
 }
 

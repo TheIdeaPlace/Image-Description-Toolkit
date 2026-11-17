@@ -438,8 +438,27 @@ def test_short_conversations_are_left_alone():
 
 def test_per_model_context_window_beats_the_provider_default():
     """The old code used a flat 200k for every Claude model, ignoring metadata."""
-    assert token_tools.context_window_for("claude", "claude-opus-5") == 1_000_000
+    assert token_tools.context_window_for("openai", "gpt-5.2") == 400_000
+    assert token_tools.context_window_for("ollama", "") == 32_768
+
+
+def test_claude_chats_stay_capped_although_the_model_takes_a_million():
+    """Recorded windows went 200K -> 1M; uncapped, every turn of a long chat
+    would have re-sent up to ~800K tokens, five times the cost."""
+    from idt_core.providers.registry import model_limits
+
+    assert model_limits("claude", "claude-opus-5-5")[0] == 1_000_000
+    assert token_tools.context_window_for("claude", "claude-opus-5-5") == 200_000
+    assert token_tools.context_window_for("anthropic", "claude-haiku-5-5") == 200_000
     assert token_tools.context_window_for("claude", "claude-haiku-4-5-20251001") == 200_000
+
+    messages = [_long_turn("user", 300_000 * token_tools.CHARS_PER_TOKEN // 10)
+                for _ in range(10)]
+    messages.append(ChatMessage(role="user", content="the actual question"))
+    kept, result = token_tools.prepare_history(messages, "claude", "claude-opus-5-5")
+    assert result.was_truncated
+    assert result.limit == 200_000
+    assert token_tools.estimate_tokens(kept) <= 160_000
     assert token_tools.context_window_for("ollama", "") == 32_768
     assert token_tools.context_window_for("nonsense", "") == 32_768
 

@@ -2517,6 +2517,7 @@ STATS_COST_TABLE = {
     "claude-opus-4-7":             (5.0,   25.0),
     "claude-opus-4-6":             (5.0,   25.0),
     "claude-opus-4-5-20251101":    (5.0,   25.0),
+    "claude-opus-4-1-20250805":    (15.0,  75.0),
     "claude-sonnet-5-5":           (2.0,   10.0),
     "claude-sonnet-5":             (2.0,   10.0),
     "claude-sonnet-4-6":           (3.0,   15.0),
@@ -2790,7 +2791,7 @@ def build_parser() -> argparse.ArgumentParser:
 Examples:
   idt guideme                                            # start here — interactive wizard
   idt describe ~/Pictures/Vacation/
-  idt describe ~/Pictures/Vacation/ --provider anthropic --model claude-opus-4-6
+  idt describe ~/Pictures/Vacation/ --provider anthropic --model claude-opus-5-5
   idt describe ~/Pictures/Vacation/ --provider ollama --model llava
   idt describe ~/Pictures/Vacation/ --prompt concise --limit 10 --embed
   idt describe ~/Pictures/Vacation/ --geocode            # add city/state to prompt context
@@ -2817,7 +2818,7 @@ Examples:
   idt stats ~/Pictures/Vacation/
   idt stats ~/Pictures/ --all                           # across entire photo library
   idt config --set default_provider=anthropic
-  idt config --set default_model=claude-opus-4-6
+  idt config --set default_model=claude-opus-5-5
   idt update                                            # is a newer release out?
 
 Supported providers:
