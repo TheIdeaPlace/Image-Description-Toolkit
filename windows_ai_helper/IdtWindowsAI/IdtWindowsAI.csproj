@@ -50,8 +50,8 @@
          Microsoft.WindowsAppRuntime.1.8 8000.994.2142.0, is what AppxManifest.xml depends on; keep
          the versions in step (they match Microsoft.WindowsAppSDK 1.8.260921001). -->
     <PackageReference Include="Microsoft.WindowsAppSDK.AI" Version="1.8.79" />
-    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="1.8.260803002" />
-    <PackageReference Include="Microsoft.WindowsAppSDK.Base" Version="1.8.251216001" />
-    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="1.8.260921001" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.6.5" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Base" Version="2.6.5" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="2.6.5" />
   </ItemGroup>
 </Project>
