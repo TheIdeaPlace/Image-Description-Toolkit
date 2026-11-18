@@ -350,6 +350,13 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 
 ### Smaller changes
 
+- **The usage line stays in ImageDescriber.** Each description ImageDescriber writes ends
+  with a line like `[Token Usage: 4,196 total (3,000 prompt + 1,196 completion) | Time:
+  8.12s]`. You still read it with the description in ImageDescriber: the descriptions
+  list, the editor and Viewer mode. It's now left out of everything else: copying a
+  description, the HTML report and its alt text, the text, CSV and gallery exports,
+  `idt show`, `idt combine`, and the description written into a picture's metadata.
+  That includes descriptions saved before 4.9.0.
 - IDT's links, updater and user guide now point at the TheIdeaPlace organization on
   GitHub. Installed copies keep finding updates.
 - **The command line checks numbers when you type them,** with an error that says what
