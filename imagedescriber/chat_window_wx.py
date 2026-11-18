@@ -434,7 +434,10 @@ class ChatWindow(wx.Dialog):
             elif desc.prompt_style == 'ai_response':
                 messages.append({
                     'role': 'assistant',
-                    # This goes back to the model: no "[Token Usage: ...]" line.
+                    # A guard only: chat replies are stored as the model wrote
+                    # them and never get the usage line (only image
+                    # descriptions do, in workers_wx). If that ever changes,
+                    # the line still doesn't go back to the model.
                     'content': strip_usage_line(desc.text),
                     'timestamp': desc.created,
                     'metadata': desc.metadata

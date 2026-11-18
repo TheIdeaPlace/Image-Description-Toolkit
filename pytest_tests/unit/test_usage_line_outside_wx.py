@@ -36,6 +36,26 @@ def _no_usage(text):
     assert "[Time:" not in text
 
 
+@pytest.mark.parametrize("usage, seconds", [
+    ({"prompt_tokens": 3000, "completion_tokens": 1196, "total_tokens": 4196}, 8.123),
+    ({"prompt_tokens": 3000, "completion_tokens": 1196, "total_tokens": 4196}, None),
+    (None, 3.4),
+])
+def test_the_strip_removes_exactly_what_the_worker_adds(usage, seconds):
+    """The real _add_token_usage_info, not a copy of its f-strings: if its
+    wording changes, the strip must change with it or this fails (#489 review)."""
+    import workers_wx
+    from idt_core.description_text import strip_usage_line
+
+    class Provider:
+        last_usage = usage
+
+    worker = workers_wx.ProcessingWorker.__new__(workers_wx.ProcessingWorker)
+    added = worker._add_token_usage_info(BODY, Provider(), seconds)
+    assert added != BODY   # the worker did add a line
+    assert strip_usage_line(added) == BODY
+
+
 @pytest.fixture(scope="module")
 def frame():
     import imagedescriber_wx

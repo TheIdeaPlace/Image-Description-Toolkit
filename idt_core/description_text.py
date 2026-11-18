@@ -12,9 +12,8 @@ description it stores::
 Either part may be absent, so ``[Token Usage: …]`` and ``[Time: 8.12s]`` on
 their own are both possible. The line is deliberate: it stays in the stored
 text and in ImageDescriber's own reading views (description list, editor,
-Viewer mode, Show All Descriptions). Everywhere the text leaves those views
-(exports, embedded metadata, the clipboard, text sent back to a model) it is
-removed with :func:`strip_usage_line`.
+Viewer mode). Everywhere the text leaves those views (exports, embedded
+metadata, the clipboard) it is removed with :func:`strip_usage_line`.
 
 The location byline at the start ("City, State - ") is description content and
 is never touched here.
@@ -25,13 +24,12 @@ from __future__ import annotations
 
 import re
 
-# One blank line, then "[Token Usage: …]", "[Time: …]" or
-# "[Token Usage: … | Time: …]", then only whitespace to the end of the text.
-# [^\]\n]* keeps the match inside a single bracketed line, so a bracket earlier
-# in the description is never mistaken for the start of the usage line.
-_USAGE_LINE_RE = re.compile(
-    r"\n\s*\n[ \t]*\[(?:Token Usage:[^\]\n]*|Time:[^\]\n]*)\][ \t\r\n]*\Z"
-)
+# The last line alone: "[Token Usage: …]", "[Time: …]" or
+# "[Token Usage: … | Time: …]". Only the last line is ever examined, so a
+# description that ends in thousands of blank lines (a small model looping
+# until its token limit) costs one pass, not a regex search that rescans the
+# blank lines from every newline, which took seconds (#489 review).
+_USAGE_LINE_RE = re.compile(r"\[(?:Token Usage:|Time:)[^\]\n]*\]")
 
 
 def strip_usage_line(text: str | None) -> str:
@@ -47,7 +45,13 @@ def strip_usage_line(text: str | None) -> str:
     """
     if not text:
         return text or ""
-    match = _USAGE_LINE_RE.search(text)
-    if not match:
+    body = text.rstrip()
+    cut = body.rfind("\n")
+    if cut < 0 or not _USAGE_LINE_RE.fullmatch(body[cut + 1:].strip(" \t\r")):
         return text
-    return text[: match.start()].rstrip()
+    before = body[:cut].rstrip(" \t\r")
+    # Set off by a blank line: what comes before must end in a newline once
+    # the line's own spaces are gone.
+    if not before.endswith("\n"):
+        return text
+    return before.rstrip()

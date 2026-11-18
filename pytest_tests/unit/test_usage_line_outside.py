@@ -98,6 +98,18 @@ class TestStripUsageLine:
         for chosen in (parts, parts[:1], parts[1:]):
             assert strip_usage_line(BODY + "\n\n[" + " | ".join(chosen) + "]") == BODY
 
+    def test_thousands_of_blank_lines_are_quick(self):
+        """A small model looping on blank lines until its token limit stores a
+        description like this. The first version rescanned the run from every
+        newline: 20,000 blank lines took 6 seconds a call (#489 review)."""
+        import time
+
+        for text in ("x" + "\n" * 20000, "x" + "\n \n" * 20000,
+                     "x" + "\n" * 20000 + "\n\n[Time: 1.00s]"):
+            start = time.perf_counter()
+            strip_usage_line(text)
+            assert time.perf_counter() - start < 0.2
+
 
 # ------------------------------------------------------------------ #
 # A workspace whose descriptions carry the line                         #
