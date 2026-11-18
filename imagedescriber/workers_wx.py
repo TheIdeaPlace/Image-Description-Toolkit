@@ -115,6 +115,8 @@ from idt_core.pipeline import (  # noqa: E402
     is_per_image_failure as _is_per_image_failure,
     normalise_failure_text as _normalise_failure_text,
 )
+from idt_core.providers.registry import display_name as _display_provider  # noqa: E402
+from idt_core.providers.catalog import model_display_name as _display_model  # noqa: E402
 
 
 _TIMESTAMP_TAIL = re.compile(r"\s*-\s*\(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(,\d+)?\)\s*$")
@@ -422,7 +424,8 @@ class ProcessingWorker(threading.Thread):
                 self._post_progress("Getting Windows AI's model ready. The first time, "
                                     "this can take a few minutes.")
             else:
-                self._post_progress(f"Processing with {self.provider} {self.model}...")
+                self._post_progress(f"Processing with {_display_provider(self.provider)}, "
+                                    f"{_display_model(self.provider, self.model)}...")
 
             # Extract metadata from image
             metadata = self._extract_metadata(self.file_path)

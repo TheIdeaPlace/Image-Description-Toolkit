@@ -43,6 +43,7 @@ from . import model_cache
 
 __all__ = [
     "ModelEntry",
+    "model_display_name",
     "CACHE_TTL_SECONDS",
     "cached_models",
     "model_entry",

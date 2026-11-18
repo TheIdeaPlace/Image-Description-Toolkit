@@ -2108,7 +2108,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             turn_count = len([d for d in image_item.descriptions
                                if d.prompt_style in ("user_question", "ai_response")])
             providers = set(d.provider for d in image_item.descriptions if d.provider)
-            models = set(d.model for d in image_item.descriptions if d.model)
+            models = set(_display_model(d.provider, d.model)
+                         for d in image_item.descriptions if d.model)
             info = f"Chat: {session_name}"
             if turn_count:
                 exchanges = turn_count // 2
@@ -8648,7 +8649,9 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 # The model answers better when it's asked the question directly about what it sees.
                 custom_prompt = question
 
-                self.SetStatusText(f"Processing followup with {values['provider']}/{values['model']}...", 0)
+                self.SetStatusText(
+                    f"Processing followup with {_display_provider(values['provider'])}, "
+                    f"{_display_model(values['provider'], values['model'])}...", 0)
 
                 # Process with AI using selected model
                 api_key = self.get_api_key_for_provider(values['provider'])

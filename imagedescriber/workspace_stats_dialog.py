@@ -27,6 +27,9 @@ from typing import List, Set, Tuple
 
 import wx
 
+from idt_core.providers.catalog import model_display_name as _display_model
+from idt_core.providers.registry import display_name as _display_provider
+
 # ── Stop-word list (common English + photography-specific filler) ──────────────
 _STOPWORDS = {
     'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
@@ -339,8 +342,10 @@ def compute_workspace_stats(workspace) -> Tuple[List[str], Set[int]]:
     if all_descs:
         H("Providers & Models")
 
-        provider_counts = Counter(d.provider for d in all_descs if d.provider)
-        model_counts    = Counter(d.model    for d in all_descs if d.model)
+        # Names, not IDs: "Claude", "Claude Haiku 5.5".
+        provider_counts = Counter(_display_provider(d.provider) for d in all_descs if d.provider)
+        model_counts    = Counter(_display_model(d.provider, d.model)
+                                  for d in all_descs if d.model)
         prompt_counts   = Counter(d.prompt_style for d in all_descs if d.prompt_style)
 
         if provider_counts:
