@@ -146,6 +146,7 @@ a = Analysis(
         'idt_core.chat.tokens',
         'idt_core.chat.tools',
         'idt_core.keys',
+        'idt_core.key_check',   # Configure > API Keys > Test Key
         'idt_core.generation',
         # Shared wx bridge between the engine and the UI thread, used by both
         # this app and the standalone chat client.
