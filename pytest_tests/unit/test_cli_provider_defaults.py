@@ -345,7 +345,8 @@ def test_guideme_finds_a_key_saved_in_configure(monkeypatch, capsys):
     monkeypatch.setattr(keys, "key_source", lambda p: "credential store")
     assert guide._step_api_key("anthropic") is True
     out = capsys.readouterr().out
-    assert "credential store" in out and "0000000000000000" not in out   # masked
+    assert "credential store" in out
+    assert "sk-ant" not in out and "0000" not in out   # no part of the key
 
 
 def test_guideme_with_no_key_points_to_configure(monkeypatch, capsys):

@@ -197,8 +197,10 @@ def _step_api_key(provider: str) -> bool:
     label = "Claude" if provider == "anthropic" else "OpenAI"
     val = resolve_api_key(provider)
     if val:
-        masked = val[:8] + "..." + val[-4:] if len(val) > 12 else "***"
-        print(f"Found your {label} API key ({key_source(provider) or 'found'}): {masked}")
+        # Say where it came from, never any of the key itself (CodeQL
+        # py/clear-text-logging-sensitive-data, #455).
+        source = key_source(provider)
+        print(f"Found your {label} API key" + (f" ({source})." if source else "."))
         return True
 
     print(f"Warning: no {label} API key found.")
