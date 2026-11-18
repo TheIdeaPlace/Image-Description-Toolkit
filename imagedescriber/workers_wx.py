@@ -794,12 +794,14 @@ class ProcessingWorker(threading.Thread):
     def _resize_image_data(self, image_data: bytes, max_size: int) -> bytes:
         """Resize image data if it's too large"""
         try:
-            from PIL import Image
+            from PIL import Image, ImageOps
             import io
-            
-            # Load image
-            image = Image.open(io.BytesIO(image_data))
-            
+
+            # Load image, turned upright: the copy is saved without EXIF, so
+            # a phone photo's orientation tag was lost and every provider got
+            # it on its side (#487 review).
+            image = ImageOps.exif_transpose(Image.open(io.BytesIO(image_data)))
+
             # Calculate new size - iteratively reduce quality
             quality = 85
             while True:

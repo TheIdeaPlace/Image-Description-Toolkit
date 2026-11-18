@@ -1356,9 +1356,15 @@ class ClaudeProvider(AIProvider):
                 '.jpeg': 'image/jpeg',
                 '.png': 'image/png',
                 '.gif': 'image/gif',
-                '.webp': 'image/webp'
+                '.webp': 'image/webp',
+                # Claude takes neither; named truly, fit_image converts them
+                # to JPEG. Labelled image/jpeg, they were sent as they were
+                # and refused (#487 review).
+                '.bmp': 'image/bmp',
+                '.tif': 'image/tiff',
+                '.tiff': 'image/tiff',
             }
-            media_type = media_type_map.get(ext, 'image/jpeg')
+            media_type = media_type_map.get(ext, 'application/octet-stream')
 
             # Read the picture and fit it to Claude's limits, as `idt describe`
             # does: under its byte limit and no side over 8,000 pixels. Sent as

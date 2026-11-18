@@ -457,16 +457,28 @@ MAX_IMAGE_BYTES = 3_700_000
 #: this before the model sees it, so nothing visible is lost.
 FIT_LONG_EDGE = 1568
 
+#: Claude refuses a picture with either side over this many pixels, whatever
+#: its size in bytes ("At least one of the image dimensions exceed max allowed
+#: size: 8000 pixels"). A panorama can be well under the byte limit and still
+#: over it: one failed in Kelly's 4.9.0 test run, 11/18/2026.
+MAX_IMAGE_SIDE = 8000
+
+#: The picture types the API takes. Anything else (a BMP or TIFF that reached
+#: here unconverted) is sent as a JPEG rather than refused.
+ACCEPTED_TYPES = frozenset({"image/jpeg", "image/png", "image/gif", "image/webp"})
+
 
 def fit_image(image_bytes: bytes, mime_type: str) -> Tuple[bytes, str]:
-    """``(bytes, mime)`` small enough to send; unchanged when it already is.
+    """``(bytes, mime)`` Claude will take; unchanged when it already is.
 
-    A 24 or 48 MP phone JPEG, or a large PNG scan, is over the limit and
-    would otherwise fail on every attempt.
+    A 24 or 48 MP phone JPEG, or a large PNG scan, is over the byte limit, a
+    panorama can be over the side limit, and either would otherwise fail on
+    every attempt.
     """
     from idt_core.converter import fit_image as _fit
 
-    return _fit(image_bytes, mime_type, MAX_IMAGE_BYTES, FIT_LONG_EDGE)
+    return _fit(image_bytes, mime_type, MAX_IMAGE_BYTES, FIT_LONG_EDGE,
+                max_side=MAX_IMAGE_SIDE, accepted_types=ACCEPTED_TYPES)
 
 
 def image_block(image_bytes: bytes, mime_type: str) -> dict:

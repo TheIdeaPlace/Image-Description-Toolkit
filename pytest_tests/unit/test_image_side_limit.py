@@ -72,12 +72,62 @@ def test_unreadable_bytes_are_left_alone():
     assert converter.fit_image(junk, "image/jpeg", 10_000, 1568) == (junk, "image/jpeg")
 
 
+def test_a_picture_past_pillows_bomb_guard_is_still_measured(monkeypatch):
+    """Pillow refuses to open anything over about 179 MP, and the size check
+    read that as 0, so a huge panorama went unfitted (#487 review). The guard
+    is lowered here so a small test picture trips it the same way."""
+    from PIL import Image
+
+    from idt_core.providers import claude_code
+
+    pano = _jpeg(12000, 1500)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1000)
+    data, _ = claude_code.fit_image(pano, "image/jpeg")
+    assert Image.MAX_IMAGE_PIXELS == 1000   # fit_image put the guard back
+    monkeypatch.undo()
+    assert _size(data) == (8000, 1000)
+
+
+def test_windows_ai_keeps_its_own_limits():
+    """8,000 pixels is Claude's limit, not every provider's (#487 review)."""
+    from idt_core import converter
+    from idt_core.providers import windows_ai
+
+    wide = _jpeg(9000, 1000)
+    assert len(wide) < windows_ai.MAX_IMAGE_BYTES
+    assert converter.fit_image(wide, "image/jpeg", windows_ai.MAX_IMAGE_BYTES,
+                               windows_ai.FIT_LONG_EDGE) == (wide, "image/jpeg")
+
+
+def test_transparent_areas_go_white_not_black():
+    from idt_core.providers import claude_code
+
+    img = Image.new("RGBA", (9000, 200), (0, 0, 0, 0))   # fully transparent
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    data, mime = claude_code.fit_image(buf.getvalue(), "image/png")
+    assert mime == "image/jpeg"
+    r, g, b = Image.open(io.BytesIO(data)).convert("RGB").getpixel((10, 10))
+    assert min(r, g, b) > 240
+
+
+def test_bmp_and_tiff_are_sent_as_jpeg():
+    """Claude takes neither; within the limits they used to go as they were."""
+    from idt_core.providers import claude_code
+
+    for fmt, mime in (("BMP", "image/bmp"), ("TIFF", "image/tiff")):
+        buf = io.BytesIO()
+        Image.new("RGB", (300, 200), "green").save(buf, format=fmt)
+        data, out_mime = claude_code.fit_image(buf.getvalue(), mime)
+        assert out_mime == "image/jpeg" and _size(data) == (300, 200)
+
+
 def test_imagedescriber_claude_sends_the_fitted_picture(tmp_path, monkeypatch):
     """ImageDescriber's ClaudeProvider read the file and sent it as it was."""
     import ai_providers
 
-    pano = tmp_path / "IMG_1251.JPG"
-    pano.write_bytes(_jpeg(12000, 1500))
+    pano = tmp_path / "IMG_1251.png"   # a PNG: the returned media type must reach the request
+    Image.new("RGB", (12000, 1500), "blue").save(pano, format="PNG")
     sent = {}
 
     class FakeMessages:
@@ -100,6 +150,7 @@ def test_imagedescriber_claude_sends_the_fitted_picture(tmp_path, monkeypatch):
     text = provider.describe_image(str(pano), "Describe.", "claude-haiku-5-5")
     assert "wide view" in text
     image = sent["messages"][0]["content"][0]["source"]
+    assert image["media_type"] == "image/jpeg"
     assert _size(base64.b64decode(image["data"])) == (8000, 1000)
 
 
@@ -107,8 +158,9 @@ def test_claude_chat_attachments_are_fitted(tmp_path):
     from idt_core.chat.encoding import encode_attachment_claude
     from idt_core.chat.messages import Attachment
 
-    pano = tmp_path / "pano.jpg"
-    pano.write_bytes(_jpeg(12000, 1500))
-    block = encode_attachment_claude(Attachment("image/jpeg", path=str(pano)))
+    pano = tmp_path / "pano.png"
+    Image.new("RGB", (12000, 1500), "blue").save(pano, format="PNG")
+    block = encode_attachment_claude(Attachment("image/png", path=str(pano)))
     assert block["type"] == "image"
+    assert block["source"]["media_type"] == "image/jpeg"
     assert max(_size(base64.b64decode(block["source"]["data"]))) == 8000
