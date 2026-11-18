@@ -69,12 +69,51 @@ def _load_shared_config() -> tuple[dict[str, str], str, str]:
 # Editing the shipped file changes the default for anyone who hasn't saved their own.
 BUILT_IN_PROMPTS, DEFAULT_PROMPT_NAME, DEFAULT_OLLAMA_MODEL = _load_shared_config()
 
+
+def _shared_default_provider() -> str:
+    """Configure's default provider (ImageDescriber's key, e.g. "claude"), or
+    "ollama". The command line translates the name (cli.main._cli_provider)."""
+    try:
+        from idt_core.config_loader import load_json_config
+    except ImportError:
+        try:
+            from config_loader import load_json_config          # frozen mode
+        except ImportError:
+            return "ollama"
+    try:
+        config, _path, _src = load_json_config('image_describer_config.json')
+    except Exception:
+        return "ollama"
+    return ((config or {}).get("default_provider") or "ollama").strip() or "ollama"
+
+
+DEFAULT_PROVIDER = _shared_default_provider()
+
 _CONFIG_FILE = Path.home() / ".idt" / "config.json"
+
+#: The defaults ~/.idt/config.json can override. Before 4.9 every save wrote
+#: all three -- ImageDescriber's startup update check saves this file -- so
+#: whatever was the default that day was frozen in, and Configure's later
+#: choices never reached the command line (4.9.0 guru bug bash, S6). Now only
+#: the ones a user set (`idt config --set`) are saved, listed under "user_set".
+_DEFAULT_KEYS = ("default_provider", "default_model", "default_prompt_name")
+
+#: In a file from before 4.9 (no "user_set"), these values were almost
+#: certainly frozen-in defaults rather than choices, so they're ignored and
+#: Configure's settings apply. Anything else there is kept as the user's.
+_FROZEN_OLD_DEFAULTS = {
+    "default_provider": {"ollama"},
+    "default_model": {"minicpm-v4.6", "moondream", "moondream:1.8b",
+                      "llama3.2-vision", "gemma3", "gemma3:latest"},
+    "default_prompt_name": {"narrative", "detailed"},
+}
 
 
 @dataclass
 class UserConfig:
-    default_provider: str = "ollama"
+    # Unless set with `idt config --set`, these are Configure's (the shared
+    # config in the user config dir), so the two tools agree.
+    default_provider: str = DEFAULT_PROVIDER
     default_model: str = DEFAULT_OLLAMA_MODEL
     default_prompt_name: str = DEFAULT_PROMPT_NAME
     custom_prompts: dict[str, str] = field(default_factory=dict)
@@ -96,6 +135,15 @@ class UserConfig:
     # ISO timestamp of the last startup check, used to throttle to once a day so
     # every launch does not hit the GitHub API.
     last_update_check: Optional[str] = None
+    # Which of _DEFAULT_KEYS the user set; only those are saved.
+    user_set: set = field(default_factory=set)
+
+    def set_default(self, key: str, value: str) -> None:
+        """Set one of the default provider/model/prompt as the user's choice."""
+        if key not in _DEFAULT_KEYS:
+            raise KeyError(key)
+        setattr(self, key, value)
+        self.user_set.add(key)
 
     def workspace_root_path(self) -> Path:
         """Resolved workspace root. Defaults to ~/Documents/idt."""
@@ -112,10 +160,20 @@ class UserConfig:
         except Exception:
             return cls()
         obj = cls()
-        for key in ("default_provider", "default_model", "default_prompt_name", "workspace_root",
-                    "skipped_update_version", "last_update_check"):
+        for key in ("workspace_root", "skipped_update_version", "last_update_check"):
             if key in data:
                 setattr(obj, key, data[key])
+        marked = data.get("user_set")
+        for key in _DEFAULT_KEYS:
+            if not data.get(key):
+                continue
+            if marked is not None:
+                chosen = key in marked
+            else:   # a file from before 4.9: skip the frozen-in defaults
+                chosen = data[key] not in _FROZEN_OLD_DEFAULTS[key]
+            if chosen:
+                setattr(obj, key, data[key])
+                obj.user_set.add(key)
         obj.custom_prompts = data.get("custom_prompts", {})
         obj.copy_originals = bool(data.get("copy_originals", False))
         obj.preserve_alt_text = bool(data.get("preserve_alt_text", True))
@@ -124,15 +182,14 @@ class UserConfig:
 
     def save(self) -> None:
         _CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "default_provider": self.default_provider,
-            "default_model": self.default_model,
-            "default_prompt_name": self.default_prompt_name,
+        data = {key: getattr(self, key) for key in _DEFAULT_KEYS if key in self.user_set}
+        data["user_set"] = sorted(k for k in self.user_set if k in _DEFAULT_KEYS)
+        data.update({
             "custom_prompts": self.custom_prompts,
             "copy_originals": self.copy_originals,
             "preserve_alt_text": self.preserve_alt_text,
             "auto_check_updates": self.auto_check_updates,
-        }
+        })
         if self.workspace_root:
             data["workspace_root"] = self.workspace_root
         if self.skipped_update_version:

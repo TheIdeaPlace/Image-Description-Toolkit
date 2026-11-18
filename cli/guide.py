@@ -188,15 +188,23 @@ def _step_api_key(provider: str) -> bool:
         print(f"No API key required for {provider}.")
         return True
 
-    if os.environ.get(env_var):
-        val = os.environ[env_var]
+    # The same lookup `idt describe` uses: the environment, then the key saved
+    # in ImageDescriber's Configure (credential store), then the config and
+    # legacy key files. Checking only the environment told people who'd saved
+    # their key in Configure that it wasn't set (4.9.0 bug bash).
+    from idt_core.keys import key_source, resolve_api_key
+
+    label = "Claude" if provider == "anthropic" else "OpenAI"
+    val = resolve_api_key(provider)
+    if val:
         masked = val[:8] + "..." + val[-4:] if len(val) > 12 else "***"
-        print(f"Found {env_var}: {masked}")
+        print(f"Found your {label} API key ({key_source(provider) or 'found'}): {masked}")
         return True
 
-    print(f"Warning: {env_var} is not set.")
+    print(f"Warning: no {label} API key found.")
     print()
-    print("Set it before running the command:")
+    print("Save one in ImageDescriber (Tools, Configure, API Keys), or set it before "
+          "running the command:")
     if sys.platform.startswith("win"):
         print(f'  $env:{env_var} = "your-key-here"')
     else:
