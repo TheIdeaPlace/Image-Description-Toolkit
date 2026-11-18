@@ -37,7 +37,21 @@ from .workspace import Workspace, WorkspaceItem, WorkspaceDescription
 # a place name is used to ground the description rather than described as if
 # printed on it. Shared by the CLI pipeline and the GUI worker so the two
 # cannot drift.
-META_PREFIX = "Capture metadata (not visible in the image): "
+#
+# "(not visible in the image)" alone made Claude Haiku 5.5 say so in 30% of
+# the descriptions of Kelly's 4.9.0 run ("You've provided the location as
+# Madison, Wisconsin, but nothing in the photo itself confirms it"). Tested
+# on 24 of those photos, 11/18/2026: this wording took it to 0 of 24 and cut
+# output by about 10%; GPT-6 Luna, which never commented, was unchanged.
+META_PREFIX = "Where this photo was taken, from the file's metadata: "
+META_GUIDANCE = ("This comes from the file, not the picture, so the picture needn't show "
+                 "it. Use it where it helps, such as to name the place, and "
+                 "don't comment on it or say whether the picture confirms it.")
+
+
+def metadata_preamble(context: str) -> str:
+    """What goes before the prompt when a picture has capture metadata."""
+    return f"{META_PREFIX}{context}\n{META_GUIDANCE}\n\n"
 
 
 @dataclass
@@ -123,7 +137,7 @@ class Pipeline:
             # Build enriched prompt: context line first, then the actual prompt
             prompt = options.prompt_text
             if meta_context:
-                prompt = f"{META_PREFIX}{meta_context}\n\n{prompt}"
+                prompt = metadata_preamble(meta_context) + prompt
 
             image_bytes, mime_type = load_for_api(item.processable_path)
             result = self.provider.describe(image_bytes, mime_type, prompt)
@@ -165,7 +179,7 @@ def _extract_and_build_prompt(extractor, geocoder, exif_path, prompt_text):
             meta_context = meta.prompt_context()
     prompt = prompt_text
     if meta_context:
-        prompt = f"{META_PREFIX}{meta_context}\n\n{prompt_text}"
+        prompt = metadata_preamble(meta_context) + prompt_text
     return meta, meta_context, prompt
 
 

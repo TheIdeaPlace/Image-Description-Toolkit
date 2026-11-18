@@ -954,11 +954,17 @@ class TestPromptMetadataLabel:
     A bare "Context:" prefix let models treat the line as scene content.
     """
 
-    def test_prefix_states_it_is_not_visible(self):
-        from idt_core.pipeline import META_PREFIX
-        low = META_PREFIX.lower()
-        assert "not visible" in low
+    def test_preamble_says_it_is_metadata_not_scene_content(self):
+        """And that the model shouldn't comment on it: "(not visible in the
+        image)" alone made Haiku 5.5 say so in 30% of a 4,386-photo run."""
+        from idt_core.pipeline import metadata_preamble
+        text = metadata_preamble("Madison, Wisconsin  Sep 12, 2025")
+        low = text.lower()
         assert "metadata" in low
+        assert "not the picture" in low
+        assert "don't comment on it" in low
+        assert "Madison, Wisconsin  Sep 12, 2025" in text
+        assert text.endswith("\n\n")   # the prompt follows after a blank line
 
     def test_gui_and_cli_share_one_prefix(self):
         """Both describe paths build the prompt from the same constant.
@@ -976,6 +982,6 @@ class TestPromptMetadataLabel:
         # Neither may hand-roll the old bare label
         assert 'f"Context: {' not in gui
         assert 'f"Context: {' not in pipe
-        # Both build the prompt from META_PREFIX
-        assert "META_PREFIX" in gui
-        assert pipe.count("META_PREFIX") >= 3   # definition + both call sites
+        # Both build the prompt from metadata_preamble
+        assert "metadata_preamble(ctx)" in gui
+        assert pipe.count("metadata_preamble(") >= 3   # definition + both call sites

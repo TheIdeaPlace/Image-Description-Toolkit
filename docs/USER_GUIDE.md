@@ -949,7 +949,8 @@ By default, `idt describe` reads EXIF metadata from each image: capture date and
 **What the AI is told.** Only the place, and only with `--geocode`. Then the prompt starts with a line like this:
 
 ```
-Capture metadata (not visible in the image): Munich, Germany
+Where this photo was taken, from the file's metadata: Munich, Germany
+This comes from the file, not the picture, so the picture needn't show it. Use it where it helps, such as to name the place, and don't comment on it or say whether the picture confirms it.
 
 [your prompt text]
 ```
@@ -1765,7 +1766,8 @@ When `--geocode` is used (CLI) or **Enable Geocoding** is checked (GUI), IDT rev
 The place name, and only the place name, is added to the start of the prompt:
 
 ```
-Capture metadata (not visible in the image): Paris, France
+Where this photo was taken, from the file's metadata: Paris, France
+This comes from the file, not the picture, so the picture needn't show it. Use it where it helps, such as to name the place, and don't comment on it or say whether the picture confirms it.
 ```
 
 The date and camera are not sent to the AI. See [Metadata and Geocoding](#metadata-and-geocoding).
