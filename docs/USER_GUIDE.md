@@ -313,11 +313,11 @@ Leave these out and IDT uses sensible defaults for the provider and model you pi
 
 | Option | Default | Description |
 |---|---|---|
-| `--limit N` | Unlimited | Stop after describing N images (useful for testing) |
+| `--limit N` | Unlimited | Stop after describing N images (useful for testing). N must be 1 or more; leave it out for no limit |
 | `--redescribe` | Off | Re-describe already-described images (adds new description, keeps old ones) |
 | `--workspace PATH` | Auto-created | Path or name for the workspace bundle |
 | `--no-video` | Off | Skip automatic video frame extraction |
-| `--video-interval SECONDS` | 5.0 | Seconds between extracted video frames |
+| `--video-interval SECONDS` | 5.0 | Seconds between extracted video frames, 0.5 to 60 |
 | `--show-descriptions` | Off | Print each description to the terminal as it's generated |
 | `--quiet, -q` | Off | Minimal output; in stdin mode, prints `filename TAB description` |
 
@@ -352,6 +352,20 @@ idt describe ~/Photos/Trip --embed
 # Suppress HTML export (faster for scripting)
 idt describe ~/Photos/Trip --no-export --quiet
 ```
+
+**Exit codes**
+
+A script can tell from the exit code how the run went:
+
+| Code | Meaning |
+|---|---|
+| `0` | Every picture tried was described, or there was nothing to describe |
+| `1` | Nothing was described and at least one picture failed, or the run couldn't start (a missing API key, the provider not reachable) |
+| `2` | Some pictures were described and some failed |
+
+An option IDT can't accept, such as `--limit 0`, is refused with a message before anything runs, and also exits with code 2.
+
+Pictures left out on purpose, such as ones a provider declined before or originals no longer on disk, count as neither. In stdin mode, a path that doesn't exist counts as a failure. `idt download --describe`, `idt video` and `idt watch` use the same codes; see [Piping and Scripting with idt](#piping-and-scripting-with-idt).
 
 ---
 
@@ -433,8 +447,8 @@ idt video <source> [options]
 
 | Option | Default | Description |
 |---|---|---|
-| `--interval SECONDS` | 5.0 | Extract one frame every N seconds (good for continuous footage) |
-| `--scene THRESHOLD` | — | Scene-change detection (0–100; lower = more sensitive; good for events) |
+| `--interval SECONDS` | 5.0 | Extract one frame every N seconds, 0.5 to 60 (good for continuous footage) |
+| `--scene THRESHOLD` | — | Scene-change detection (1–100; lower = more sensitive; good for events) |
 | `--max-frames N` | Unlimited | Maximum frames to extract per video |
 
 **Description Options**
@@ -624,7 +638,7 @@ idt watch <directory> [options]
 
 | Option | Default | Description |
 |---|---|---|
-| `--interval SECONDS` | 30 | Polling interval |
+| `--interval SECONDS` | 30 | Polling interval, 1 or more |
 | `--provider`, `--model`, `--prompt` | — | AI options |
 | `--quiet, -q` | Off | Tab-separated output for piping |
 
@@ -1770,6 +1784,26 @@ get_images.sh | idt describe - --provider anthropic --quiet
 ```
 
 In `--quiet` mode, stdin mode outputs `filename\tdescription` (tab-separated), making it easy to pipe into `awk`, `cut`, or a database import script.
+
+**Exit codes.** The describing commands (`idt describe`, including stdin mode, `idt download --describe`, `idt video` and `idt watch`) end with:
+
+| Code | Meaning |
+|---|---|
+| `0` | Every picture tried was described, or there was nothing to describe |
+| `1` | Nothing was described and at least one picture failed, or the run couldn't start |
+| `2` | Some pictures were described and some failed |
+
+A wrong option, such as `--limit 0`, exits with code 2 before anything runs, with a message saying what's wrong. For `idt video`, a video whose frames can't be extracted counts as a failure; without `--describe`, the codes count videos extracted rather than pictures described. For `idt watch`, they cover everything since it started, when you stop it with Ctrl+C.
+
+```bash
+# Stop a script when a run described nothing
+idt describe ~/Photos/Trip --quiet --no-export
+case $? in
+  0) echo "All described" ;;
+  2) echo "Some failed; run again to retry them" ;;
+  *) echo "Nothing described"; exit 1 ;;
+esac
+```
 
 ```bash
 # Extract only descriptions into a text file

@@ -332,6 +332,41 @@ def _non_negative_float(value: str) -> float:
     return number
 
 
+def _float_in_range(low: float, high: float):
+    """An argparse type: a number from low to high. The ranges are ImageDescriber's
+    (idt_core.video), so the two tools take the same values; outside them video
+    extraction quietly took every frame."""
+    def _check(value: str) -> float:
+        try:
+            number = float(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"expected a number, got {value!r}")
+        if not (low <= number <= high):   # also refuses nan
+            raise argparse.ArgumentTypeError(
+                f"must be from {low:g} to {high:g}, got {number:g}")
+        return number
+    return _check
+
+
+class _KeepLinesFormatter(argparse.HelpFormatter):
+    """Wraps a one-line description as usual, but prints text that has its own
+    line breaks (the exit codes epilog) as written."""
+    def _fill_text(self, text, width, indent):
+        if "\n" in text:
+            return "".join(indent + line for line in text.splitlines(keepends=True))
+        return super()._fill_text(text, width, indent)
+
+
+def _video_interval(value: str) -> float:
+    from idt_core.video import VIDEO_INTERVAL_RANGE
+    return _float_in_range(*VIDEO_INTERVAL_RANGE)(value)
+
+
+def _scene_threshold(value: str) -> float:
+    from idt_core.video import SCENE_THRESHOLD_RANGE
+    return _float_in_range(*SCENE_THRESHOLD_RANGE)(value)
+
+
 def _generation_options(args, provider_name: str):
     """Saved settings for the provider, with this command's flags on top."""
     from idt_core.generation import GenerationOptions, user_options
@@ -546,15 +581,44 @@ def _launch_gui_describe(source: Path, args) -> None:
     sys.exit(result.returncode)
 
 
+#: Exit codes of the describing commands (describe, download --describe,
+#: video --describe, watch). A script can tell a clean run from a partial one.
+EXIT_OK = 0        # everything tried was described, or there was nothing to do
+EXIT_FAILED = 1    # nothing was described and at least one picture failed
+EXIT_PARTIAL = 2   # some pictures were described and some failed
+
+#: The --help text for those codes, shared so the commands can't drift apart.
+EXIT_CODES_HELP = (
+    "exit codes:\n"
+    "  0  every picture tried was described, or there was nothing to describe\n"
+    "  1  nothing was described and at least one picture failed (or the run\n"
+    "     couldn't start: no API key, provider not reachable)\n"
+    "  2  some pictures were described and some failed\n"
+    "An option out of range (--limit 0) is refused with a message and code 2\n"
+    "before anything runs."
+)
+
+
+def _describe_exit_code(described: int, failed: int) -> int:
+    """The exit code for a describing run: 0, 1 or 2 (see EXIT_CODES_HELP).
+    Pictures skipped on purpose (declined before, missing originals in a
+    folder run) are neither."""
+    if failed <= 0:
+        return EXIT_OK
+    return EXIT_PARTIAL if described > 0 else EXIT_FAILED
+
+
 def cmd_describe(args):
+    """Describe a folder, workspace or stdin list. Returns the exit code
+    (_describe_exit_code); main() exits with it. Called from guideme too,
+    which carries on afterwards, hence a return rather than sys.exit."""
     from idt_core.pipeline import WorkspacePipeline, RunOptions
     from idt_core.progress import Progress
     from idt_core.config import UserConfig
 
     stdin_mode = getattr(args, "stdin", False) or args.source == "-"
     if stdin_mode:
-        _cmd_describe_stdin(args)
-        return
+        return _cmd_describe_stdin(args)
 
     source = Path(args.source).resolve()
 
@@ -700,7 +764,7 @@ def cmd_describe(args):
             else:
                 print(f"All {n} image{'s are' if n != 1 else ' is'} already described.")
             print("Use --redescribe to generate additional descriptions.")
-        return
+        return EXIT_OK
 
     progress = Progress(total=len(queue), quiet=args.quiet)
     progress.start(f"{provider_name} / {model}")
@@ -756,6 +820,8 @@ def cmd_describe(args):
     # Auto-export HTML report (default on; opt out with --no-export)
     if not getattr(args, "no_export", False) and described > 0:
         _auto_export_workspace(ws, args.quiet)
+
+    return _describe_exit_code(described, errors)
 
 
 def _ask_again_hint(provider_name: str) -> str:
@@ -1020,8 +1086,9 @@ def _extract_videos_into_workspace(ws, source: Path, args) -> None:
             cv_missing = True
             break
         except Exception as exc:
-            if not args.quiet:
-                print(f"  {video.name}: skipped ({exc})")
+            # To stderr even with --quiet: a video whose frames can't be
+            # written (a full disk, say) mustn't vanish from the run unnoticed.
+            print(f"  {video.name}: skipped ({exc})", file=sys.stderr)
     if cv_missing and not args.quiet:
         print("  Skipping video extraction: opencv-python not installed")
         print("  Install with: pip install opencv-python")
@@ -1075,7 +1142,7 @@ def _cmd_describe_stdin(args):
         print(f"Warning: not found: {p}", file=sys.stderr)
     paths = [p for p in paths if p.exists()]
     if not paths:
-        sys.exit(1)
+        sys.exit(EXIT_FAILED)
 
     source = Path(getattr(args, "project", None) or "").resolve() if getattr(args, "project", None) else _common_ancestor(paths)
     ws = _open_or_create_workspace(source, getattr(args, "workspace", None))
@@ -1146,6 +1213,11 @@ def _cmd_describe_stdin(args):
         ws.defaults.model = model
         ws.has_any_descriptions = True
         ws.save_manifest()
+
+    # A path piped in that doesn't exist was asked for and not described, so it
+    # counts as a failure (unlike a folder run's missing originals, which the
+    # user never named).
+    return _describe_exit_code(described, errors + len(missing))
 
 
 def _common_ancestor(paths: list[Path]) -> Path:
@@ -1299,9 +1371,8 @@ def cmd_download(args):
             print()
             _do_embed_workspace(ws, force=False, dry_run=False, quiet=args.quiet)
 
-        if described > 0 and args.embed:
-            print()
-            _do_embed(dl_project, force=False, dry_run=False, quiet=args.quiet)
+        return _describe_exit_code(described, errors)
+    return EXIT_OK
 
 
 # ------------------------------------------------------------------ #
@@ -1357,12 +1428,14 @@ def cmd_video(args):
         print()
 
     all_frame_items = []
+    videos_ok = videos_failed = 0
     for video in videos:
         if not args.quiet:
             print(f"  Extracting frames: {video.name}")
         try:
             frame_items = _extract_one_video_into_workspace(ws, video, opts, source)
             all_frame_items.extend(frame_items)
+            videos_ok += 1
             if not args.quiet:
                 where = (Path(frame_items[0].source_path).parent if frame_items
                          else ws.derived_dir("frames"))
@@ -1373,6 +1446,7 @@ def cmd_video(args):
             print("Install with: pip install opencv-python", file=sys.stderr)
             sys.exit(1)
         except Exception as e:
+            videos_failed += 1
             print(f"  Error processing {video.name}: {e}", file=sys.stderr)
 
     total_frames = len(all_frame_items)
@@ -1431,6 +1505,13 @@ def cmd_video(args):
             ws.defaults.model = model
             ws.has_any_descriptions = True
             ws.save_manifest()
+
+        # A video whose frames couldn't be extracted is a failure too.
+        return _describe_exit_code(described, errors + videos_failed)
+    if args.describe:
+        # Nothing to describe: fails only if a video couldn't be read.
+        return _describe_exit_code(0, videos_failed)
+    return _describe_exit_code(videos_ok, videos_failed)
 
 
 # ------------------------------------------------------------------ #
@@ -1587,18 +1668,51 @@ def _show_file(target: Path, args):
             break
         candidate = candidate.parent
 
-    # Last resort: the workspace may be at a mirrored location (e.g. ~/Documents/idt/).
-    # _find_workspace walks workspace directories that reference the same source.
-    ws = _find_workspace(str(target.parent))
-    if ws is not None:
-        for item in ws.items():
-            if item.source_path == target_str or item.image == target.name:
-                _print_item(item, args)
-                return
+    # Last resort: the workspace is at a mirrored location under the workspace root
+    # (~/Documents/idt/<folder>.idtw), named after the folder that was described,
+    # which may be any ancestor of the picture: describing Photos takes in
+    # Photos/nested/outdoor.png. Try each ancestor's workspace, and match on the
+    # picture's original path only. A workspace is named after a folder's leaf
+    # name alone, so the one found for "nested" may be another folder's entirely;
+    # matching on file name too printed a different picture's description.
+    item = _find_in_mirrored_workspaces(target, getattr(args, "target", None))
+    if item is not None:
+        _print_item(item, args)
+        return
 
     if not args.quiet:
         print(f"No description found for: {target.name}", file=sys.stderr)
     sys.exit(1)
+
+
+def _find_in_mirrored_workspaces(target: Path, typed: Optional[str] = None):
+    """The workspace item whose original is ``target``, from the workspace of
+    ``target``'s folder or of any folder above it; None if there's none.
+
+    ``typed`` is the path as the user gave it: a workspace records originals by
+    absolute path without resolving links, so a mapped drive (resolved to its
+    UNC path) still matches the way it was described."""
+    import os
+
+    def _key(p) -> str:
+        return os.path.normcase(os.path.abspath(str(p)))
+
+    keys = {_key(target)}
+    if typed:
+        keys.add(_key(Path(typed).expanduser()))
+
+    seen = set()
+    folder = target.parent
+    while True:
+        ws = _find_workspace(str(folder))
+        if ws is not None and _key(ws.path) not in seen:
+            seen.add(_key(ws.path))
+            for item in ws.items():
+                if item.source_path and _key(item.source_path) in keys:
+                    return item
+        if folder == folder.parent:
+            return None
+        folder = folder.parent
 
 
 def _show_directory(target: Path, args):
@@ -2416,6 +2530,9 @@ def cmd_watch(args):
         geocode=getattr(args, "geocode", False),
     )
 
+    # Every picture described or failed since the watch started, for the exit code.
+    totals = {"described": 0, "failed": 0}
+
     def _describe(new_items) -> None:
         pipeline = WorkspacePipeline(ws, provider)
         for event in pipeline.run_items(new_items, options):
@@ -2423,6 +2540,7 @@ def cmd_watch(args):
                 if not args.quiet:
                     print(f"Skipped: {event.item.display_name} ({event.error})")
             elif event.success:
+                totals["described"] += 1
                 desc = event.item.active_description
                 if not args.quiet:
                     print(f"Described: {event.item.display_name}")
@@ -2432,6 +2550,7 @@ def cmd_watch(args):
                 elif desc:
                     print(f"{event.item.source_path}\t{desc.text}")
             else:
+                totals["failed"] += 1
                 print(f"Error: {event.item.display_name}: {event.error}", file=sys.stderr)
         _report_halt(pipeline, ws, redescribe=False, watching=True)
         if any(i.described for i in new_items):
@@ -2476,6 +2595,8 @@ def cmd_watch(args):
     except KeyboardInterrupt:
         if not args.quiet:
             print("\nWatcher stopped.")
+    # Stopping with Ctrl+C is how a watch ends, so the code reports what it did.
+    return _describe_exit_code(totals["described"], totals["failed"])
 
 
 # ------------------------------------------------------------------ #
@@ -2924,6 +3045,8 @@ Supported providers:
             "(~/Documents/idt — see 'idt config'); use --workspace to choose a "
             "different name or location."
         ),
+        epilog=EXIT_CODES_HELP,
+        formatter_class=_KeepLinesFormatter,
     )
     p_desc.add_argument(
         "source",
@@ -2942,8 +3065,8 @@ Supported providers:
     _metadata_args(p_desc)
     p_desc.add_argument("--redescribe", action="store_true",
                         help="Generate a new description even for already-described images")
-    p_desc.add_argument("--limit", type=int, metavar="N",
-                        help="Stop after describing N images")
+    p_desc.add_argument("--limit", type=_positive_int, metavar="N",
+                        help="Stop after describing N images (1 or more)")
     p_desc.add_argument("--embed", action="store_true",
                         help="Automatically embed descriptions into image copies after describing")
     p_desc.add_argument("--copy-originals", dest="copy_originals", action="store_true", default=None,
@@ -2953,8 +3076,8 @@ Supported providers:
                         help="Reference originals in place instead of copying them into the workspace.")
     p_desc.add_argument("--no-video", action="store_true",
                         help="Skip automatic video frame extraction (videos are included by default)")
-    p_desc.add_argument("--video-interval", type=float, default=5.0, metavar="SECONDS",
-                        help="Seconds between extracted video frames (default: 5.0)")
+    p_desc.add_argument("--video-interval", type=_video_interval, default=5.0, metavar="SECONDS",
+                        help="Seconds between extracted video frames, 0.5 to 60 (default: 5.0)")
     p_desc.add_argument("--no-export", action="store_true",
                         help="Skip automatic HTML report generation after describing")
     p_desc.add_argument("--showgui", action="store_true",
@@ -2978,6 +3101,8 @@ Supported providers:
             "--help' for the workspace model). Captures HTML alt text alongside each "
             "image. Use --describe to describe downloaded images immediately."
         ),
+        epilog=EXIT_CODES_HELP.replace("exit codes:", "exit codes, with --describe:"),
+        formatter_class=_KeepLinesFormatter,
     )
     p_dl.add_argument("url", help="URL to download images from")
     p_dl.add_argument("directory", nargs="?",
@@ -3021,18 +3146,22 @@ Supported providers:
             "Supports interval mode (one frame every N seconds) and scene-change "
             "detection. Use --describe to describe the extracted frames."
         ),
+        epilog=(EXIT_CODES_HELP + "\n"
+                "A video whose frames can't be extracted counts as a failure. Without\n"
+                "--describe, the codes count videos extracted instead of pictures."),
+        formatter_class=_KeepLinesFormatter,
     )
     p_vid.add_argument("source", help="Video file or directory containing video files")
     p_vid.add_argument("--workspace", "-w", metavar="NAME|PATH",
                        help="Workspace to extract into (bare name → under the workspace "
                             "root; path/.idtw → that location). Default: mirrored from the source.")
     p_vid.add_argument(
-        "--interval", type=float, default=5.0, metavar="SECONDS",
-        help="Extract one frame every N seconds (default: 5.0)",
+        "--interval", type=_video_interval, default=5.0, metavar="SECONDS",
+        help="Extract one frame every N seconds, 0.5 to 60 (default: 5.0)",
     )
     p_vid.add_argument(
-        "--scene", type=float, default=0.0, metavar="THRESHOLD",
-        help="Scene-change extraction; threshold 0-100, lower=more sensitive (e.g. --scene 30). "
+        "--scene", type=_scene_threshold, default=0.0, metavar="THRESHOLD",
+        help="Scene-change extraction; threshold 1 to 100, lower=more sensitive (e.g. --scene 30). "
              "Mutually exclusive with --interval.",
     )
     p_vid.add_argument("--max-frames", type=int, metavar="N",
@@ -3179,8 +3308,8 @@ Supported providers:
                         help="List saved conversations and exit")
     p_chat.add_argument("--no-save", action="store_true",
                         help="Do not write the conversation to disk")
-    p_chat.add_argument("--max-tokens", type=int, metavar="N",
-                        help="Cap the reply length")
+    p_chat.add_argument("--max-tokens", type=_positive_int, metavar="N",
+                        help="Cap the reply length, in tokens")
     p_chat.add_argument("--temperature", type=float, metavar="F",
                         help="Sampling temperature (not supported by Claude)")
     p_chat.add_argument("--web-search", action="store_true",
@@ -3209,12 +3338,15 @@ Supported providers:
             "Describes undescribed images, then polls for new arrivals. "
             "Press Ctrl+C to stop."
         ),
+        epilog=(EXIT_CODES_HELP + "\n"
+                "Counted over the whole watch, when you stop it with Ctrl+C."),
+        formatter_class=_KeepLinesFormatter,
     )
     p_watch.add_argument("source", help="Directory to watch")
     p_watch.add_argument("--workspace", "-w", metavar="NAME|PATH",
                          help="Workspace to describe into (bare name → under the workspace "
                               "root; path/.idtw → that location). Default: mirrored from the source.")
-    p_watch.add_argument("--interval", type=int, default=30, metavar="SECONDS",
+    p_watch.add_argument("--interval", type=_positive_int, default=30, metavar="SECONDS",
                          help="Polling interval in seconds (default: 30)")
     _provider_args(p_watch)
     _prompt_args(p_watch)
@@ -3340,13 +3472,17 @@ def main():
     if cmd and cmd in _cmd_titles:
         _set_console_title(_cmd_titles[cmd])
     try:
-        args.func(args)
+        # The describing commands return their exit code (_describe_exit_code);
+        # the rest return None, which is 0.
+        rc = args.func(args)
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
         sys.exit(130)
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
+    if isinstance(rc, int) and not isinstance(rc, bool) and rc:
+        sys.exit(rc)
 
 
 if __name__ == "__main__":

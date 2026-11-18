@@ -117,6 +117,8 @@ from idt_core.pipeline import (  # noqa: E402
 )
 from idt_core.providers.registry import display_name as _display_provider  # noqa: E402
 from idt_core.providers.catalog import model_display_name as _display_model  # noqa: E402
+# Writes video frames; cv2.imwrite fails silently on non-ASCII paths on Windows.
+from idt_core.video import write_frame  # noqa: E402
 
 
 _TIMESTAMP_TAIL = re.compile(r"\s*-\s*\(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(,\d+)?\)\s*$")
@@ -1815,7 +1817,7 @@ class VideoProcessingWorker(threading.Thread):
             # Save frame with timestamp in filename (matches CLI: video_0.00s.jpg)
             frame_filename = f"{video_stem}_{timestamp:.2f}s.jpg"
             frame_path = output_dir / frame_filename
-            cv2.imwrite(str(frame_path), frame)
+            write_frame(frame_path, frame)
 
             # Embed video GPS/date into frame EXIF if metadata is available
             if video_source_metadata and ExifEmbedder is not None:
@@ -1897,7 +1899,7 @@ class VideoProcessingWorker(threading.Thread):
                 # Save frame with scene number and timestamp
                 frame_filename = f"{video_stem}_scene_{i+1:04d}_{frame_info.timestamp:.2f}s.jpg"
                 frame_path = output_dir / frame_filename
-                cv2.imwrite(str(frame_path), frame)
+                write_frame(frame_path, frame)
                 
                 # Embed metadata
                 if video_source_metadata and ExifEmbedder is not None:
@@ -1971,7 +1973,7 @@ class VideoProcessingWorker(threading.Thread):
                     timestamp = frame_num / fps if fps > 0 else 0.0
                     frame_filename = f"{video_stem}_scene_{extract_count:04d}_{timestamp:.2f}s.jpg"
                     frame_path = output_dir / frame_filename
-                    cv2.imwrite(str(frame_path), frame)
+                    write_frame(frame_path, frame)
                     
                     if video_source_metadata and ExifEmbedder is not None:
                         try:

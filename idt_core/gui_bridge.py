@@ -71,6 +71,57 @@ def gui_token_counts(d: dict) -> tuple:
     return input_tokens, output_tokens
 
 
+def _named_prompt_text(name: str) -> Optional[str]:
+    """The text of the prompt style called ``name`` (the shipped and saved
+    styles, then the command line's own custom prompts), or None if there's
+    no such style. Matched case-insensitively when there's no exact match,
+    as Configure once offered "Simple" for "simple"."""
+    from idt_core.config import BUILT_IN_PROMPTS, UserConfig
+
+    def _lookup(prompts: dict) -> Optional[str]:
+        if name in prompts:
+            return prompts[name]
+        lowered = name.lower()
+        for key, text in prompts.items():
+            if key.lower() == lowered:
+                return text
+        return None
+
+    text = _lookup(BUILT_IN_PROMPTS)
+    if text is None:
+        try:
+            text = _lookup(UserConfig.load().custom_prompts or {})
+        except Exception:   # an unreadable ~/.idt/config.json only means "unknown"
+            text = None
+    return text
+
+
+def is_custom_prompt(prompt_name: str, prompt_text: str) -> bool:
+    """Whether a description was made with a prompt the user wrote, rather than a
+    named prompt style.
+
+    The command line stores the text it sent on every description, named style
+    or not, and the bridge hands that to ImageDescriber as ``custom_prompt``, so
+    "custom whenever there's text" called every CLI description custom. It's
+    custom when there's text and the name is "custom" or empty, or the text isn't
+    the named style's (including a name IDT doesn't know, whose text it can't
+    check)."""
+    text = (prompt_text or "").strip()
+    if not text:
+        return False
+    name = (prompt_name or "").strip()
+    if not name or name.lower() == "custom":
+        return True
+    named = _named_prompt_text(name)
+    return named is None or named.strip() != text
+
+
+def prompt_label(prompt_name: str, prompt_text: str) -> str:
+    """What ImageDescriber shows after "Prompt:": "custom" for a prompt the user
+    wrote (is_custom_prompt), else the style's name."""
+    return "custom" if is_custom_prompt(prompt_name, prompt_text) else (prompt_name or "")
+
+
 def _gui_desc_to_ws(d: dict) -> WorkspaceDescription:
     metadata = d.get("metadata") or {}
     input_tokens, output_tokens = gui_token_counts(d)
