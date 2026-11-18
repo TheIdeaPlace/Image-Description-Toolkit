@@ -124,9 +124,9 @@ class BaseProvider:
 `list_models()` is **not** part of this ABC, despite what this guide used to say. Only `OllamaProvider` has it (plus `list_chat_models()`), because only Ollama needs an instance — a host — to answer the question. For Claude and OpenAI, listing is a module-level function and the answer is assembled by the catalog; see below.
 
 **Implementations:**
-- `ollama.py` — connects to `http://localhost:11434`
-- `openai_provider.py` — reads `OPENAI_API_KEY` from environment
-- `claude.py` — reads `ANTHROPIC_API_KEY`
+- `ollama.py` — connects to `http://127.0.0.1:11434` by default
+- `openai_provider.py` — gets its key from `idt_core/keys.py` (environment, credential store, config file, legacy key file)
+- `claude.py` — gets its key from `idt_core/keys.py`, the same way
 
 **`ChatProvider`** — a second ABC in the same module, for multi-turn streaming:
 
@@ -321,19 +321,24 @@ MyProject.idtw/
 
 ### Main Commands
 
-- **`idt guideme`** — Interactive setup wizard (recommends models, API keys, workspace location)
-- **`idt describe <directory> [--model X] [--prompt Y] [--provider Z]`** — Batch describe images in a workspace
-- **`idt download <url> <workspace>`** — Download image(s) from URL into workspace
-- **`idt status <workspace>`** — Show stats (total images, described count, undescribed)
-- **`idt show <workspace|image>`** — Display workspace or individual image in viewer
-- **`idt embed <workspace> [--deduplicate]`** — Embed descriptions into image EXIF metadata
-- **`idt export <workspace> [--format html] [--output /path]`** — Export to HTML gallery
-- **`idt watch <directory>`** — Monitor directory for new images and auto-describe
-- **`idt combine <directory> [--output report.html]`** — Merge descriptions from multiple workflow runs
-- **`idt video <directory> [--fps N] [--format jpg]`** — Extract frames from video files
-- **`idt models [--provider NAME]`** — List available models (local Ollama or cloud API)
+- **`idt guideme`** — Interactive setup wizard; takes no options
+- **`idt describe <directory|bundle.idtw|-> [--provider Z] [--model X] [--prompt Y]`** — Describe images into a `.idtw` workspace; `-` reads paths from stdin
+- **`idt download <url> [workspace] [--describe] [--embed]`** — Download a page's images into a workspace
+- **`idt video <file|directory> [--interval S | --scene T] [--describe]`** — Extract video frames into a workspace
+- **`idt status <directory> [--all] [--json]`** — Described and undescribed counts
+- **`idt show <directory|image> [--json]`** — Print descriptions to stdout
+- **`idt embed <directory> [--force] [--dry-run]`** — Write descriptions into image copies in `<bundle>.idtw/embedded/`
+- **`idt export <directory> [--format html|csv|txt]`** — Write a report to `<bundle>.idtw/reports/`
+- **`idt combine <directory> [--output FILE] [--format csv|tsv] [--sort ...]`** — Merge every workspace under a folder into one CSV or TSV
+- **`idt watch <directory> [--interval S]`** — Describe new images as they arrive
+- **`idt stats <directory> [--all] [--json]`** — Token counts and estimated cost
+- **`idt chat`** — Terminal chat through the shared chat engine
+- **`idt models [--provider NAME]`** — List available models for each provider
 - **`idt prompts`** — List all available prompts
-- **`idt config [--set key=value]`** — View or modify user configuration
+- **`idt config [--set key=value]`** — View or change `~/.idt/config.json`
+- **`idt version`**, **`idt update`** — Print the version; check GitHub for a newer release
+
+Run `idt <command> --help` for every option. The user guide's Part 2 is the full reference.
 
 Implementation: `cli/main.py` (command dispatcher), `cli/guide.py` (wizard)
 
@@ -371,7 +376,7 @@ Model lists live in the provider modules under `idt_core/providers/`:
 
 ### PyInstaller Spec Files
 
-- `idt/idt.spec` — CLI executable (13 commands powered by `cli/main.py` + `idt_core`)
+- `idt/idt.spec` — CLI executable (17 commands powered by `cli/main.py` + `idt_core`)
 - `imagedescriber/imagedescriber_wx.spec` — GUI executable
 
 Both specs:
@@ -398,9 +403,9 @@ cd imagedescriber && ./build_imagedescriber_wx.sh
 ### Smoke Test
 
 ```bash
-dist/idt/idt.exe version                          # Windows
+dist/idt/idt.exe version                          # Windows: version, Python, exe path
 ./dist/idt version                            # macOS
-dist/idt/idt.exe --debug-paths                    # Show import resolution
+dist/idt/idt.exe prompts                          # reads the shipped config; lists the prompt styles
 ```
 
 ### Post-Build Validation

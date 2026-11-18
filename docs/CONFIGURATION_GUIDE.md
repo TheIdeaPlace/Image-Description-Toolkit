@@ -1,920 +1,257 @@
-# Configuring and Controlling IDT Through Config Files
+# Configuring IDT
 
-**Version:** 3.5.0  
-**Last Updated:** November 1, 2025
+**Version:** 4.9.0
+**Last Updated:** 11/18/2026
 
-This guide explains how to configure and customize the Image Description Toolkit (IDT) using configuration files with the frozen/built version (`idt.exe`). It covers all three configuration file types, their settings, and how to use custom configurations across all IDT tools.
+This guide explains where Image Description Toolkit (IDT) keeps its settings, how to change them, and how to give it API keys. It covers the `idt` command line, ImageDescriber and IDT Chat.
+
+Most people never need to open a settings file. ImageDescriber's **Tools → Configure Settings** dialog (on a Mac, **Preferences**) changes everything described here, and `idt config` changes the command line's few settings of its own.
 
 ---
 
-## Table of Contents
+## Contents
 
-1. [Overview](#overview)
-2. [The Three Configuration Files](#the-three-configuration-files)
-3. [Configuration File Locations](#configuration-file-locations)
-4. [Configuration Priority Order](#configuration-priority-order)
-5. [workflow_config.json](#workflow_configjson)
-6. [image_describer_config.json](#image_describer_configjson)
-7. [video_frame_extractor_config.json](#video_frame_extractor_configjson)
-8. [Using Custom Config Files](#using-custom-config-files)
-9. [Common Configuration Scenarios](#common-configuration-scenarios)
+1. [The short version](#the-short-version)
+2. [Where settings are kept](#where-settings-are-kept)
+3. [How IDT chooses which file to read](#how-idt-chooses-which-file-to-read)
+4. [The Configure dialog](#the-configure-dialog)
+5. [The command line's own settings](#the-command-lines-own-settings)
+6. [API keys](#api-keys)
+7. [Export and Import Configuration](#export-and-import-configuration)
+8. [Editing the files by hand](#editing-the-files-by-hand)
+9. [Environment variables](#environment-variables)
 10. [Troubleshooting](#troubleshooting)
 
 ---
 
-## Overview
+## The short version
 
-IDT uses three JSON configuration files to control its behavior:
-
-1. **`workflow_config.json`** - Controls workflow-level settings (steps, output, metadata)
-2. **`image_describer_config.json`** - Controls AI model settings, prompts, and image description behavior
-3. **`video_frame_extractor_config.json`** - Controls video frame extraction settings
-
-These files allow you to:
-- Set default AI models and providers
-- Customize prompts and description styles
-- Configure video frame extraction parameters
-- Control metadata extraction and geocoding
-- Define output formats and locations
-- Create reusable configuration profiles for different projects
+- Your settings are saved in your own settings folder:
+  - Windows: `%APPDATA%\IDT` (for example `C:\Users\you\AppData\Roaming\IDT`)
+  - macOS: `~/Library/Application Support/IDT`
+  - Linux: `~/.config/IDT`
+- The defaults that ship with IDT sit beside the programs, and are only used for anything you haven't changed. On Windows the installer puts them in `C:\idt\scripts`. Don't edit those: every upgrade replaces them.
+- Configure, the Prompt Editor and Import Configuration all save to your settings folder. What you save there is what ImageDescriber and the command line use.
+- API keys saved in Configure go to Windows Credential Manager or the macOS Keychain, not into a file.
+- The command line follows Configure's default provider, model and prompt style. It also has a small settings file of its own, `~/.idt/config.json`, which holds only the defaults you set with `idt config --set` (those win for the command line), plus the workspace folder and a few other values. `idt config` shows and changes it.
 
 ---
 
-## The Three Configuration Files
+## Where settings are kept
 
-### Quick Reference
+### Your settings folder
 
-| Config File | Purpose | Used By |
-|-------------|---------|---------|
-| `workflow_config.json` | Workflow orchestration, output settings | `idt workflow` command |
-| `image_describer_config.json` | AI models, prompts, image processing | `idt describe`, ImageDescriber GUI, workflow describe step |
-| `video_frame_extractor_config.json` | Video frame extraction settings | `idt extract-frames`, workflow extract step |
+IDT saves your settings in three JSON files in your settings folder:
 
----
+- **`image_describer_config.json`** holds most settings: the default provider, model and prompt style for ImageDescriber, the prompt styles themselves, the Generation settings, and the Processing, Metadata and Output Format settings. Both ImageDescriber and the command line read it.
+- **`video_frame_extractor_config.json`** holds ImageDescriber's video frame extraction defaults: interval or scene mode, the interval, the scene threshold and the frame limit. The command line doesn't read it; `idt video` and `idt describe` take `--interval`, `--scene` and `--video-interval` instead.
+- **`workflow_config.json`** holds the Workflow Settings tab. Nothing in IDT reads it any more: it belonged to the old `idt workflow` command, which 4.5 replaced with `idt describe`.
 
-## Configuration File Locations
+The files don't exist until something is saved. The first time you open Configure, it copies the shipped defaults into your settings folder.
 
-### System Default Configs
+The settings folder is:
 
-When you run the frozen IDT executable (`c:\idt\idt.exe`), it looks for config files in:
+- Windows: `%APPDATA%\IDT`
+- macOS: `~/Library/Application Support/IDT`
+- Linux: `~/.config/IDT`, or `$XDG_CONFIG_HOME/IDT` when that is set
 
-```
-c:\idt\scripts\
-├── workflow_config.json
-├── image_describer_config.json
-└── video_frame_extractor_config.json
-```
+The environment variable `IDT_USER_CONFIG_DIR` replaces this folder with one you choose.
 
-These are the **system defaults** that ship with IDT. You can modify these directly, but it's better to create custom config files (see below).
+### The shipped defaults
 
-### Custom Config File Locations
+Each copy of IDT carries the default versions of the same three files:
 
-You can create custom config files anywhere and reference them with command-line arguments:
+- The Windows installer: `C:\idt\scripts` (the `scripts` folder in the install folder).
+- The standalone Windows zips and the macOS app: inside the program's own files.
+- Running from source: the repository's `scripts` folder.
 
-```bash
-# Custom configs in your user directory
-c:\users\kelly\myconfigs\
-├── kelly_workflow.json
-├── kellys_description_config.json
-└── kellys_video_config.json
+These are read only for settings your own files don't have. They are replaced on every upgrade, so a change made there doesn't last.
 
-# Custom configs in project directories
-d:\projects\vacation2024\
-└── vacation_config.json
-```
+### The command line's file
+
+`~/.idt/config.json` (on Windows, `%USERPROFILE%\.idt\config.json`) holds any default provider, model or prompt you set with `idt config --set`, the workspace folder, and a few other values. See [The command line's own settings](#the-command-lines-own-settings).
+
+The same `~/.idt` folder also holds saved `idt chat` conversations (`chats`), the cached model lists (`models`) and the geocoding cache (`geocode_cache.json`).
 
 ---
 
-## Configuration Priority Order
+## How IDT chooses which file to read
 
-IDT uses a **4-level priority system** when determining which settings to use:
+For each of the three files, IDT reads the first one it finds:
 
-```
-1. Command-Line Arguments (--model, --prompt-style, etc.)
-   ↓ (if not provided)
-2. Custom Config File Defaults (--config-image-describer, etc.)
-   ↓ (if not provided)
-3. Workflow Config File (workflow_config.json)
-   ↓ (if not provided)
-4. System Defaults (built-in fallbacks)
-```
+1. Your settings folder (or `IDT_USER_CONFIG_DIR`).
+2. The folder named by `IDT_CONFIG_DIR`, when that variable is set.
+3. The shipped defaults beside the program.
 
-### Example
+Then, if your file is missing a whole section that the defaults have, IDT takes that section from the defaults. This is how a setting added in a newer version (such as `generation` in 4.9) reaches someone whose file is older.
 
-```bash
-# Custom config has default_model: "gemma3latest"
-# Command line specifies --model moondream
-idt workflow photos/ --config-image-describer c:\myconfigs\custom.json --model moondream
+It works on whole sections only. Inside a section you already have, nothing is filled in. So a prompt style you deleted in the Prompt Editor stays deleted, and a Generation setting you removed stays on Automatic.
 
-# Result: Uses moondream (CLI args win)
-```
-
-```bash
-# Custom config has default_model: "gemma3latest"
-# No --model specified on command line
-idt workflow photos/ --config-image-describer c:\myconfigs\custom.json
-
-# Result: Uses gemma3latest (custom config default wins)
-```
-
-This priority system gives you maximum flexibility:
-- **CLI arguments** for one-off overrides
-- **Custom configs** for project-specific defaults
-- **Workflow config** for general defaults
-- **System defaults** as ultimate fallbacks
+Before 4.9 the order was different: the shipped files beside the program came first. On an installed Windows copy, that meant nothing saved in Configure reached processing or the command line. 4.9 fixed this.
 
 ---
 
-## workflow_config.json
+## The Configure dialog
 
-Controls overall workflow behavior, default steps, and output settings.
+Open it with **Tools → Configure Settings** (`Ctrl+Shift+C`) in ImageDescriber. On a Mac it is **ImageDescriber → Preferences**.
 
-### Location
-- System default: `c:\idt\scripts\workflow_config.json`
-- Custom: Anywhere (use `--config-workflow` to specify)
+The dialog has a tab for each group of settings. On each tab, the settings list comes first. Press Tab from the list to reach an **Explanation** box for the selected setting, which you can read with the cursor. Press Tab again for **Change Setting**, or press Enter on a setting to change it. **OK** saves and closes, **Apply** saves and stays open, and **Cancel** discards changes.
 
-### Complete Settings Reference
+The tabs:
 
-```json
-{
-  "workflow_settings": {
-    "default_steps": ["extract", "convert", "describe", "html"],
-    "frame_extraction_per_second": 1.0,
-    "image_conversion": true,
-    "max_workers": 4,
-    "enable_html_output": true,
-    "output_base_dir": "c:\\idt\\workflows",
-    "enable_metadata_extraction": true,
-    "enable_geocoding": true
-  },
-  
-  "metadata_settings": {
-    "extract_gps": true,
-    "extract_datetime": true,
-    "extract_camera_info": true,
-    "geocoding_service": "nominatim",
-    "geocode_cache_file": "geocode_cache.json",
-    "geocode_rate_limit": 1.0
-  },
-  
-  "ai_provider_settings": {
-    "default_provider": "ollama",
-    "default_model": "moondream:latest",
-    "openai_api_key": "",
-    "anthropic_api_key": ""
-  },
-  
-  "video_extraction_settings": {
-    "default_fps": 1.0,
-    "extract_metadata": true,
-    "max_dimensions": null
-  }
-}
-```
+- **AI Model Settings**: ImageDescriber's default provider and default Ollama model.
+- **Generation**: what IDT asks a model for besides the prompt, per provider. See [Generation settings](#generation-settings).
+- **Prompt Styles**: the default prompt style. To add or change prompt styles, use **Tools → Edit Prompts** (`Ctrl+Shift+P`).
+- **Video Extraction**: ImageDescriber's defaults for extracting video frames.
+- **Processing Options**: image size, delay between images, and similar processing settings.
+- **Metadata Settings**: EXIF reading and geocoding.
+- **Workflow Settings**: kept from the old `idt workflow` command. Nothing reads these settings now.
+- **Output Format**: what goes into text output.
+- **API Keys**: add, edit and delete API keys. See [API keys](#api-keys).
+- **Workspace**: the folder where new workspaces are saved. Blank means `Documents\idt` (`~/Documents/idt` on a Mac). This is the same setting as `idt config --set workspace_root=...`.
+- **MLX Models** (Mac only): extra MLX models to offer.
 
-### Key Settings Explained
+### Generation settings
 
-#### `default_steps`
-Defines which workflow steps run by default if not specified with `--steps`:
-- `"extract"` - Extract frames from videos
-- `"convert"` - Convert images to JPEG format
-- `"describe"` - Generate AI descriptions
-- `"html"` - Create HTML gallery
+The **Generation** tab lists, for each provider, the settings it can use:
 
-**Example:**
-```json
-"default_steps": ["describe", "html"]  // Skip extraction, only describe and create HTML
-```
+- Ollama: thinking, temperature, top p, top k, repeat penalty, output limit.
+- OpenAI: thinking, effort, temperature, top p, output limit.
+- Claude: thinking, effort, output limit.
+- Claude Code: thinking, effort, output limit.
+- Apple Intelligence (Mac only): temperature, output limit.
+- MLX (Mac only): output limit.
 
-#### `output_base_dir`
-Where workflow output directories are created. Each workflow gets a timestamped subdirectory.
+Every setting starts on **Automatic**, which uses IDT's default for the provider and model. For Ollama, Automatic turns thinking off for descriptions, because the reasoning is thrown away and it is most of the time spent on each picture. A setting a model can't take is skipped, and the run log says so.
 
-**Example:**
-```json
-"output_base_dir": "d:\\projects\\descriptions"
-```
+The command line uses the same Generation settings. For one run, `idt describe`, `idt download`, `idt video` and `idt watch` can override them with `--think`, `--no-think`, `--temperature` and `--max-tokens`. `idt guideme` takes no options and uses the saved settings.
 
-Result: Workflows created in `d:\projects\descriptions\wf_<name>_<timestamp>\`
-
-#### `enable_metadata_extraction` and `enable_geocoding`
-Control whether EXIF metadata and GPS geocoding are enabled by default.
-
-**Note:** As of v3.5.0, both default to `true`. Use `--no-metadata` and `--no-geocode` CLI flags to disable.
-
-#### `max_workers`
-Number of parallel processes for image description. Higher = faster but more CPU/memory.
-
-**Recommendations:**
-- 4 workers: Good for most systems
-- 8 workers: High-end desktops
-- 2 workers: Laptops or systems with limited RAM
-
-### Using Custom workflow_config.json
-
-```bash
-# Specify custom workflow config
-idt workflow photos/ --config-workflow c:\myconfigs\my_workflow.json
-
-# Custom config with other options
-idt workflow videos/ --config-workflow d:\projects\project_settings.json --steps extract,describe
-```
+The Generation tab replaced the old temperature, max tokens, top k, top p and repeat penalty settings, which were saved in a `model_settings` section. Nothing has read `model_settings` since June 2026, and 4.9 removed it from Configure. If your file still has one, it is ignored.
 
 ---
 
-## image_describer_config.json
+## The command line's own settings
 
-Controls AI model selection, prompts, description styles, and image processing behavior.
+`idt config` shows the command line's settings. After each of the default provider, model and prompt, it says where the value comes from: "(set with idt config)", "(from Configure)" or "(default)". `idt config --set KEY=VALUE` changes one and saves it in `~/.idt/config.json`.
 
-### Location
-- System default: `c:\idt\scripts\image_describer_config.json`
-- Custom: Anywhere (use `--config-image-describer` to specify)
+The keys `idt config --set` accepts:
 
-### Complete Settings Reference
+- `default_provider`: `anthropic` (or `claude`), `apple`, `claude-code`, `ollama`, `openai` or `Windows-AI`. Any other name is refused.
+- `default_model`: the model to use when you don't give `--model`.
+- `default_prompt_name`: the default prompt style for a new workspace. It must be one `idt prompts` lists; case doesn't matter.
+- `workspace_root`: where new workspaces are created. The default is `Documents\idt` in your user folder.
+- `preserve_alt_text`: `true` or `false`. Whether `idt download` saves a web page's alt text as its own description. The default is `true`.
 
-```json
-{
-  "default_model": "moondream:latest",
-  "default_provider": "ollama",
-  "default_prompt_style": "narrative",
-  
-  "model_settings": {
-    "provider": "ollama",
-    "model": "moondream:latest",
-    "temperature": 0.7,
-    "max_tokens": 500,
-    "timeout": 60
-  },
-  
-  "prompts": {
-    "narrative": "Describe this image in detail...",
-    "technical": "Provide a technical analysis...",
-    "brief": "Briefly describe this image...",
-    "custom": "Your custom prompt here..."
-  },
-  
-  "image_processing": {
-    "max_image_size": 2048,
-    "resize_mode": "contain",
-    "quality": 95,
-    "format": "JPEG"
-  },
-  
-  "output_settings": {
-    "include_metadata": true,
-    "include_location": true,
-    "location_prefix_format": "Location: {location}\n\n",
-    "date_prefix_format": "Date: {date}\n\n"
-  },
-  
-  "batch_processing": {
-    "max_workers": 4,
-    "continue_on_error": true,
-    "save_failed_list": true
-  }
-}
-```
+The file can also hold `custom_prompts`, a list of your own prompt styles as name and text, and `copy_originals`, whether new workspaces copy the pictures in. Edit the file to change those. Custom prompts added here work only in `idt`; ImageDescriber doesn't offer them.
 
-### Key Settings Explained
+### How these relate to ImageDescriber's settings
 
-#### `default_model`, `default_provider`, `default_prompt_style`
-**NEW in v3.5.0:** These defaults are now properly respected!
+The command line follows Configure's default provider, model and prompt style, except for any you set with `idt config --set`:
 
-These set the default values that will be used unless overridden by CLI arguments.
+- `~/.idt/config.json` holds only the defaults set with `idt config --set`, and names them in a `user_set` list. Those win for the command line. To follow Configure again, delete the setting and its name in `user_set` from the file.
+- Configure's default model is the Ollama model, so the command line uses it only with Ollama. Other providers use their own default model, such as `claude-haiku-5-5` for Claude.
+- If Configure's default provider is one only ImageDescriber runs, such as MLX, the command line says so and uses Ollama.
+- A file from before 4.9 has no `user_set`. If its default provider, model and prompt are all values IDT used to ship, they are treated as left over, and Configure's settings apply. If any of them differs, all three are kept as your choices.
 
-**Example:**
-```json
-{
-  "default_model": "gemma3:latest",
-  "default_provider": "ollama", 
-  "default_prompt_style": "Orientation"
-}
-```
+What `idt describe` uses on a run:
 
-When you run:
-```bash
-idt workflow photos/ --config-image-describer c:\myconfigs\custom.json
-```
+- Provider: `--provider`, else the provider the workspace was last described with, else the default provider.
+- Model: `--model`, else the workspace's or the default model when it belongs to that provider, else the provider's own default.
+- Prompt: `--prompt` or `--prompt-text`, else the prompt the workspace last used, else the default prompt style. An unknown `--prompt` name stops the command with the list of prompt names.
 
-The workflow will use `gemma3:latest` with the `Orientation` prompt style, and the output directory will be named accordingly:
-```
-wf_photos_20251101_120000_ollama_gemma3latest_Orientation
-```
+These are shared between the two:
 
-#### `prompts`
-Define custom prompt templates for different description styles.
-
-**Example:**
-```json
-{
-  "prompts": {
-    "detailed": "Provide a comprehensive description of this image including...",
-    "accessibility": "Describe this image for someone who cannot see it...",
-    "scientific": "Analyze this image from a scientific perspective..."
-  }
-}
-```
-
-Use with:
-```bash
-idt describe image.jpg --prompt-style detailed
-```
-
-#### `model_settings.temperature`
-Controls AI randomness/creativity:
-- `0.0` - Deterministic, consistent descriptions
-- `0.7` - Balanced (default)
-- `1.0` - More creative and varied
-
-#### `image_processing.max_image_size`
-Maximum dimension (width or height) before resizing. Larger images = slower processing.
-
-**Recommendations:**
-- `1024` - Fast, good for batch processing
-- `2048` - Standard (default), good quality
-- `4096` - High quality, slower
-
-### Using Custom image_describer_config.json
-
-```bash
-# With idt workflow command
-idt workflow photos/ --config-image-describer c:\myconfigs\detailed_descriptions.json
-
-# With idt describe command
-idt describe image.jpg --config-image-describer c:\myconfigs\scientific.json
-
-# With ImageDescriber GUI
-# 1. Launch ImageDescriber (c:\idt\idtimagedescriber.exe)
-# 2. Click "Load Prompt Config" button
-# 3. Browse to your custom config file
-# 4. Config defaults (model, provider, prompt style) will be applied to dropdowns
-```
-
-**Important:** The ImageDescriber GUI now properly respects `default_model`, `default_provider`, and `default_prompt_style` when you load a config file!
+- The workspace folder (`workspace_root` and Configure's Workspace tab).
+- The Generation settings.
+- The prompt styles saved in the Prompt Editor.
+- API keys.
 
 ---
 
-## video_frame_extractor_config.json
+## API keys
 
-Controls video frame extraction parameters.
+Claude (through the API) and OpenAI need an API key. Ollama, Claude Code, Apple Intelligence and Windows AI don't. Ollama's web search in `idt chat` and IDT Chat needs a free ollama.com key.
 
-### Location
-- System default: `c:\idt\scripts\video_frame_extractor_config.json`
-- Custom: Anywhere (use `--config-video` to specify)
+### Saving a key
 
-### Complete Settings Reference
+The easy way is ImageDescriber's **Configure → API Keys** tab: choose **Add Key**, pick the provider and paste the key. IDT saves it in Windows Credential Manager or the macOS Keychain, under the name "Image Description Toolkit". ImageDescriber, IDT Chat and the command line all use it.
 
-```json
-{
-  "extraction_settings": {
-    "default_fps": 1.0,
-    "output_format": "jpg",
-    "output_quality": 95,
-    "naming_pattern": "frame_{sequence:06d}.jpg"
-  },
-  
-  "video_processing": {
-    "extract_metadata": true,
-    "preserve_aspect_ratio": true,
-    "max_width": null,
-    "max_height": null,
-    "skip_first_seconds": 0,
-    "skip_last_seconds": 0
-  },
-  
-  "metadata_embedding": {
-    "embed_gps": true,
-    "embed_datetime": true,
-    "embed_camera_info": true,
-    "frame_timestamp_mode": "relative"
-  },
-  
-  "output_settings": {
-    "create_subdirectory": true,
-    "subdirectory_pattern": "{video_name}_frames",
-    "overwrite_existing": false
-  }
-}
-```
+On a system with no credential store (Linux), Configure saves the key in the `api_keys` section of `image_describer_config.json` instead.
 
-### Key Settings Explained
+### Where IDT looks for a key
 
-#### `default_fps`
-Frames per second to extract. Controls density of frame extraction.
+IDT uses the first key it finds, in this order:
 
-**Examples:**
-- `1.0` - One frame per second (default, good balance)
-- `0.5` - One frame every 2 seconds (less dense)
-- `2.0` - Two frames per second (more dense)
-- `0.1` - One frame every 10 seconds (sparse sampling)
+1. An environment variable: `ANTHROPIC_API_KEY` for Claude, `OPENAI_API_KEY` for OpenAI, `OLLAMA_API_KEY` for Ollama web search.
+2. Windows Credential Manager or the macOS Keychain: where Configure saves keys.
+3. The `api_keys` section of `image_describer_config.json`. Older versions of ImageDescriber saved keys there.
+4. A plain text key file from older versions: `claude.txt` or `anthropic.txt` for Claude, `openai_api_key.txt` or `openai.txt` for OpenAI. IDT looks in the current folder and, for the installed programs, in the folder that holds the program. The file must contain only the key, with nothing else in it.
 
-#### `extract_metadata` and `embed_gps`
-**NEW in v3.5.0:** Video metadata embedding!
+Because an environment variable comes first, an old key left in `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` wins over the one you saved in Configure. The API Keys tab shows where each provider's key comes from.
 
-When `true`, IDT extracts GPS coordinates, recording date/time, and camera info from video files and embeds them into extracted frame EXIF data.
-
-**Result:** Video frames have proper metadata just like photos, enabling location/date prefixes in descriptions.
-
-#### `skip_first_seconds` / `skip_last_seconds`
-Skip frames at the beginning or end of videos.
-
-**Example:**
-```json
-{
-  "skip_first_seconds": 5,
-  "skip_last_seconds": 3
-}
-```
-
-Useful for skipping:
-- Camera shake at start/end
-- Black frames
-- Unwanted intro/outro
-
-#### `naming_pattern`
-How extracted frames are named.
-
-**Pattern Variables:**
-- `{sequence}` - Frame number (1, 2, 3...)
-- `{sequence:06d}` - Zero-padded frame number (000001, 000002...)
-- `{timestamp}` - Frame timestamp in seconds
-- `{video_name}` - Original video filename
-
-**Example:**
-```json
-"naming_pattern": "{video_name}_frame_{sequence:04d}.jpg"
-```
-
-Result: `vacation_frame_0001.jpg`, `vacation_frame_0002.jpg`...
-
-### Using Custom video_frame_extractor_config.json
-
-```bash
-# With idt workflow command
-idt workflow videos/ --config-video c:\myconfigs\sparse_extraction.json
-
-# With idt extract-frames command
-idt extract-frames video.mp4 --config-video c:\myconfigs\dense_extraction.json
-```
+Keys are never stored in workspaces, and IDT never prints or logs them.
 
 ---
 
-## Using Custom Config Files
+## Export and Import Configuration
 
-### Command-Line Usage
+ImageDescriber's **Tools** menu has both.
 
-All IDT commands support custom config files through `--config-*` flags:
+**Export Configuration** saves a zip file holding the three settings files IDT is using: your own copies where you have saved settings, and the shipped defaults otherwise. Use it to back up your settings or to move them to another computer.
 
-```bash
-# idt workflow command (supports all three config types)
-idt workflow photos/ \
-  --config-workflow c:\myconfigs\workflow.json \
-  --config-image-describer c:\myconfigs\descriptions.json \
-  --config-video c:\myconfigs\video.json
+- It does not include API keys kept in Windows Credential Manager or the macOS Keychain. Add those again on the other computer.
+- It does include any keys in the `api_keys` section of `image_describer_config.json`. Keep the zip private if you have any there.
+- It does not include the command line's `~/.idt/config.json`. Copy that file yourself if you want it.
 
-# idt describe command (uses image_describer config)
-idt describe photos/ --config-image-describer c:\myconfigs\detailed.json
-
-# idt extract-frames command (uses video config)
-idt extract-frames video.mp4 --config-video c:\myconfigs\extraction.json
-```
-
-### ImageDescriber GUI Usage
-
-The ImageDescriber GUI application (`c:\idt\idtimagedescriber.exe`) supports loading custom config files:
-
-1. Launch ImageDescriber
-2. Click the **"Load Prompt Config"** button in the toolbar
-3. Browse to your custom `image_describer_config.json` file
-4. Click **"Open"**
-
-**What Happens:**
-- All prompts from the config are loaded into the prompt editor
-- `default_model` is selected in the Model dropdown
-- `default_provider` is selected in the Provider dropdown
-- `default_prompt_style` is selected in the Prompt Style dropdown
-
-**Note:** GUI changes made after loading are not saved back to the config file. The config file is read-only to the GUI.
-
-### Creating Custom Config Files
-
-#### Method 1: Copy and Modify System Defaults
-
-```bash
-# Copy system defaults to your custom location
-copy c:\idt\scripts\image_describer_config.json c:\myconfigs\my_descriptions.json
-
-# Edit the copy with your preferred text editor
-notepad c:\myconfigs\my_descriptions.json
-```
-
-#### Method 2: Start from Minimal Template
-
-Create a minimal config with just the settings you want to override:
-
-**Minimal workflow_config.json:**
-```json
-{
-  "workflow_settings": {
-    "output_base_dir": "d:\\my_projects\\descriptions"
-  }
-}
-```
-
-**Minimal image_describer_config.json:**
-```json
-{
-  "default_model": "gemma3:latest",
-  "default_provider": "ollama",
-  "default_prompt_style": "detailed",
-  "prompts": {
-    "detailed": "Describe this image in comprehensive detail..."
-  }
-}
-```
-
-IDT will use your settings and fall back to system defaults for anything not specified.
+**Import Configuration** asks before it replaces anything, then copies every `.json` file in the zip into your settings folder. Restart ImageDescriber afterwards to use the imported settings.
 
 ---
 
-## Common Configuration Scenarios
+## Editing the files by hand
 
-### Scenario 1: Project-Specific Descriptions
+You can edit the files in your settings folder with any text editor, while ImageDescriber is closed.
 
-**Goal:** Different projects need different AI models and description styles.
+- Keep the file valid JSON. IDT accepts a file saved with a byte-order mark, as PowerShell 5 writes one.
+- If a file can't be read, IDT logs a warning and uses the shipped defaults for it, rather than overwriting it. Fix the file before you open Configure: Configure shows the defaults in its place, and **OK** or **Apply** would save them over your file.
+- To go back to the defaults for one file, delete it from your settings folder. To go back to the defaults for everything, delete the whole folder. API keys in the credential store are not affected; remove those with **Delete Key** in Configure.
+- Never edit the shipped defaults beside the program. An upgrade replaces them.
 
-**Solution:** Create project-specific image_describer configs.
+A Generation section looks like this. Leave a setting out to keep it on Automatic:
 
-```bash
-# Create configs
-c:\projects\
-├── nature\
-│   └── nature_config.json      # Model: gemma3, Style: scientific
-├── family\
-│   └── family_config.json      # Model: moondream, Style: narrative
-└── work\
-    └── work_config.json        # Model: gpt-6-luna, Style: technical
-
-# Use them
-cd c:\projects\nature
-idt workflow photos\ --config-image-describer nature_config.json
-
-cd c:\projects\family
-idt workflow photos\ --config-image-describer family_config.json
-```
-
-### Scenario 2: Sparse Video Frame Extraction
-
-**Goal:** Extract fewer frames from long videos to save time and disk space.
-
-**Solution:** Create custom video config with lower FPS.
-
-**sparse_video.json:**
 ```json
-{
-  "extraction_settings": {
-    "default_fps": 0.2
-  },
-  "video_processing": {
-    "skip_first_seconds": 5,
-    "skip_last_seconds": 5
-  }
+"generation": {
+  "ollama": {"thinking": "off", "temperature": 0.2},
+  "openai": {"effort": "low"},
+  "claude": {"max_output_tokens": 1200}
 }
 ```
 
-**Usage:**
-```bash
-idt extract-frames longvideo.mp4 --config-video sparse_video.json
-# Extracts 1 frame every 5 seconds, skips first/last 5 seconds
-```
+`thinking` takes `auto`, `on` or `off`. `effort` takes `minimal`, `low`, `medium` or `high`.
 
-### Scenario 3: High-Quality Batch Processing
+---
 
-**Goal:** Process images with highest quality settings, multiple workers.
+## Environment variables
 
-**Solution:** Custom image_describer config optimized for quality.
-
-**highquality.json:**
-```json
-{
-  "default_model": "gpt-6-luna",
-  "default_provider": "openai",
-  "default_prompt_style": "detailed",
-  "image_processing": {
-    "max_image_size": 4096,
-    "quality": 98
-  },
-  "batch_processing": {
-    "max_workers": 8
-  },
-  "prompts": {
-    "detailed": "Provide an extremely detailed and comprehensive description..."
-  }
-}
-```
-
-**Usage:**
-```bash
-idt workflow photos\ --config-image-describer highquality.json
-```
-
-### Scenario 4: Multiple AI Models for Comparison
-
-**Goal:** Process same images with different AI models to compare outputs.
-
-**Solution:** Create multiple configs, run workflows separately.
-
-**moondream_config.json:**
-```json
-{
-  "default_model": "moondream:latest",
-  "default_provider": "ollama",
-  "default_prompt_style": "narrative"
-}
-```
-
-**gemma_config.json:**
-```json
-{
-  "default_model": "gemma3:latest",
-  "default_provider": "ollama",
-  "default_prompt_style": "narrative"
-}
-```
-
-**Usage:**
-```bash
-# Process with moondream
-idt workflow photos\ --config-image-describer moondream_config.json --name moondream_test
-
-# Process with gemma
-idt workflow photos\ --config-image-describer gemma_config.json --name gemma_test
-
-# Compare results in separate workflow directories
-```
-
-### Scenario 5: Accessible Descriptions with Geocoding
-
-**Goal:** Generate descriptions optimized for screen readers with location context.
-
-**Solution:** Custom config with accessibility-focused prompts and metadata enabled.
-
-**accessible.json:**
-```json
-{
-  "default_model": "gpt-6-luna",
-  "default_provider": "openai",
-  "default_prompt_style": "accessible",
-  "output_settings": {
-    "include_metadata": true,
-    "include_location": true,
-    "location_prefix_format": "Location: {location}. ",
-    "date_prefix_format": "Taken on {date}. "
-  },
-  "prompts": {
-    "accessible": "Describe this image as if explaining it to someone who cannot see it. Be specific about spatial relationships, colors, and important details that convey the full context..."
-  }
-}
-```
-
-**Usage:**
-```bash
-idt workflow photos\ --config-image-describer accessible.json
-# Results include location/date prefixes plus accessibility-focused descriptions
-```
+- `IDT_USER_CONFIG_DIR`: use this folder as your settings folder instead of the usual one.
+- `IDT_CONFIG_DIR`: a folder of default settings files, used for anything your own settings don't set. Read before the shipped defaults. Earlier Windows installers set this to `C:\idt\scripts`; the 4.9 installer removes it when it still points there.
+- `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OLLAMA_API_KEY`: API keys. See [API keys](#api-keys).
 
 ---
 
 ## Troubleshooting
 
-### Config File Not Found
+**A setting I changed in Configure isn't used.**
 
-**Problem:** Error message about config file not being found.
+- Check that you're on 4.9 or later: `idt version`. Before 4.9, an installed copy read the shipped defaults before your saved settings.
+- Check whether `IDT_CONFIG_DIR` or `IDT_USER_CONFIG_DIR` is set: in a Command Prompt, `set IDT`. If `IDT_USER_CONFIG_DIR` is set, your settings are saved and read there.
+- For the command line's default provider, model and prompt, see [How these relate to ImageDescriber's settings](#how-these-relate-to-imagedescribers-settings). `idt config` shows the values the command line uses.
 
-**Solutions:**
-1. Check the file path - use absolute paths with `--config-*` flags
-2. Use forward slashes `/` or escaped backslashes `\\` in JSON
-3. Verify the file exists: `dir c:\myconfigs\custom.json`
+**My API key isn't found, or the wrong one is used.**
 
-**Example - Correct paths:**
-```bash
-# Windows - use forward slashes or escaped backslashes
-idt workflow photos/ --config-image-describer c:/myconfigs/custom.json
-idt workflow photos/ --config-image-describer c:\\myconfigs\\custom.json
-```
+- Open **Configure → API Keys**. It says where each provider's key comes from.
+- If it says the environment, an `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` variable is set and wins. Remove the variable, or put the right key in it.
+- A legacy key file must hold only the key.
 
-### Custom Config Settings Not Applied
+**I want to start over.**
 
-**Problem:** Changed settings in custom config but they're not being used.
-
-**Solutions:**
-1. Check configuration priority - CLI args override config files
-2. Verify JSON syntax - use a JSON validator
-3. Check setting names - they must match exactly
-4. Look for typos in field names
-
-**Example - Priority issue:**
-```bash
-# This won't use config's default_model because CLI arg overrides
-idt workflow photos/ --config-image-describer custom.json --model moondream
-# Solution: Remove --model flag to use config default
-idt workflow photos/ --config-image-describer custom.json
-```
-
-### Invalid JSON Syntax
-
-**Problem:** Error parsing config file.
-
-**Common issues:**
-- Missing commas between fields
-- Trailing commas at end of objects/arrays
-- Missing quotes around strings
-- Unescaped backslashes in paths
-
-**Example - Invalid:**
-```json
-{
-  "default_model": "gemma3:latest"
-  "default_provider": "ollama",    // Missing comma above
-  "prompts": {
-    "test": "description",         // Trailing comma below
-  },
-}
-```
-
-**Example - Valid:**
-```json
-{
-  "default_model": "gemma3:latest",
-  "default_provider": "ollama",
-  "prompts": {
-    "test": "description"
-  }
-}
-```
-
-**Solution:** Use a JSON validator like [jsonlint.com](https://jsonlint.com/) to check syntax.
-
-### Config Changes Not Reflected in GUI
-
-**Problem:** Modified config file but ImageDescriber GUI still shows old values.
-
-**Solution:** The GUI caches config on startup. Restart ImageDescriber to reload:
-1. Close ImageDescriber completely
-2. Modify your config file
-3. Relaunch ImageDescriber
-4. Click "Load Prompt Config" and select your config
-
-### Model Not Found
-
-**Problem:** Error about model not being found after loading config.
-
-**Solutions:**
-1. Verify the model name is correct (check with `ollama list` for Ollama models)
-2. Ensure the AI provider is running (e.g., Ollama service)
-3. Check API keys for cloud providers (OpenAI, Anthropic)
-4. Verify `default_provider` matches the model's provider
-
-**Example:**
-```json
-{
-  "default_model": "gemma3:latest",    // Model name
-  "default_provider": "ollama"         // Must match model's provider
-}
-```
-
-### Workflow Directory Named Incorrectly
-
-**Problem:** Workflow directory name doesn't reflect custom config model.
-
-**Cause:** This was a bug in versions before v3.5.0.
-
-**Solution:** Update to v3.5.0 or later. The workflow directory naming now properly uses custom config defaults.
-
-**Before (broken):**
-```
-wf_photos_20251101_120000_ollama_moondreamlatest_narrative
-```
-
-**After (fixed):**
-```
-wf_photos_20251101_120000_ollama_gemma3latest_Orientation
-```
-
----
-
-## Best Practices
-
-### 1. Use Version Control for Config Files
-
-Store your custom configs in git or another version control system:
-
-```bash
-c:\myconfigs\
-├── .git\
-├── README.md              # Document what each config is for
-├── default.json
-├── high_quality.json
-└── quick_test.json
-```
-
-### 2. Document Your Custom Configs
-
-Add comments using a separate README file (JSON doesn't support comments):
-
-```markdown
-# My IDT Configs
-
-- `default.json` - General purpose, moondream model
-- `high_quality.json` - GPT-4 with detailed prompts, for final outputs
-- `quick_test.json` - Fast processing for testing
-```
-
-### 3. Use Descriptive Config Names
-
-```bash
-# Good
-scientific_analysis_config.json
-family_photos_narrative.json
-web_download_settings.json
-
-# Bad
-config1.json
-test.json
-new.json
-```
-
-### 4. Start Minimal, Add as Needed
-
-Begin with a minimal config that only overrides what you need:
-
-```json
-{
-  "default_model": "gemma3:latest"
-}
-```
-
-Add more settings as your requirements grow.
-
-### 5. Test Config Changes
-
-After modifying a config, test it with a small sample:
-
-```bash
-# Test with just a few images first
-idt describe test_image.jpg --config-image-describer newconfig.json
-
-# If successful, run on full batch
-idt workflow photos\ --config-image-describer newconfig.json
-```
-
-### 6. Keep Backups of Working Configs
-
-When you have a config that works well, save a backup:
-
-```bash
-copy working_config.json working_config_backup_20251101.json
-```
-
-### 7. Use Absolute Paths in Configs
-
-For `output_base_dir` and file paths within configs, use absolute paths:
-
-```json
-{
-  "workflow_settings": {
-    "output_base_dir": "d:\\projects\\idt_outputs"
-  }
-}
-```
-
-This prevents confusion about relative path context.
-
----
-
-## Additional Resources
-
-- **[CLI_REFERENCE.md](CLI_REFERENCE.md)** - Complete command-line reference with all `--config-*` options
-- **[USER_GUIDE.md](USER_GUIDE.md)** - General IDT usage guide
-- **[PROMPT_WRITING_GUIDE.md](PROMPT_WRITING_GUIDE.md)** - How to write effective prompts for the `prompts` section
-- **[WHATS_NEW_v3.5.0.md](WHATS_NEW_v3.5.0.md)** - Latest features including config priority fixes
-
----
-
-## Summary
-
-- IDT uses **three config files**: workflow, image_describer, and video_frame_extractor
-- **Priority order**: CLI args > Custom config > Workflow config > System defaults
-- Use `--config-workflow`, `--config-image-describer`, and `--config-video` flags to specify custom configs
-- ImageDescriber GUI supports loading custom configs via "Load Prompt Config" button
-- Custom configs can be minimal - only override what you need to change
-- Store configs in version control and document their purposes
-- Test config changes with small samples before full batch processing
-
----
-
-**Need Help?**
-- Check the [CLI_REFERENCE.md](CLI_REFERENCE.md) for command-line syntax
-- See [USER_GUIDE.md](USER_GUIDE.md) for general usage
-- Review [WHATS_NEW_v3.5.0.md](WHATS_NEW_v3.5.0.md) for latest features
-
-*Last updated: November 11, 2025 for IDT v3.5.0*
+Close ImageDescriber and delete your settings folder (`%APPDATA%\IDT` on Windows, `~/Library/Application Support/IDT` on macOS). Delete `~/.idt/config.json` too for the command line's settings. The next time you open Configure, it copies the shipped defaults again.
