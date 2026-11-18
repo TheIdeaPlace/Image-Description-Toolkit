@@ -357,7 +357,7 @@ This applies to `show`, `combine` stdout output, and any other command that prin
 ### Bug 6: `stats` Has No Replacement for Old Workflow Performance Metrics
 **Not a crash** — both old and new `stats` commands run successfully — but they measure completely different things:
 - **Old `idt stats`** (`analysis/stats_analysis.py`): Workflow run timing, images-per-hour throughput, per-step duration (video extraction, conversion, AI description, HTML generation). Wrote CSV/JSON/text to `analysis/results/`.  
-- **New `idt stats`** (`cli/main.py:1346`, `cmd_stats`): Token counts and estimated API cost per provider/model. Shows "n/a" for all local models (Ollama) since they don't report tokens.  
+- **New `idt stats`** (`cli/main.py:1346`, `cmd_stats`): Token counts and estimated API cost per provider/model, across every description (4.9). Local models show "no charge"; Ollama does report tokens.  
 **Impact:** Operations/performance monitoring is gone. API cost tracking is new. No overlap in purpose. `analysis/stats_analysis.py` still exists in source but is not reachable from the CLI.
 
 ### Architecture Gap: Resume Requires Source Directory, Not Workspace Path
