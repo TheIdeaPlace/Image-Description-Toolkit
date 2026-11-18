@@ -1349,10 +1349,6 @@ class ClaudeProvider(AIProvider):
                 message="Claude API key not configured or SDK not installed")
         
         try:
-            # Read and encode image
-            with open(image_path, 'rb') as image_file:
-                image_data = base64.b64encode(image_file.read()).decode('utf-8')
-            
             # Determine media type from file extension
             ext = Path(image_path).suffix.lower()
             media_type_map = {
@@ -1363,6 +1359,16 @@ class ClaudeProvider(AIProvider):
                 '.webp': 'image/webp'
             }
             media_type = media_type_map.get(ext, 'image/jpeg')
+
+            # Read the picture and fit it to Claude's limits, as `idt describe`
+            # does: under its byte limit and no side over 8,000 pixels. Sent as
+            # read, a panorama under the byte limit was refused for its width
+            # (Kelly's 4.9.0 test run, 11/18/2026).
+            with open(image_path, 'rb') as image_file:
+                raw = image_file.read()
+            from idt_core.providers.claude_code import fit_image as _claude_fit
+            raw, media_type = _claude_fit(raw, media_type)
+            image_data = base64.b64encode(raw).decode('utf-8')
             
             # The request's settings come from idt_core, shared with the CLI
             # (issue #392).

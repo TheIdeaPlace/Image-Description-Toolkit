@@ -74,16 +74,40 @@ def _pil_to_jpeg_bytes(path: Path) -> tuple[bytes, str]:
     return _pil_image_to_jpeg_bytes(img)
 
 
+#: Claude refuses a picture with either side over this many pixels, whatever
+#: its size in bytes ("At least one of the image dimensions exceed max allowed
+#: size: 8000 pixels"). A panorama can be well under the byte limit and still
+#: over it: one failed in Kelly's 4.9.0 test run, 11/18/2026.
+MAX_IMAGE_SIDE = 8000
+
+
+def _side_of(image_bytes: bytes) -> int:
+    """The longer side in pixels, read from the header; 0 if it can't be read."""
+    from PIL import Image
+
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            return max(img.size)
+    except Exception:
+        return 0
+
+
 def fit_image(image_bytes: bytes, mime_type: str, max_bytes: int,
-              long_edge: int) -> tuple[bytes, str]:
-    """``(bytes, mime)`` no bigger than ``max_bytes``: unchanged when it already is, otherwise
-    scaled to ``long_edge`` on its longer side and saved as a JPEG.
+              long_edge: int, max_side: int = MAX_IMAGE_SIDE) -> tuple[bytes, str]:
+    """``(bytes, mime)`` no bigger than ``max_bytes`` and no side over ``max_side`` pixels:
+    unchanged when it already is. Over the bytes, it's scaled to ``long_edge`` on its longer
+    side; under the bytes but too wide or tall, only down to ``max_side``, so a panorama keeps
+    as much detail as the provider allows. Either way it's saved as a JPEG.
 
     For providers that take a picture's bytes inline and have a size limit. A 24 or 48 MP phone
     JPEG, or a large PNG scan, is over most limits and would otherwise fail on every attempt.
     """
     if len(image_bytes) <= max_bytes:
-        return image_bytes, mime_type
+        if _side_of(image_bytes) <= max_side:
+            return image_bytes, mime_type
+        long_edge = max_side
+    else:
+        long_edge = min(long_edge, max_side)
     from PIL import Image
 
     from PIL import ImageOps
