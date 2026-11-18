@@ -649,12 +649,23 @@ class ViewerPanel(wx.Panel):
                 wx.TheClipboard.SetData(wx.TextDataObject(text))
                 wx.TheClipboard.Close()
 
-    def _get_current_image_path(self):
-        """Return resolved Path for the currently selected entry's image, or None."""
+    def selected_entry(self):
+        """The entry (dict) of the selected description, or None.
+
+        The main window's Descriptions menu reads this in Viewer mode, so its
+        Copy items act on the description being read here (#480).
+        """
         sel = self.desc_list.GetSelection()
         if sel == wx.NOT_FOUND or sel >= len(self.entries):
             return None
-        file_path = self.entries[sel].get('file_path', '')
+        return self.entries[sel]
+
+    def _get_current_image_path(self):
+        """Return resolved Path for the currently selected entry's image, or None."""
+        entry = self.selected_entry()
+        if entry is None:
+            return None
+        file_path = entry.get('file_path', '')
         if not file_path:
             return None
         resolved = self.resolve_image_path(file_path)

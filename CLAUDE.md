@@ -11,7 +11,7 @@ Image Description Toolkit (IDT) is an AI-powered batch image/video description t
 
 Also the repo's one non-Python project: **`windows_ai_helper/`**, a small packaged C# app that describes pictures with Windows' on-device model on Copilot+ PCs. Windows only lets a packaged app use that model, so IDT runs this helper rather than calling the API from Python. Its README covers the protocol, building, and what the package must declare. Built and tested by `.github/workflows/windows-ai-helper.yml`; its protocol tests run with `dotnet test windows_ai_helper/IdtWindowsAI.Tests`.
 
-Supported AI providers: Ollama (local/cloud), OpenAI GPT-4o, Claude (Anthropic API), Claude Code (Claude on the user's subscription via the `claude` CLI, provider key `claude-code`), Apple Intelligence (on-device on macOS 27+, provider key `apple`), and MLX (macOS Apple Silicon, GUI only).
+Supported AI providers: Ollama (local/cloud), OpenAI (GPT), Claude (Anthropic API), Claude Code (Claude on the user's subscription via the `claude` CLI, provider key `claude-code`), Apple Intelligence (on-device on macOS 27+, provider key `apple`), and MLX (macOS Apple Silicon, GUI only).
 
 ## Commands
 
@@ -40,8 +40,8 @@ cd chatapp && ./build_chatapp.sh
 
 ### Smoke Testing After Build
 ```bash
-dist/idt/idt.exe version          # Windows
-dist/idt/idt.exe --debug-paths
+dist/idt/idt.exe version          # Windows: version, Python, exe path
+dist/idt/idt.exe prompts          # reads the shipped config; lists the prompt styles
 ./dist/idt version            # macOS
 ```
 
@@ -54,19 +54,21 @@ python -m py_compile <file>
 
 ### Dual Execution Model
 All code must support both modes:
-- **Development**: `python scripts/workflow.py`
-- **Production**: PyInstaller frozen executables (`idt.exe workflow`)
+- **Development**: `python cli/main.py describe <folder>` (CLI), `python imagedescriber/imagedescriber_wx.py` (GUI)
+- **Production**: PyInstaller frozen executables (`idt.exe describe <folder>`)
 - **Detection**: `getattr(sys, 'frozen', False)`
-- **Paths**: Always use `config_loader.py` or `resource_manager.py`, never raw `Path()` or `open()` for config files
+- **Paths**: Always use `idt_core/config_loader.py` (`load_json_config`, `writable_config_path`), never raw `Path()` or `open()` for config files
 
-### Core Workflow Pipeline (`scripts/workflow.py`, 2468 lines)
-Four sequential steps:
-1. Video extraction → `video_frame_extractor.py`
-2. HEIC conversion → `ConvertImage.py`
-3. AI description → `image_describer.py`
-4. HTML output → `descriptions_to_html.py`
+### Core Pipeline (`idt_core/`, driven by `cli/main.py` and ImageDescriber)
+`idt describe <folder>` runs these steps into one `.idtw` workspace bundle:
+1. Scan the folder → `idt_core/scanner.py` (`scan_images`, `is_heic`)
+2. Video frame extraction → `idt_core/video.py` (`extract_frames_to_dir`), into `<bundle>/derived/frames/`
+3. HEIC conversion → `idt_core/converter.py` (`save_heic_copy`), into `<bundle>/derived/converted/`
+4. EXIF and geocoding → `idt_core/metadata.py` (`MetadataExtractor`, `NominatimGeocoder`)
+5. AI description → `idt_core/pipeline.py` (`WorkspacePipeline.run()`, a generator of events) and `idt_core/providers/`
+6. HTML report → `idt_core/exporter.py` (`export_workspace_html`), into `<bundle>/reports/`
 
-Output directories: `wf_YYYY-MM-DD_HHMMSS_{model}_{prompt}`
+Workspaces: `idt_core/workspace.py`. A bundle is `<name>.idtw` under the workspace root (`~/Documents/idt` by default), holding `manifest.json`, `descriptions/` sidecars, `derived/`, `logs/`, `reports/`, and `images/` only when originals are copied. ImageDescriber converts its in-memory workspace to and from bundles through `idt_core/gui_bridge.py`. There are no `wf_*` folders any more.
 
 ### Configuration Resolution Order (`idt_core/config_loader.py`)
 Two layers: the user's saved settings over the shipped defaults.
@@ -101,11 +103,13 @@ Provider-agnostic and **wx-free**. Backs `idt chat`, the standalone IDT Chat app
 ImageDescriber keeps its own persistence: chat turns are still `ImageDescription` objects on a chat `ImageItem`, so existing `.idtw` workspaces load unchanged. The engine is constructed with `store=None` there.
 
 ### Key Shared Utilities
-- `scripts/list_results.py` — `find_workflow_directories()`, `count_descriptions()`, `format_timestamp()`, `parse_directory_name()`
-- `scripts/workflow_utils.py` — `save_workflow_metadata()`, `load_workflow_metadata()` for `workflow_metadata.json` in each workflow dir
-- `analysis/combine_workflow_descriptions.py` — `get_image_date_for_sorting()` (EXIF priority order)
+- `idt_core/workspace.py` — `Workspace` (open/create a bundle, items, `status()`), `WorkspaceDefaults`
+- `idt_core/metadata.py` — `MetadataExtractor` (EXIF date priority order), `prompt_context()` vs `display_context()`
+- `idt_core/keys.py` — the one API key lookup
+- `imagedescriber/workspace_manager.py` — `get_default_workspaces_root()`, `sanitize_workspace_name()`
 - `shared/wx_common.py` — wxPython helpers
-- `scripts/workflow.py` — `sanitize_name()` for filesystem-safe names
+- `shared/utility_functions.py` — `sanitize_name()`, `sanitize_filename()` for filesystem-safe names
+- `scripts/` now holds only the three shipped default config JSON files
 
 ## Critical Rules
 
@@ -136,11 +140,11 @@ Reproduce the action — the exception prints to stderr immediately. Do not inve
 4. Functions >500 lines require extra scrutiny
 
 ### After Core File Changes
-For changes to `scripts/workflow.py`, `scripts/image_describer.py`, `idt/idt_cli.py`, or any file listed in `hiddenimports` in the per-app `.spec` files (e.g., `imagedescriber/imagedescriber_wx.spec`, `idt/idt.spec`):
+For changes to `cli/main.py`, `idt_core/pipeline.py`, `idt_core/workspace.py`, or any file listed in `hiddenimports` in the per-app `.spec` files (e.g., `imagedescriber/imagedescriber_wx.spec`, `idt/idt.spec`):
 1. `python -m py_compile <file>`
 2. Build the exe
-3. Run with test data: `dist\idt\idt.exe workflow testimages`
-4. Check `wf_*/logs/*.log` for errors
+3. Run with test data: `dist\idt\idt.exe describe testimages --limit 2` (creates `Documents\idt\testimages.idtw`)
+4. Check `<bundle>.idtw/logs/*.log` for errors
 5. Only then claim the fix is complete
 
 ### When Something Regresses

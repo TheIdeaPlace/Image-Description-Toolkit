@@ -253,7 +253,7 @@ Any top-level section missing from the user copy is filled in from the defaults.
 ### AI Provider System
 Multi-provider abstraction in `imagedescriber/ai_providers.py`:
 - **Ollama** (local + cloud): Via `ollama` Python SDK
-- **OpenAI**: GPT-4o, official SDK with retry logic
+- **OpenAI**: GPT models, official SDK with retry logic
 - **Claude**: Anthropic SDK with streaming support
 - **Provider Registry**: `models/model_registry.py` - central model metadata
 - **Capabilities**: `models/provider_configs.py` - dynamic UI based on `supports_prompts()`, `supports_custom_prompts()`

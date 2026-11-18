@@ -125,8 +125,13 @@ except ImportError:
 # Saves each described image while a batch runs. Module scope: the frame
 # constructs one at startup.
 from idt_core.gui_bridge import BundleCheckpointWriter  # noqa: E402
+# "Prompt: custom" only for a prompt the user wrote: CLI descriptions store the
+# named style's text too (bug bash S7).
+from idt_core.gui_bridge import prompt_label as _prompt_label  # noqa: E402
 # The batch window's cost meter. Module scope: the frame makes one at startup.
 from idt_core.pricing import CostMeter  # noqa: E402
+# Writes video frames; cv2.imwrite fails silently on non-ASCII paths on Windows.
+from idt_core.video import write_frame  # noqa: E402
 
 
 class ExtractionCancelled(Exception):
@@ -418,6 +423,20 @@ def _format_chat_name(provider: str, model: str, dt=None) -> str:
     ampm = "A" if dt.hour < 12 else "P"
     date_str = f"{dt.month}/{dt.day}/{dt.year} {hour}:{dt.minute:02d}{ampm}"
     return f"Chat - {_display_provider(provider)} {model} - {date_str}"
+
+
+def _added_text_head(added: str) -> str:
+    """The start of text the editor added for display, up to its first line
+    of substance: "\\n\\n---\\nProvider: Claude" for a details block, "Video
+    Metadata" for a video's details. Found in the editor without the whole,
+    it means the added text was edited (#484 review). A description may
+    contain a "---" of its own, so the rule alone isn't enough.
+    """
+    lines = added.split("\n")
+    for i, line in enumerate(lines):
+        if line.strip() and line.strip() != "---":
+            return "\n".join(lines[:i + 1])
+    return added
 
 
 def open_with_default_app(path: Path) -> None:
@@ -1234,7 +1253,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             frame_time = frame_num / fps if fps > 0 else 0.0
             frame_filename = f"{video_path_obj.stem}_{frame_time:.2f}s.jpg"
             frame_path = video_dir / frame_filename
-            cv2.imwrite(str(frame_path), frame)
+            write_frame(frame_path, frame)
             if video_source_metadata and ExifEmbedder is not None:
                 try:
                     ExifEmbedder().embed_metadata(
@@ -1296,7 +1315,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     frame_time = frame_num / fps if fps > 0 else 0.0
                     frame_filename = f"{video_path_obj.stem}_scene_{extract_count:04d}_{frame_time:.2f}s.jpg"
                     frame_path = video_dir / frame_filename
-                    cv2.imwrite(str(frame_path), frame)
+                    write_frame(frame_path, frame)
                     # Embed video GPS/date into frame EXIF if metadata is available
                     if video_source_metadata and ExifEmbedder is not None:
                         try:
@@ -2150,9 +2169,11 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 self.desc_list.Set(desc_texts)
                 self.desc_list.SetSelection(len(desc_texts) - 1)
                 self.description_text.SetValue(image_item.descriptions[-1].text)
+                self._note_editor_shows(image_item, len(image_item.descriptions) - 1, "")
             else:
                 self.desc_list.Set(["(no messages yet)"])
                 self.description_text.SetValue("")
+                self._note_editor_shows(image_item, None, "")
             return
 
         file_path = Path(image_item.file_path)
@@ -2204,12 +2225,9 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 if desc.model:
                     metadata_lines.append(f"Model: {_display_model(desc.provider, desc.model)}")
                 if desc.prompt_style:
-                    # If custom prompt was used, show 'custom' instead of base style
-                    if desc.custom_prompt:
-                        prompt_display = "custom"
-                    else:
-                        prompt_display = desc.prompt_style
-                    metadata_lines.append(f"Prompt: {prompt_display}")
+                    # 'custom' only for a prompt the user wrote (see prompt_label)
+                    metadata_lines.append(
+                        f"Prompt: {_prompt_label(desc.prompt_style, desc.custom_prompt)}")
                 if desc.created:
                     created_date = desc.created.split('T')[0] if 'T' in desc.created else desc.created
                     metadata_lines.append(f"Created: {created_date}")
@@ -2256,11 +2274,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             if first_desc.model:
                 metadata_lines.append(f"Model: {_display_model(first_desc.provider, first_desc.model)}")
             if first_desc.prompt_style:
-                if first_desc.custom_prompt:
-                    prompt_display = "custom"
-                else:
-                    prompt_display = first_desc.prompt_style
-                metadata_lines.append(f"Prompt: {prompt_display}")
+                metadata_lines.append(
+                    f"Prompt: {_prompt_label(first_desc.prompt_style, first_desc.custom_prompt)}")
             if first_desc.created:
                 created_date = first_desc.created.split('T')[0] if 'T' in first_desc.created else first_desc.created
                 metadata_lines.append(f"Created: {created_date}")
@@ -2282,6 +2297,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
             first_text_with_metadata = first_text + "\n".join(metadata_lines)
             self.description_text.SetValue(first_text_with_metadata)
+            self._note_editor_shows(image_item, 0, "\n".join(metadata_lines))
 
             # Enable save button
             self.save_desc_btn.Enable(True)
@@ -2319,6 +2335,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     metadata_text += "No metadata available.\nUse Process > Extract Video Frames to extract frames from this video."
 
                 self.description_text.SetValue(metadata_text)
+                self._note_editor_shows(image_item, None, metadata_text)
 
                 # Also add to descriptions list for accessibility
                 desc_data = [{
@@ -2331,8 +2348,62 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 self.desc_list.LoadDescriptions(desc_data)
             else:
                 self.description_text.SetValue("")
+                self._note_editor_shows(image_item, None, "")
 
             self.save_desc_btn.Enable(False)
+
+    def _note_editor_shows(self, item, index, added):
+        """Record what the description editor is showing (#482, #449).
+
+        ``index`` is the description shown, or None when it shows none (a
+        video's details, or nothing). ``added`` is the text the app put there
+        that isn't the description: the details block after it, or the whole
+        of a video's details. Save, Copy, Edit and Delete act on that
+        description, and Save leaves ``added`` out.
+        """
+        self._editor_shown = (item, index, added)
+
+    def _shown_description_index(self):
+        """Index of the current image's description the editor shows.
+
+        Falls back to the latest when the record doesn't match the current
+        image, which keeps the old behaviour wherever this wasn't recorded.
+        """
+        item = self.current_image_item
+        if not item or not item.descriptions:
+            return None
+        shown_item, index, _added = getattr(self, '_editor_shown', (None, None, ""))
+        if shown_item is item and index is not None and 0 <= index < len(item.descriptions):
+            return index
+        return len(item.descriptions) - 1
+
+    def _editor_text_to_save(self):
+        """(text to save, problem): the editor's text without what the app
+        added for display (#449), or why it can't be saved as it is.
+
+        The added text -- the details block, or a video's details -- is
+        removed wherever it still is word for word, keeping everything typed
+        before and after it. If it was edited, nothing is guessed: dropping
+        it could lose what was typed, and keeping it stores the details in
+        the description, so the user is told instead. Deleted entirely, it's
+        simply not there.
+        """
+        text = self.description_text.GetValue()
+        shown_item, index, added = getattr(self, '_editor_shown', (None, None, ""))
+        if shown_item is not self.current_image_item or not added.strip():
+            return text.strip(), None
+        pos = text.rfind(added)
+        if pos != -1:
+            text = text[:pos] + text[pos + len(added):]
+        elif _added_text_head(added) in text:
+            return None, ("The details shown with the description were changed, so "
+                          "ImageDescriber can't tell them from the description. Undo "
+                          "that change, or delete the details, then save.")
+        text = text.strip()
+        if not text and index is None:
+            return None, ("The editor is showing this video's details, not a "
+                          "description. Type a description, then save.")
+        return text, None
 
     def on_description_selected(self, event):
         """Handle selection of a description from the descriptions list"""
@@ -2353,12 +2424,9 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 if selected_desc.model:
                     metadata_lines.append(f"Model: {_display_model(selected_desc.provider, selected_desc.model)}")
                 if selected_desc.prompt_style:
-                    # If custom prompt was used, show 'custom' instead of base style
-                    if selected_desc.custom_prompt:
-                        prompt_display = "custom"
-                    else:
-                        prompt_display = selected_desc.prompt_style
-                    metadata_lines.append(f"Prompt: {prompt_display}")
+                    # 'custom' only for a prompt the user wrote (see prompt_label)
+                    metadata_lines.append(
+                        f"Prompt: {_prompt_label(selected_desc.prompt_style, selected_desc.custom_prompt)}")
                 if selected_desc.created:
                     created_date = selected_desc.created.split('T')[0] if 'T' in selected_desc.created else selected_desc.created
                     metadata_lines.append(f"Created: {created_date}")
@@ -2380,6 +2448,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
                 full_text = desc_text + "\n".join(metadata_lines)
                 self.description_text.SetValue(full_text)
+                self._note_editor_shows(self.current_image_item, selection,
+                                        "\n".join(metadata_lines))
                 self.save_desc_btn.Enable(True)
 
     # Edit Menu Handlers
@@ -3625,6 +3695,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_process_single(self, event):
         """Process single selected image or extract video frames"""
+        if self._refuse_in_viewer("Processing an image"):
+            return
         logger.info("on_process_single CALLED")
         try:
             self._on_process_single_impl(event)
@@ -5111,15 +5183,19 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         if not self.current_image_item:
             return
 
-        new_text = self.description_text.GetValue().strip()
+        new_text, problem = self._editor_text_to_save()
+        if problem:
+            show_warning(self, problem)
+            return
         if not new_text:
             show_warning(self, "Description is empty")
             return
 
-        # Update the latest description or create new one
-        if self.current_image_item.descriptions:
-            # Update latest
-            self.current_image_item.descriptions[-1].text = new_text
+        # Update the description being shown (#482: it was always the latest,
+        # so editing an older one overwrote the newest), or create one.
+        index = self._shown_description_index()
+        if index is not None:
+            self.current_image_item.descriptions[index].text = new_text
         else:
             # Create new description
             desc = ImageDescription(
@@ -7005,7 +7081,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 parts.append(
                     f"{failures} image(s) in this batch could not be described. "
                     "They are marked X in the image list, and "
-                    "Process > Describe All Undescribed tries them again.\n\n"
+                    "Process > Process Undescribed Images (Entire Workspace) tries them again.\n\n"
                     f"First failure: {first_failure}")
             if video_failures:
                 name, reason = video_failures[0]
@@ -7034,8 +7110,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 "Batch stopped: the provider declined many images in a row.\n\n"
                 f"{halted}\n\n"
                 "The declined images are marked X in the image list. Describing "
-                f"them again with {remedy} (Process > Describe All "
-                "Undescribed) may work.\n\n"
+                f"them again with {remedy} (Process > Process Undescribed "
+                "Images (Entire Workspace)) may work.\n\n"
                 # A halt skips the end-of-batch warning, so say it here.
                 + (f"Frames could not be extracted from {len(video_failures)} "
                    "video(s); the next batch tries them again.\n\n"
@@ -8393,6 +8469,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_rename_item(self, event):
         """Rename selected item (R key or F2)"""
+        if self._refuse_in_viewer("Renaming"):
+            return
         if not self.current_image_item:
             show_warning(self, "No image selected")
             return
@@ -8423,6 +8501,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_add_manual_description(self, event):
         """Add manual description (M key)"""
+        if self._refuse_in_viewer("Adding a description"):
+            return
         if not self.current_image_item:
             show_warning(self, "No image selected")
             return
@@ -8558,6 +8638,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_play_video(self, event):
         """Hand the selected video to the operating system's default player."""
+        if self._refuse_in_viewer("Playing a video"):
+            return
         item = self.current_image_item
         if item is None or item.item_type != "video":
             show_warning(self, "Select a video in the image list first.")
@@ -8619,6 +8701,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_followup_question(self, event):
         """Ask followup question (F key)"""
+        if self._refuse_in_viewer("Asking a follow-up question"):
+            return
         if not self.current_image_item:
             show_warning(self, "No image selected")
             return
@@ -8631,13 +8715,11 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             show_error(self, "Processing worker not available")
             return
 
-        # Get the description the user is currently viewing in the desc_list.
-        # Fall back to the most recently added description if nothing is selected.
-        sel = self.desc_list.GetSelection()
-        if sel != wx.NOT_FOUND and 0 <= sel < len(self.current_image_item.descriptions):
-            focused_description = self.current_image_item.descriptions[sel]
-        else:
-            focused_description = self.current_image_item.descriptions[-1]
+        # The description the editor shows, as Save, Copy, Edit and Delete
+        # use (#484 review): after opening an image the list has no
+        # selection, so this used to fall back to the latest.
+        focused_description = self.current_image_item.descriptions[
+            self._shown_description_index()]
         existing_desc = focused_description.text
 
         # Get original provider and model from the description
@@ -8704,6 +8786,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_auto_rename(self, event):
         """Auto-rename using AI (Z key)"""
+        if self._refuse_in_viewer("Renaming"):
+            return
         if not self.current_image_item:
             show_warning(self, "No image selected")
             return
@@ -8952,8 +9036,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
             if models is not None:
                 count = len(models)
-                model_list = "\\n".join(models) if models else "No Ollama models found"
-                show_info(self, f"Successfully refreshed {count} Ollama model(s):\\n\\n{model_list}{extra}")
+                model_list = "\n".join(models) if models else "No Ollama models found"
+                show_info(self, f"Successfully refreshed {count} Ollama model(s):\n\n{model_list}{extra}")
                 self.SetStatusText(f"Refreshed {count} Ollama model(s)", 0)
             elif api_counts:
                 # Ollama is unreachable but the API providers refreshed, so this
@@ -9107,14 +9191,54 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         self.video_desc_worker = None
 
     # Descriptions menu handlers
+    #
+    # Viewer mode has its own list. current_image_item is the image selected in
+    # Editor mode, hidden while the viewer shows, so in Viewer mode the Copy
+    # items read the viewer's selection, and the items that change
+    # descriptions say to switch, rather than act on an image the user can't
+    # see (#480).
+
+    def _viewer_showing(self):
+        return self.current_mode == 'viewer' and self.viewer_panel is not None
+
+    def _viewer_entry(self):
+        """The viewer's selected entry in Viewer mode, else None."""
+        return self.viewer_panel.selected_entry() if self._viewer_showing() else None
+
+    def _refuse_in_viewer(self, action="Changing descriptions"):
+        """In Viewer mode, say where ``action`` is done instead; True if so.
+
+        A viewer showing a workflow folder isn't the workspace, so Editor
+        mode wouldn't have the description being read: that case points to
+        importing the folder. Otherwise it names the image to select, since
+        Editor mode keeps its own selection (#481 review).
+        """
+        if not self._viewer_showing():
+            return False
+        if getattr(self.viewer_panel, 'current_dir', None):
+            show_info(self, "Viewer mode is showing a workflow folder, which it "
+                            "can only read. To change its descriptions, import it "
+                            "with File, Import Workflow (to Workspace).")
+            return True
+        entry = self._viewer_entry() or {}
+        raw = entry.get('file_path') or ''
+        name = '' if raw.startswith('chat:') else Path(raw).name
+        select = f", then select {name}" if name else ""
+        show_info(self, f"{action} is done in Editor mode. To switch, choose View, "
+                        f"Application Mode, Editor Mode{select}.")
+        return True
+
     def on_edit_description(self, event):
         """Edit selected description"""
+        if self._refuse_in_viewer("Editing a description"):
+            return
         if not self.current_image_item or not self.current_image_item.descriptions:
             show_warning(self, "No description to edit")
             return
 
-        # Get the latest description
-        desc = self.current_image_item.descriptions[-1]
+        # The description being shown (#482), not always the latest.
+        index = self._shown_description_index()
+        desc = self.current_image_item.descriptions[index]
 
         dlg = wx.TextEntryDialog(
             self,
@@ -9131,35 +9255,92 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 desc.text = new_text
                 self.mark_modified()
                 self.display_image_info(self.current_image_item)
+                self._show_description(index)
                 self.SetStatusText("Description updated", 0)
 
         dlg.Destroy()
 
     def on_delete_description(self, event):
         """Delete selected description"""
+        if self._refuse_in_viewer("Deleting a description"):
+            return
         if not self.current_image_item or not self.current_image_item.descriptions:
             show_warning(self, "No description to delete")
             return
 
-        if ask_yes_no(self, "Delete the most recent description?"):
-            self.current_image_item.descriptions.pop()
+        # The description being shown (#482). The question says which one,
+        # since it used to be the latest whatever was on screen.
+        descriptions = self.current_image_item.descriptions
+        index = self._shown_description_index()
+        desc = descriptions[index]
+        is_chat = self.current_image_item.item_type == "chat"
+        words = " ".join(desc.text.split())
+        start = words if len(words) <= 80 else words[:80].rsplit(" ", 1)[0] + "…"
+        which = f"{'message' if is_chat else 'description'} {index + 1} of {len(descriptions)}"
+        if desc.model and desc.prompt_style != "user_question":
+            which += f", by {_display_model(desc.provider, desc.model)}"
+        if ask_yes_no(self, f"Delete {which}?\n\nIt begins: {start}"):
+            descriptions.pop(index)
             self.mark_modified()
             self.refresh_image_list()  # Update "d" indicator in image list
             self.display_image_info(self.current_image_item)
+            self._show_description(min(index, len(descriptions) - 1))
             self.SetStatusText("Description deleted", 0)
+
+    def _show_description(self, index):
+        """Select description ``index`` in the editor's list and show it."""
+        item = self.current_image_item
+        if not item or index is None or not 0 <= index < len(item.descriptions):
+            return
+        self.desc_list.SetSelection(index)
+        if item.item_type == "chat":
+            # A chat shows each turn's text alone, no details block.
+            self.description_text.SetValue(item.descriptions[index].text)
+            self._note_editor_shows(item, index, "")
+        else:
+            self.on_description_selected(None)
 
     def on_copy_description(self, event):
         """Copy description to clipboard"""
-        if not self.current_image_item or not self.current_image_item.descriptions:
+        desc = self._description_to_copy()
+        if desc is None:
             show_warning(self, "No description to copy")
             return
-
-        desc = self.current_image_item.descriptions[-1].text
         if self._copy_text_to_clipboard(desc):
             self.SetStatusText("Description copied to clipboard", 0)
 
+    def _description_to_copy(self):
+        """The description text the Copy items use, or None.
+
+        Viewer mode: the description selected there. Editor mode: the
+        description the editor shows (#482).
+        """
+        if self._viewer_showing():
+            entry = self._viewer_entry()
+            text = (entry or {}).get('description') or ''
+            return text if text.strip() else None
+        index = self._shown_description_index()
+        if index is None:
+            return None
+        return self.current_image_item.descriptions[index].text
+
     def on_copy_image_path(self, event):
         """Copy image path to clipboard"""
+        if self._viewer_showing():
+            entry = self._viewer_entry()
+            if not entry:
+                show_warning(self, "No description selected")
+                return
+            raw = entry.get('file_path') or entry.get('relative_path') or ''
+            if not raw or raw.startswith('chat:'):
+                show_warning(self, "This description has no image path")
+                return
+            resolved = self.viewer_panel._get_current_image_path()
+            path = str(resolved) if resolved else raw
+            if self._copy_text_to_clipboard(path):
+                self.SetStatusText("Image path copied to clipboard", 0)
+            return
+
         if not self.current_image_item:
             show_warning(self, "No image selected")
             return
@@ -9202,16 +9383,29 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         For video items, returns the first extracted frame path.
         For regular images, returns the file_path resolved through the workspace.
         Returns None if no image is selected or path cannot be resolved.
+        In Viewer mode, the image of the description selected there (#480).
         """
-        if not self.current_image_item:
+        item = self.current_image_item
+        if self._viewer_showing():
+            entry = self._viewer_entry()
+            if not entry or (entry.get('file_path') or '').startswith('chat:'):
+                return None
+            # A workspace entry goes through its item, so a video gives its
+            # frame, as in Editor mode. A workflow folder's entry has no item.
+            item = None
+            if not getattr(self.viewer_panel, 'current_dir', None) and self.workspace:
+                item = self.workspace.items.get(entry.get('file_path'))
+            if item is None:
+                return self.viewer_panel._get_current_image_path()
+        if not item:
             return None
-        if self.current_image_item.item_type == "video":
-            frame_path = self._get_video_preview_frame(self.current_image_item)
+        if item.item_type == "video":
+            frame_path = self._get_video_preview_frame(item)
             if not frame_path:
                 return None
             resolved = self.resolve_image_path(frame_path)
         else:
-            resolved = self.resolve_image_path(self.current_image_item.file_path)
+            resolved = self.resolve_image_path(item.file_path)
         from pathlib import Path as _Path
         resolved = _Path(str(resolved))
         return resolved if resolved.exists() else None
@@ -9261,14 +9455,14 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         if not path:
             show_warning(self, "No image available to copy")
             return
-        if not self.current_image_item or not self.current_image_item.descriptions:
+        desc = self._description_to_copy()
+        if desc is None:
             show_warning(self, "No description to copy")
             return
         bmp = self._load_bitmap_for_clipboard(path)
         if not bmp:
             show_warning(self, "Could not load image for clipboard")
             return
-        desc = self.current_image_item.descriptions[-1].text
         import sys
         composite = wx.DataObjectComposite()
         composite.Add(wx.BitmapDataObject(bmp))
@@ -9475,7 +9669,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self.cached_ollama_models = None  # Force reload on next use
 
         except Exception as e:
-            show_error(self, f"Error launching Configure Settings:\\n{e}")
+            show_error(self, f"Error launching Configure Settings:\n{e}")
 
     def on_install_ollama(self, event):
         """Help user install Ollama if not already present"""

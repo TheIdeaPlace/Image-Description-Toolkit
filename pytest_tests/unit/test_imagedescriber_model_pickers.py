@@ -242,6 +242,6 @@ def test_prompt_editor_labels_openai_models_too(frame):
     try:
         dlg.provider_combo.SetStringSelection("openai")
         dlg.populate_model_combo()
-        assert dlg.default_model_combo.GetString(0) == "GPT-5.2 (Recommended)"
+        assert dlg.default_model_combo.GetString(0) == "GPT-6 Luna (Recommended)"
     finally:
         dlg.Destroy()

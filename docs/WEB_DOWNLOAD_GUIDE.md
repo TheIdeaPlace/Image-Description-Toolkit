@@ -34,7 +34,7 @@ idt workflow https://example.com/photos --max-images 50
 idt workflow https://example.com/gallery \
   --max-images 100 \
   --provider openai \
-  --model gpt-4o-mini \
+  --model gpt-6-luna \
   --api-key-file openai.txt \
   --output-dir my_web_gallery
 ```
@@ -163,7 +163,7 @@ idt workflow https://store.example.com/products \
   --min-size 300x300 \
   --steps download,describe \
   --provider openai \
-  --model gpt-4o-mini \
+  --model gpt-6-luna \
   --api-key-file openai.txt
 ```
 

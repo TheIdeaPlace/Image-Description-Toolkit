@@ -154,8 +154,10 @@ def _generation_entry(provider: str, label: str, setting: str) -> Dict[str, Any]
             choice_labels={"": AUTOMATIC_LABEL},
             description=(f"How hard {label} reasons before answering. Lower is faster "
                          "and cheaper; descriptions rarely need high. Overrides Thinking."
-                         + (" Minimal means the least the model takes: none on GPT-5.1 "
-                            "and later, low on the o-series." if provider == "openai" else "")))
+                         + (" Minimal means the least the model takes: low on the "
+                            "o-series, GPT-6 Astra, GPT-6.1 Sol, GPT-6.2 Sol and GPT-6.2 "
+                            "Astra; minimal on the original GPT-5 models; none on the "
+                            "others." if provider == "openai" else "")))
     elif setting == "temperature":
         entry.update(
             type="float_or_auto", range=[0.0, 2.0],
@@ -294,7 +296,14 @@ def _choice_value(setting_info: Dict[str, Any], label: str) -> str:
 
 
 class ApiKeyEditDialog(wx.Dialog):
-    """Dialog for adding or editing an API key"""
+    """Dialog for adding or replacing one provider's API key.
+
+    Opened from a provider row on the API Keys tab, it is for that provider
+    only: the title and the key box name it, and there is no provider list
+    to pick from again (Kelly, 11/2026 -- arrowing to Claude and choosing Add
+    Key, then having to choose Claude a second time, was a step too many).
+    The provider list appears only when no provider is given.
+    """
 
     #: (display label, canonical name used by idt_core.keys)
     PROVIDER_CHOICES = [
@@ -303,12 +312,24 @@ class ApiKeyEditDialog(wx.Dialog):
         ("Ollama Web Search", "ollama.com"),
     ]
 
-    def __init__(self, parent, provider="", api_key=""):
-        title = "Edit API Key" if provider else "Add API Key"
-        super().__init__(parent, title=title, size=(500, 250))
+    @classmethod
+    def label_for(cls, provider: str) -> str:
+        """The display label for a canonical name; an unrecognised name as is."""
+        for label, canonical in cls.PROVIDER_CHOICES:
+            if canonical == (provider or "").lower():
+                return label
+        return provider
 
+    def __init__(self, parent, provider="", api_key="", replacing=False):
         self.provider = provider
         self.api_key = api_key
+        self.replacing = replacing
+        if provider:
+            verb = "Replace" if replacing else "Add"
+            title = f"{verb} {self.label_for(provider)} API Key"
+        else:
+            title = "Add API Key"
+        super().__init__(parent, title=title, size=(500, 250))
 
         self.setup_ui()
 
@@ -317,31 +338,27 @@ class ApiKeyEditDialog(wx.Dialog):
         panel = wx.Panel(self)
         sizer = wx.BoxSizer(wx.VERTICAL)
 
-        # Description
-        desc_text = wx.StaticText(panel, label="Enter API key details:")
-        sizer.Add(desc_text, 0, wx.ALL, 10)
-
         # Form grid
-        form_sizer = wx.FlexGridSizer(rows=2, cols=2, vgap=10, hgap=10)
+        form_sizer = wx.FlexGridSizer(cols=2, vgap=10, hgap=10)
         form_sizer.AddGrowableCol(1, 1)
 
-        # Provider selection
-        form_sizer.Add(wx.StaticText(panel, label="Provider:"), 0, wx.ALIGN_CENTER_VERTICAL)
-        labels = [label for label, _canonical in self.PROVIDER_CHOICES]
-        self.provider_choice = wx.Choice(panel, choices=labels, name="Provider")
-        if self.provider:
-            for i, (label, canonical) in enumerate(self.PROVIDER_CHOICES):
-                if canonical == self.provider.lower() or label.lower() == self.provider.lower():
-                    self.provider_choice.SetSelection(i)
-                    break
+        # Provider selection: only when the caller didn't say which.
+        self.provider_choice = None
+        if not self.provider:
+            form_sizer.Add(wx.StaticText(panel, label="Provider:"), 0, wx.ALIGN_CENTER_VERTICAL)
+            labels = [label for label, _canonical in self.PROVIDER_CHOICES]
+            self.provider_choice = wx.Choice(panel, choices=labels, name="Provider")
+            self.provider_choice.SetSelection(0)
+            form_sizer.Add(self.provider_choice, 1, wx.EXPAND)
+            key_label = "API key"
         else:
-            self.provider_choice.SetSelection(0)  # Default to OpenAI
-        form_sizer.Add(self.provider_choice, 1, wx.EXPAND)
+            key_label = f"{self.label_for(self.provider)} API key"
 
-        # API Key text input
-        form_sizer.Add(wx.StaticText(panel, label="API Key:"), 0, wx.ALIGN_CENTER_VERTICAL)
+        # API Key text input, named for the provider so focus landing on it
+        # says whose key it is.
+        form_sizer.Add(wx.StaticText(panel, label=f"{key_label}:"), 0, wx.ALIGN_CENTER_VERTICAL)
         self.key_text = wx.TextCtrl(panel, value=self.api_key, style=wx.TE_PASSWORD,
-                                    name="API key")
+                                    name=key_label)
         form_sizer.Add(self.key_text, 1, wx.EXPAND)
 
         sizer.Add(form_sizer, 0, wx.EXPAND | wx.ALL, 10)
@@ -370,35 +387,39 @@ class ApiKeyEditDialog(wx.Dialog):
         # Bind OK to validation
         ok_btn.Bind(wx.EVT_BUTTON, self.on_ok)
         
-        # Set focus to appropriate field for keyboard accessibility
-        # If editing existing key, focus on key field; if new, focus on provider
-        if self.provider:
-            # Editing existing - focus on API key field
-            wx.CallAfter(self.key_text.SetFocus)
-        else:
-            # Adding new - focus on provider choice
-            wx.CallAfter(self.provider_choice.SetFocus)
-        
+        # Focus where the typing goes: the key box when the provider is known,
+        # the provider list otherwise.
+        self.first_focus = self.provider_choice or self.key_text
+        wx.CallAfter(self._focus_first)
+
+    def _focus_first(self):
+        if self and not self.IsBeingDeleted():
+            self.first_focus.SetFocus()
+
     def on_ok(self, event):
         """Validate input before accepting"""
-        provider = self.provider_choice.GetStringSelection()
-        api_key = self.key_text.GetValue().strip()
-        
+        provider, api_key = self.get_values()
+
         if not provider:
             show_warning(self, "Please select a provider.")
             return
-        
+
         if not api_key:
             show_warning(self, "Please enter an API key.")
+            self.key_text.SetFocus()
             return
-        
+
         self.EndModal(wx.ID_OK)
-    
+
     def get_values(self):
-        """Get the entered (canonical provider name, API key)."""
-        index = self.provider_choice.GetSelection()
-        canonical = (self.PROVIDER_CHOICES[index][1]
-                     if index != wx.NOT_FOUND else "")
+        """Get the entered (provider name, API key): the canonical name from
+        the list, or the provider this dialog was opened for, as given."""
+        if self.provider_choice is None:
+            canonical = self.provider
+        else:
+            index = self.provider_choice.GetSelection()
+            canonical = (self.PROVIDER_CHOICES[index][1]
+                         if index != wx.NOT_FOUND else "")
         return canonical, self.key_text.GetValue().strip()
 
 # Ensure project root is on sys.path so sibling modules (shared/) import in dev and frozen modes
@@ -807,7 +828,8 @@ class ConfigureDialog(wx.Dialog):
                     "file": "image_describer",
                     "path": ["default_prompt_style"],
                     "type": "choice",
-                    "choices": ["detailed", "concise", "narrative", "artistic", "technical", "colorful", "Simple"],
+                    # The prompts' real names; "Simple" (capitalised) matched none (guru bug bash S5).
+                    "choices": ["detailed", "concise", "narrative", "artistic", "technical", "colorful", "simple"],
                     "description": "Default prompt style for image descriptions. 'narrative' provides objective, detailed descriptions. 'artistic' focuses on composition and mood. 'technical' analyzes photographic aspects."
                 }
             },
@@ -1645,25 +1667,44 @@ class ConfigureDialog(wx.Dialog):
         self.api_keys_list.Bind(wx.EVT_KEY_DOWN, self.on_api_key_list_key)
         sizer.Add(self.api_keys_list, 1, wx.EXPAND | wx.ALL, 10)
         
-        # Buttons
+        # Buttons. One button sets the selected provider's key; its label
+        # follows the selection ("Add Key" when there's none, "Replace Key"
+        # when there is), so it says what it will do before it's pressed.
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        
-        self.add_key_btn = wx.Button(panel, label="Add Key")
+        self._api_keys_btn_sizer = btn_sizer
+
+        self.add_key_btn = wx.Button(panel, label=self.ADD_KEY_LABEL)
         self.add_key_btn.Bind(wx.EVT_BUTTON, self.on_add_api_key)
         btn_sizer.Add(self.add_key_btn, 0, wx.ALL, 5)
-        
-        self.edit_key_btn = wx.Button(panel, label="Edit Key")
-        self.edit_key_btn.Bind(wx.EVT_BUTTON, self.on_edit_api_key)
-        self.edit_key_btn.Enable(False)
-        btn_sizer.Add(self.edit_key_btn, 0, wx.ALL, 5)
-        
+
+        self.test_key_btn = wx.Button(panel, label="&Test Key")
+        self.test_key_btn.Bind(wx.EVT_BUTTON, self.on_test_api_key)
+        self.test_key_btn.Enable(False)
+        btn_sizer.Add(self.test_key_btn, 0, wx.ALL, 5)
+
         self.delete_key_btn = wx.Button(panel, label="Delete Key")
         self.delete_key_btn.Bind(wx.EVT_BUTTON, self.on_delete_api_key)
         self.delete_key_btn.Enable(False)
         btn_sizer.Add(self.delete_key_btn, 0, wx.ALL, 5)
-        
+
         sizer.Add(btn_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 5)
-        
+
+        # Test Key's result: read-only text in the Tab order, right after the
+        # buttons. Focus goes to it when a test starts ("Testing your ...
+        # key...") and it is read again when the answer comes, so a screen
+        # reader hears the result without hunting for it.
+        sizer.Add(wx.StaticText(panel, label="Test result:"), 0, wx.LEFT | wx.RIGHT, 10)
+        self.key_test_result = wx.TextCtrl(
+            panel, value=self.KEY_TEST_INTRO,
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP,
+            name="Test result")
+        name_for_screen_readers(self.key_test_result, "Test result")
+        self.key_test_result.SetMinSize((600, self.key_test_result.GetCharHeight() * 4 + 8))
+        sizer.Add(self.key_test_result, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        #: The running test's token: a result is shown only if it carries the
+        #: current one, so one that arrives after the dialog moved on is dropped.
+        self._key_test_token = None
+
         # Help text
         sizer.Add(readable_text(
             panel,
@@ -1671,18 +1712,62 @@ class ConfigureDialog(wx.Dialog):
             "optional Ollama web search in chat (free key from ollama.com). "
             "Ollama itself runs locally and needs no key. Keys are shared with "
             "IDT Chat and the idt command line. A Claude key must be assigned to a "
-            "workspace in the Claude Console (new keys are, by default).",
+            "workspace in the Claude Console (new keys are, by default). "
+            "Test Key sends one short request with the selected provider's key to "
+            "check that it works. For Claude and OpenAI that request is paid for "
+            "on your account and costs a small fraction of a cent; for Ollama web "
+            "search it is one web search, which counts toward your ollama.com "
+            "usage limits.",
             "About API keys", width=600), 0, wx.ALL, 10)
-        
+
         panel.SetSizer(sizer)
-        
+
         # Bind selection event
         self.api_keys_list.Bind(wx.EVT_LISTBOX, self.on_api_key_selected)
-        
+
         # Load current API keys
         self.load_api_keys()
-        
+
         return panel
+
+    ADD_KEY_LABEL = "Add Key"
+    REPLACE_KEY_LABEL = "Replace Key"
+    KEY_TEST_INTRO = ("Select a provider with a key and choose Test Key to check "
+                      "that the key works. The result appears here.")
+
+    def _selected_api_key_provider(self):
+        """The selected row's provider name, or None."""
+        selection = self.api_keys_list.GetSelection()
+        if selection == wx.NOT_FOUND:
+            return None
+        return self.api_keys_list.GetClientData(selection)
+
+    def _is_known_provider(self, provider) -> bool:
+        return any(canonical == provider
+                   for _label, canonical in ApiKeyEditDialog.PROVIDER_CHOICES)
+
+    def _provider_has_key(self, provider) -> bool:
+        """Whether there's a key for this row: from idt_core.keys for the
+        known providers; an unrecognised row is listed only when it has one."""
+        if not provider:
+            return False
+        if not self._is_known_provider(provider):
+            return True
+        return getattr(self, "_api_key_sources", {}).get(provider) is not None
+
+    def _sync_api_key_buttons(self):
+        """Label and enable the buttons for the selected row."""
+        from idt_core.key_check import can_test
+
+        provider = self._selected_api_key_provider()
+        has_key = self._provider_has_key(provider)
+        label = self.REPLACE_KEY_LABEL if has_key else self.ADD_KEY_LABEL
+        if self.add_key_btn.GetLabel() != label:
+            self.add_key_btn.SetLabel(label)
+            self._api_keys_btn_sizer.Layout()
+        self.test_key_btn.Enable(bool(has_key and can_test(provider)
+                                      and self._key_test_token is None))
+        self.delete_key_btn.Enable(bool(has_key))
     
     #: Config-file spellings that mean each canonical provider; used when a
     #: key is migrated out of the plaintext config into the credential store.
@@ -1723,10 +1808,18 @@ class ConfigureDialog(wx.Dialog):
         """
         from idt_core.keys import key_source
 
+        # Keep the same provider selected across a reload (after Add, Replace
+        # or Delete), so focus and the buttons stay with the row just changed.
+        previous = self._selected_api_key_provider()
         self.api_keys_list.Clear()
+        # Remembered for the buttons: looking a source up again on every
+        # arrow press would run the Keychain's `security` tool per key press
+        # on a Mac.
+        self._api_key_sources = {}
         known = set()
         for label, canonical in ApiKeyEditDialog.PROVIDER_CHOICES:
             source = key_source(canonical)
+            self._api_key_sources[canonical] = source
             status = {
                 "environment": "set via environment variable",
                 "credential store": "stored securely",
@@ -1754,17 +1847,26 @@ class ConfigureDialog(wx.Dialog):
                 index = self.api_keys_list.Append(
                     f"{name}: stored in the config file (unrecognised provider)")
                 self.api_keys_list.SetClientData(index, name)
-    
+
+        # A row is always selected, so the key button always knows whose key
+        # it sets and never has to ask.
+        if self.api_keys_list.GetCount():
+            index = 0
+            for i in range(self.api_keys_list.GetCount()):
+                if self.api_keys_list.GetClientData(i) == previous:
+                    index = i
+                    break
+            self.api_keys_list.SetSelection(index)
+        self._sync_api_key_buttons()
+
     def on_api_key_selected(self, event):
         """Handle API key selection"""
-        selection = self.api_keys_list.GetSelection()
-        if selection != wx.NOT_FOUND:
-            self.edit_key_btn.Enable(True)
-            self.delete_key_btn.Enable(True)
-        else:
-            self.edit_key_btn.Enable(False)
-            self.delete_key_btn.Enable(False)
-    
+        self._sync_api_key_buttons()
+        # The last result belongs to the row it was for; a new row starts
+        # from the explanation (not while a test is still running).
+        if self._key_test_token is None:
+            self.key_test_result.ChangeValue(self.KEY_TEST_INTRO)
+
     def _store_key(self, canonical, api_key):
         """Save one key: credential store first, config file as fallback.
 
@@ -1789,75 +1891,176 @@ class ConfigureDialog(wx.Dialog):
         self._save_image_describer_config()
         return True
 
+    def _store_unrecognised_key(self, name, api_key):
+        """Replace an unrecognised provider's key where it lives: in the
+        config file, under the same name. The credential store would hide it
+        (only known providers are read from there) and nothing would use it."""
+        config = self.configs.setdefault("image_describer", {})
+        config.setdefault("api_keys", {})[name] = api_key
+        self._save_image_describer_config()
+
     def on_add_api_key(self, event):
-        """Add a new API key"""
-        dialog = ApiKeyEditDialog(self)
-        if dialog.ShowModal() == wx.ID_OK:
-            provider, api_key = dialog.get_values()
-            self._store_key(provider, api_key)
-            self._reload_provider_api_keys()
-            self.load_api_keys()
-        dialog.Destroy()
+        """Add or replace the selected provider's key.
 
-    def on_edit_api_key(self, event):
-        """Set a new key for the selected provider.
-
+        With a row selected (always, once the list is filled) the dialog is
+        for that provider: no provider list, focus straight in the key box.
         The current key is never pre-filled: it may live in the credential
         store, and a settings dialog should not read secrets back just to
         display them masked.
         """
-        selection = self.api_keys_list.GetSelection()
-        if selection == wx.NOT_FOUND:
-            return
-
-        provider = self.api_keys_list.GetClientData(selection)
-        dialog = ApiKeyEditDialog(self, provider=provider)
-        if dialog.ShowModal() == wx.ID_OK:
+        provider = self._selected_api_key_provider()
+        if provider:
+            dialog = ApiKeyEditDialog(self, provider=provider,
+                                      replacing=self._provider_has_key(provider))
+        else:
+            dialog = ApiKeyEditDialog(self)
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
             new_provider, new_key = dialog.get_values()
+        finally:
+            dialog.Destroy()
+        if provider and not self._is_known_provider(provider):
+            self._store_unrecognised_key(provider, new_key)
+        else:
             self._store_key(new_provider, new_key)
-            self._reload_provider_api_keys()
-            self.load_api_keys()
-        dialog.Destroy()
+        self._abandon_key_test()
+        self._reload_provider_api_keys()
+        self.load_api_keys()
+        self.api_keys_list.SetFocus()
+
+        if self._api_key_sources.get(new_provider) == "environment":
+            from shared.wx_common import show_warning
+            show_warning(
+                self,
+                f"The key was saved, but an environment variable still provides "
+                f"a key for {ApiKeyEditDialog.label_for(new_provider)}, and IDT "
+                f"uses that one first. Remove the environment variable to use "
+                f"the key you saved.")
+
+    # -- Test Key --------------------------------------------------------
+
+    KEY_CHANGED_DURING_TEST = "The key changed while it was being tested. Test it again."
+
+    def _abandon_key_test(self):
+        """A key changed while a test ran: its answer would be about the old
+        key, so drop it when it comes and say so now."""
+        if self._key_test_token is not None:
+            self._key_test_token = None
+            self.key_test_result.ChangeValue(self.KEY_CHANGED_DURING_TEST)
+            self.key_test_result.SetInsertionPoint(0)
+
+    def on_test_api_key(self, event):
+        """Test the selected provider's key with one tiny request, on a
+        background thread. Returns True if a test started."""
+        import threading
+
+        from idt_core.key_check import can_test, test_api_key
+
+        provider = self._selected_api_key_provider()
+        if (self._key_test_token is not None or not provider
+                or not can_test(provider) or not self._provider_has_key(provider)):
+            return False
+        label = ApiKeyEditDialog.label_for(provider)
+        token = object()
+        self._key_test_token = token
+        self.key_test_result.ChangeValue(f"Testing your {label} key...")
+        self.key_test_result.SetInsertionPoint(0)
+        # Focus to the result before Test Key is turned off: a control turned
+        # off with the focus on it leaves the focus nowhere.
+        self.key_test_result.SetFocus()
+        self.test_key_btn.Enable(False)
+
+        def work():
+            try:
+                result = test_api_key(provider)
+            except Exception:                                   # noqa: BLE001
+                # test_api_key never raises; this is only a backstop, and its
+                # text is not shown because it was not scrubbed.
+                from idt_core.key_check import KeyTestResult
+                result = KeyTestResult(False, "The test didn't finish.")
+            try:
+                wx.CallAfter(self._key_test_done, token, result)
+            except Exception:                                   # noqa: BLE001
+                pass    # the app is closing; nothing to show it in
+
+        threading.Thread(target=work, name="api-key-test", daemon=True).start()
+        return True
+
+    def _key_test_done(self, token, result):
+        """Show a finished test's result, unless the dialog is gone or the
+        test is no longer the current one."""
+        if not self or self.IsBeingDeleted() or token is not self._key_test_token:
+            return
+        self._key_test_token = None
+        self._sync_api_key_buttons()
+        self.key_test_result.ChangeValue(self.key_test_text(result))
+        self.key_test_result.SetInsertionPoint(0)
+        focus = wx.Window.FindFocus()
+        if focus is not None and focus.GetId() == self.key_test_result.GetId():
+            # A screen reader doesn't read a focused box's new text by itself;
+            # moving focus away and straight back makes JAWS and NVDA read it.
+            fallback = self.test_key_btn if self.test_key_btn.IsEnabled() else self.api_keys_list
+            fallback.SetFocus()
+            wx.CallLater(100, self._refocus_key_test_result)
+
+    @staticmethod
+    def key_test_text(result) -> str:
+        """The result box's text: the short verdict on a line of its own,
+        then the detail. JAWS and NVDA read only the cursor's line when focus
+        lands in a multi-line box, so that line has to be the answer. A key
+        that works is one short line ("Your Claude key works. That test cost
+        0.00038 cents."), so it stays whole."""
+        if not result.ok and result.verdict and result.detail:
+            return f"{result.verdict}\n{result.detail}"
+        return result.message
+
+    def _refocus_key_test_result(self):
+        if self and not self.IsBeingDeleted() and self.IsShown():
+            self.key_test_result.SetFocus()
 
     def on_delete_api_key(self, event):
         """Delete the selected provider's stored key"""
-        from idt_core.keys import delete_api_key, key_source
+        from idt_core.keys import delete_api_key
 
         selection = self.api_keys_list.GetSelection()
         if selection == wx.NOT_FOUND:
             return
 
         provider = self.api_keys_list.GetClientData(selection)
+        label = ApiKeyEditDialog.label_for(provider)
 
         # Confirm deletion
         from shared.wx_common import ask_yes_no
-        if not ask_yes_no(self, f"Delete API key for {provider}?", "Confirm Delete"):
+        if not ask_yes_no(self, f"Delete API key for {label}?", "Confirm Delete"):
             return
+
+        # Focus first: Delete Key is about to be turned off (the row has no
+        # key now), and a control turned off with the focus on it leaves the
+        # focus nowhere.
+        self.api_keys_list.SetFocus()
 
         # Remove from the credential store and from the config file.
         delete_api_key(provider)
         if self._purge_config_key(provider):
             self._save_image_describer_config()
+        self._abandon_key_test()
         self._reload_provider_api_keys()
         self.load_api_keys()
 
-        remaining = key_source(provider)
+        remaining = self._api_key_sources.get(provider)
         if remaining == "environment":
             from shared.wx_common import show_warning
             show_warning(
                 self,
                 f"The stored key was removed, but an environment variable "
-                f"still provides a key for {provider}.")
+                f"still provides a key for {label}.")
 
-        # Disable edit/delete buttons
-        self.edit_key_btn.Enable(False)
-        self.delete_key_btn.Enable(False)
-    
     def on_api_key_list_key(self, event):
         """Handle keyboard navigation in API keys list"""
         keycode = event.GetKeyCode()
         if keycode == wx.WXK_TAB and not event.ShiftDown():
-            # Move focus to Add Key button
+            # Move focus to the Add Key / Replace Key button
             if self.add_key_btn:
                 self.add_key_btn.SetFocus()
             return

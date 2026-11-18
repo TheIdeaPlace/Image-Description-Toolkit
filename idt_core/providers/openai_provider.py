@@ -1,6 +1,6 @@
 """
-OpenAI provider (GPT-4o, GPT-4o-mini, o1).
-Reads OPENAI_API_KEY from the environment.
+OpenAI provider (GPT-6, GPT-5.x and the older vision models).
+Reads the key through idt_core.keys (OPENAI_API_KEY, then the saved key).
 """
 from __future__ import annotations
 
@@ -15,54 +15,145 @@ from .base import BaseProvider, DescriptionResult
 # metadata layer (issue #267). It is still the source of truth for
 # context_window / max_output / cost / recommended, and for display order.
 #
-# Updated July 2026.
-DEFAULT_MODEL = "gpt-5.2"
+# Updated November 2026 (issue #453). Sources, all checked 11/18/2026:
+#   * which models exist: GET /v1/models on a real account;
+#   * context window, max output, image input and status (deprecated / shut
+#     down): each model's page, https://developers.openai.com/api/docs/models/<id>.md
+#     ("Model details", "Supported features: image_input", "Status:");
+#   * prices: idt_core/pricing.py, from the pricing page's Standard table.
+#
+# Every model offered here takes image input (its model page lists
+# "image_input" and "Input modalities: text, image") and answers on
+# /v1/chat/completions. Not offered: the -pro models (priced for hard
+# reasoning problems, 6 to 30 times their base model), gpt-5.3-codex (a coding
+# model) and gpt-live-1 (realtime voice). They still appear after a live
+# refresh, marked "new — details unknown", for anyone who wants them.
+#
+#: GPT-6 Luna: $0.10 in / $0.50 out per million tokens, the same as Claude's
+#: default Haiku 5.5 and the cheapest current OpenAI model, and OpenAI's
+#: current "most efficient model for focused, high-volume tasks", which a
+#: batch of pictures is. GPT-6.1 Terra, ten times the price, is OpenAI's
+#: model for visual reasoning and is a choice away for pictures that need it.
+DEFAULT_MODEL = "gpt-6-luna"
 
 OPENAI_MODELS = [
-    # Current generation — GPT-5.x
-    "gpt-5.2", "gpt-5.1", "gpt-5", "gpt-5-mini", "gpt-5-nano",
-    # Reasoning models
-    "o4-mini", "o3",
-    # Legacy (still functional, users may have old descriptions referencing them)
-    "gpt-4o", "gpt-4o-mini",
-    "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano",
-    "o1",
+    # Current generation, the default first, then the rest of the newest
+    # releases by price.
+    "gpt-6-luna", "gpt-6.1-terra", "gpt-6.2-sol", "gpt-6.2-astra",
+    # Earlier GPT-6
+    "gpt-6.1-sol", "gpt-6-sol", "gpt-6-astra",
+    # GPT-5.6 and GPT-5.5
+    "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.5",
+    # GPT-5.4 and GPT-5.2, still current on OpenAI's pages
+    "gpt-5.4-mini", "gpt-5.4", "gpt-5.2",
+    # Deprecated by OpenAI but still answering (users may have old descriptions
+    # referencing them). They leave this list when OpenAI shuts them down.
+    "gpt-5.4-nano", "gpt-5.1", "gpt-5", "gpt-5-mini", "gpt-5-nano", "o3",
+    "gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini",
 ]
+
+#: Shut down by OpenAI (their model pages say "Status: Shut down" and
+#: GET /v1/models no longer lists them). Not offered, but their metadata stays
+#: below so a workspace described with one still shows its name.
+RETIRED_MODELS = ("o4-mini", "o1", "gpt-4.1-nano")
 
 # context_window / max_output are the platform-documented figures. They feed
 # the chat token budgeter and the context gauge; before they were recorded,
 # registry.model_limits() returned (None, None) for every OpenAI model and
 # budgeting fell back to a flat 128k guess regardless of model.
+#
+# Cost buckets, as for Claude, from the input price per million tokens:
+# $ under $1, $$ under $3, $$$ under $6, $$$$ above.
 OPENAI_MODEL_METADATA: dict = {
-    # --- GPT-5.x --- (400k context, 128k max output across the family)
-    "gpt-5.2": {"name": "GPT-5.2", "description": "Best available model — highest quality vision and reasoning.", "cost": "$$$$", "supports_vision": True, "recommended": True,
+    # --- GPT-6 --- 1,050,000 context, 128,000 max output for every one
+    # (each model's page, "Model details").
+    "gpt-6-luna": {"name": "GPT-6 Luna", "description": "Fastest and cheapest; good for large batches",
+                   "cost": "$", "supports_vision": True, "recommended": True,
+                   "context_window": 1_050_000, "max_output": 128_000},
+    "gpt-6.1-terra": {"name": "GPT-6.1 Terra", "description": "OpenAI's model for visual reasoning; more thorough",
+                      "cost": "$$", "supports_vision": True, "recommended": True,
+                      "context_window": 1_050_000, "max_output": 128_000},
+    "gpt-6.2-sol": {"name": "GPT-6.2 Sol", "description": "OpenAI's everyday flagship",
+                    "cost": "$$", "supports_vision": True, "recommended": True,
+                    "context_window": 1_050_000, "max_output": 128_000},
+    "gpt-6.2-astra": {"name": "GPT-6.2 Astra", "description": "OpenAI's most capable model; slowest and most expensive",
+                      "cost": "$$$$", "supports_vision": True, "recommended": False,
+                      "context_window": 1_050_000, "max_output": 128_000},
+    "gpt-6.1-sol": {"name": "GPT-6.1 Sol", "description": "Previous Sol; prefer GPT-6.2 Sol, which costs the same",
+                    "cost": "$$", "supports_vision": True, "recommended": False,
+                    "context_window": 1_050_000, "max_output": 128_000},
+    "gpt-6-sol": {"name": "GPT-6 Sol", "description": "First Sol; prefer GPT-6.2 Sol, which costs the same",
+                  "cost": "$$", "supports_vision": True, "recommended": False,
+                  "context_window": 1_050_000, "max_output": 128_000},
+    "gpt-6-astra": {"name": "GPT-6 Astra", "description": "First Astra; prefer GPT-6.2 Astra, which costs less",
+                    "cost": "$$$$", "supports_vision": True, "recommended": False,
+                    "context_window": 1_050_000, "max_output": 128_000},
+    # --- GPT-5.6 / 5.5 / 5.4 --- 1,050,000 context, except GPT-5.4 mini and
+    # nano at 400,000; 128,000 max output (each model's page).
+    "gpt-5.6-luna": {"name": "GPT-5.6 Luna", "description": "Previous Luna; prefer GPT-6 Luna, which costs less",
+                     "cost": "$", "supports_vision": True, "recommended": False,
+                     "context_window": 1_050_000, "max_output": 128_000},
+    "gpt-5.6-terra": {"name": "GPT-5.6 Terra", "description": "Previous Terra; prefer GPT-6.1 Terra, which costs less",
+                      "cost": "$$", "supports_vision": True, "recommended": False,
+                      "context_window": 1_050_000, "max_output": 128_000},
+    "gpt-5.6-sol": {"name": "GPT-5.6 Sol", "description": "Previous Sol; prefer GPT-6.2 Sol, which costs less",
+                    "cost": "$$$", "supports_vision": True, "recommended": False,
+                    "context_window": 1_050_000, "max_output": 128_000},
+    "gpt-5.5": {"name": "GPT-5.5", "description": "Earlier flagship",
+                "cost": "$$$", "supports_vision": True, "recommended": False,
+                "context_window": 1_050_000, "max_output": 128_000},
+    "gpt-5.4": {"name": "GPT-5.4", "description": "Earlier model for professional work",
+                "cost": "$$", "supports_vision": True, "recommended": False,
+                "context_window": 1_050_000, "max_output": 128_000},
+    "gpt-5.4-mini": {"name": "GPT-5.4 Mini", "description": "Earlier compact model",
+                     "cost": "$", "supports_vision": True, "recommended": False,
+                     "context_window": 400_000, "max_output": 128_000},
+    "gpt-5.4-nano": {"name": "GPT-5.4 Nano", "description": "Deprecated by OpenAI; prefer GPT-6 Luna",
+                     "cost": "$", "supports_vision": True, "recommended": False,
+                     "context_window": 400_000, "max_output": 128_000},
+    # --- GPT-5.2 and earlier GPT-5 --- 400,000 context, 128,000 max output.
+    "gpt-5.2": {"name": "GPT-5.2", "description": "Earlier flagship",
+                "cost": "$$", "supports_vision": True, "recommended": False,
                 "context_window": 400_000, "max_output": 128_000},
-    "gpt-5.1": {"name": "GPT-5.1", "description": "High-quality GPT-5 with strong reasoning.", "cost": "$$$", "supports_vision": True, "recommended": False,
+    "gpt-5.1": {"name": "GPT-5.1", "description": "Deprecated by OpenAI",
+                "cost": "$$", "supports_vision": True, "recommended": False,
                 "context_window": 400_000, "max_output": 128_000},
-    "gpt-5": {"name": "GPT-5", "description": "Flagship GPT-5 reasoning model.", "cost": "$$$", "supports_vision": True, "recommended": False,
+    "gpt-5": {"name": "GPT-5", "description": "Deprecated by OpenAI",
+              "cost": "$$", "supports_vision": True, "recommended": False,
               "context_window": 400_000, "max_output": 128_000},
-    "gpt-5-mini": {"name": "GPT-5 Mini", "description": "Faster, efficient GPT-5.", "cost": "$$", "supports_vision": True, "recommended": False,
+    "gpt-5-mini": {"name": "GPT-5 Mini", "description": "Deprecated by OpenAI",
+                   "cost": "$", "supports_vision": True, "recommended": False,
                    "context_window": 400_000, "max_output": 128_000},
-    "gpt-5-nano": {"name": "GPT-5 Nano", "description": "Fastest and most affordable GPT-5.", "cost": "$", "supports_vision": True, "recommended": False,
+    "gpt-5-nano": {"name": "GPT-5 Nano", "description": "Deprecated by OpenAI",
+                   "cost": "$", "supports_vision": True, "recommended": False,
                    "context_window": 400_000, "max_output": 128_000},
-    # --- Reasoning models ---
-    "o4-mini": {"name": "O4 Mini", "description": "Fast cost-efficient reasoning.", "cost": "$$", "supports_vision": True, "recommended": False,
-                "context_window": 200_000, "max_output": 100_000},
-    "o3": {"name": "O3", "description": "Powerful reasoning for complex tasks.", "cost": "$$$", "supports_vision": True, "recommended": False,
+    # --- o-series --- 200,000 context, 100,000 max output.
+    "o3": {"name": "O3", "description": "Deprecated by OpenAI",
+           "cost": "$$", "supports_vision": True, "recommended": False,
            "context_window": 200_000, "max_output": 100_000},
-    # --- Legacy (still functional) ---
-    "gpt-4o": {"name": "GPT-4o", "description": "Legacy — still works well for vision tasks.", "cost": "$$", "supports_vision": True, "recommended": False,
-               "context_window": 128_000, "max_output": 16_384},
-    "gpt-4o-mini": {"name": "GPT-4o Mini", "description": "Legacy — affordable and fast.", "cost": "$", "supports_vision": True, "recommended": False,
-                    "context_window": 128_000, "max_output": 16_384},
-    "gpt-4.1": {"name": "GPT-4.1", "description": "Legacy — last non-reasoning GPT-4 generation.", "cost": "$$", "supports_vision": True, "recommended": False,
+    # --- GPT-4.x --- (all deprecated by OpenAI)
+    "gpt-4.1": {"name": "GPT-4.1", "description": "Deprecated by OpenAI; last model without reasoning",
+                "cost": "$$", "supports_vision": True, "recommended": False,
                 "context_window": 1_047_576, "max_output": 32_768},
-    "gpt-4.1-mini": {"name": "GPT-4.1 Mini", "description": "Legacy — compact GPT-4.1.", "cost": "$", "supports_vision": True, "recommended": False,
+    "gpt-4.1-mini": {"name": "GPT-4.1 Mini", "description": "Deprecated by OpenAI",
+                     "cost": "$", "supports_vision": True, "recommended": False,
                      "context_window": 1_047_576, "max_output": 32_768},
-    "gpt-4.1-nano": {"name": "GPT-4.1 Nano", "description": "Legacy — ultra-budget GPT-4.1.", "cost": "$", "supports_vision": True, "recommended": False,
-                     "context_window": 1_047_576, "max_output": 32_768},
-    "o1": {"name": "O1", "description": "Legacy — original full reasoning model.", "cost": "$$$", "supports_vision": True, "recommended": False,
+    "gpt-4o": {"name": "GPT-4o", "description": "Deprecated by OpenAI",
+               "cost": "$$", "supports_vision": True, "recommended": False,
+               "context_window": 128_000, "max_output": 16_384},
+    "gpt-4o-mini": {"name": "GPT-4o Mini", "description": "Deprecated by OpenAI",
+                    "cost": "$", "supports_vision": True, "recommended": False,
+                    "context_window": 128_000, "max_output": 16_384},
+    # --- Shut down (RETIRED_MODELS): names for old workspaces only ---
+    "o4-mini": {"name": "O4 Mini", "description": "Shut down by OpenAI",
+                "cost": "$$", "supports_vision": True, "recommended": False,
+                "context_window": 200_000, "max_output": 100_000},
+    "o1": {"name": "O1", "description": "Shut down by OpenAI",
+           "cost": "$$$$", "supports_vision": True, "recommended": False,
            "context_window": 200_000, "max_output": 100_000},
+    "gpt-4.1-nano": {"name": "GPT-4.1 Nano", "description": "Shut down by OpenAI",
+                     "cost": "$", "supports_vision": True, "recommended": False,
+                     "context_window": 1_047_576, "max_output": 32_768},
 }
 
 
@@ -154,16 +245,21 @@ def describe_request_params(model: str, opts) -> dict:
     return params
 
 
+#: Models whose least effort is "low": they reject "none" with a 400. From
+#: OpenAI's reasoning guide (docs/guides/reasoning.md, "Reasoning effort") and
+#: the models' own pages, 11/18/2026, and confirmed with a real request to each.
+_LOW_IS_LEAST = frozenset({"gpt-6-astra", "gpt-6.1-sol", "gpt-6.2-astra", "gpt-6.2-sol"})
+
+
 def lowest_effort(model_id: str) -> str:
     """The least reasoning a model takes: "minimal" on the original GPT-5
-    models, "none" on GPT-5.1 and later, "low" on the o-series. A model that
-    rejects it is retried at "low" (see EFFORT_FALLBACK)."""
-    import re
-
+    models, "none" on GPT-5.1 and later, "low" on the o-series and the GPT-6
+    models that reject "none" (_LOW_IS_LEAST). A model that rejects it is
+    retried at "low" (see EFFORT_FALLBACK)."""
     name = (model_id or "").lower()
     if re.match(r"gpt-5(-mini|-nano)?(-\d{4}-\d{2}-\d{2})?$", name):
         return "minimal"
-    if re.match(r"o\d", name):
+    if re.match(r"o\d", name) or _DATED.sub(r"\g<base>", name) in _LOW_IS_LEAST:
         return "low"
     return "none"
 
