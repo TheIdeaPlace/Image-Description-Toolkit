@@ -352,12 +352,12 @@ Leave these out and IDT uses sensible defaults for the provider and model you pi
 
 | Option | Default | Description |
 |---|---|---|
-| `--limit N` | Unlimited | Stop after describing N images (useful for testing) |
+| `--limit N` | Unlimited | Stop after describing N images (useful for testing). N must be 1 or more; leave it out for no limit |
 | `--redescribe` | Off | Re-describe already-described images (adds new description, keeps old ones) |
 | `--workspace PATH` | `<folder name>.idtw` in the workspace root | Path or name for the workspace bundle |
 | `--copy-originals` / `--no-copy-originals` | Off for a new workspace | Copy the pictures into the workspace, or reference them where they are |
 | `--no-video` | Off | Skip automatic video frame extraction |
-| `--video-interval SECONDS` | 5.0 | Seconds between extracted video frames |
+| `--video-interval SECONDS` | 5.0 | Seconds between extracted video frames, 0.5 to 60 |
 | `--show-descriptions` | Off | Print each description to the terminal as it's generated |
 | `--quiet, -q` | Off | Minimal output; in stdin mode, prints the image's full path, a tab, then the description |
 
@@ -392,6 +392,19 @@ idt describe ~/Photos/Trip --embed
 # Suppress HTML export (faster for scripting)
 idt describe ~/Photos/Trip --no-export --quiet
 ```
+
+**Exit codes**
+
+A script can tell from the exit code how the run went:
+
+| Code | Meaning |
+|---|---|
+| `0` | Every picture tried was described, or there was nothing to describe |
+| `1` | Nothing was described and at least one picture failed, or the run couldn't start (a missing API key, the provider not reachable) |
+| `2` | An option was wrong, such as `--limit 0`; it's refused with a message before anything runs |
+| `3` | Some pictures were described and some failed |
+
+Pictures left out on purpose, such as ones a provider declined before or originals no longer on disk, count as neither. A video in the folder whose frames can't be extracted counts as a failure. In stdin mode, a path that doesn't exist counts as a failure. `idt download --describe`, `idt video` and `idt watch` use the same codes; see [Piping and Scripting with idt](#piping-and-scripting-with-idt).
 
 ---
 
@@ -475,8 +488,8 @@ idt video <source> [options]
 
 | Option | Default | Description |
 |---|---|---|
-| `--interval SECONDS` | 5.0 | Extract one frame every N seconds (good for continuous footage) |
-| `--scene THRESHOLD` | — | Scene-change detection (0–100; lower = more sensitive; good for events) |
+| `--interval SECONDS` | 5.0 | Extract one frame every N seconds, 0.5 to 60 (good for continuous footage) |
+| `--scene THRESHOLD` | — | Scene-change detection (1–100; lower = more sensitive; good for events) |
 | `--max-frames N` | Unlimited | Maximum frames to extract per video |
 
 **Description Options**
@@ -678,7 +691,7 @@ idt watch <directory> [options]
 
 | Option | Default | Description |
 |---|---|---|
-| `--interval SECONDS` | 30 | Polling interval |
+| `--interval SECONDS` | 30 | Polling interval, 1 or more |
 | `--provider`, `--model`, `--prompt` | — | AI options |
 | `--quiet, -q` | Off | Tab-separated output for piping |
 
@@ -1854,6 +1867,28 @@ get_images.sh | idt describe - --provider anthropic --quiet
 ```
 
 In `--quiet` mode, stdin mode prints, for each image, the image's full path, a tab, then the description. A description that runs over several lines keeps its line breaks, so check for that before splitting the output by line with `awk` or `cut`.
+
+**Exit codes.** The describing commands (`idt describe`, including stdin mode, `idt download --describe`, `idt video` and `idt watch`) end with:
+
+| Code | Meaning |
+|---|---|
+| `0` | Every picture tried was described, or there was nothing to describe |
+| `1` | Nothing was described and at least one picture failed, or the run couldn't start |
+| `2` | An option was wrong, such as `--limit 0`; nothing was run, and the message says what's wrong |
+| `3` | Some pictures were described and some failed |
+
+For `idt describe` and `idt video`, a video whose frames can't be extracted counts as a failure; for `idt video` without `--describe`, the codes count videos extracted rather than pictures described. For `idt watch`, they cover everything since it started, when you stop it with Ctrl+C.
+
+```bash
+# Stop a script when a run described nothing
+idt describe ~/Photos/Trip --quiet --no-export
+case $? in
+  0) echo "All described" ;;
+  3) echo "Some failed; run again to retry them" ;;
+  2) echo "Check the options"; exit 2 ;;
+  *) echo "Nothing described"; exit 1 ;;
+esac
+```
 
 ```bash
 # Extract only descriptions into a text file

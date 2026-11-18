@@ -131,17 +131,23 @@ def check_default_provider():
 
     _PAID_PROVIDERS = {"openai", "anthropic", "claude"}
     try:
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from idt_core.config import UserConfig, DEFAULT_OLLAMA_MODEL
-        cfg = UserConfig()   # no file — pure code defaults
-        if cfg.default_provider != "ollama":
-            print(f"  FAIL  default_provider is '{cfg.default_provider}', expected 'ollama'")
+        # The SHIPPED defaults, not this machine's: UserConfig's defaults now
+        # follow the user's Configure settings, so a build machine whose own
+        # default is Claude failed this check (#455 review).
+        import json
+
+        shipped_path = Path(__file__).parent.parent / "scripts" / "image_describer_config.json"
+        shipped = json.loads(shipped_path.read_text(encoding="utf-8"))
+        provider = (shipped.get("default_provider") or "ollama").strip()
+        model = shipped.get("default_model", "")
+        if provider != "ollama":
+            print(f"  FAIL  shipped default_provider is '{provider}', expected 'ollama'")
             print("        This would charge users money on a fresh install.")
             return False
-        if cfg.default_provider in _PAID_PROVIDERS:
-            print(f"  FAIL  default_provider '{cfg.default_provider}' is a paid provider.")
+        if provider in _PAID_PROVIDERS:
+            print(f"  FAIL  shipped default_provider '{provider}' is a paid provider.")
             return False
-        print(f"  OK    defaults: {cfg.default_provider} / {cfg.default_model}  (DEFAULT_OLLAMA_MODEL={DEFAULT_OLLAMA_MODEL})")
+        print(f"  OK    shipped defaults: {provider} / {model}")
         return True
     except Exception as e:
         print(f"  FAIL  Could not check defaults: {e}")
