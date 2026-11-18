@@ -38,6 +38,9 @@
 
 ### ✨ Improvements
 
+**The usage line stays in ImageDescriber, out of everything else (#489)**
+- The line ImageDescriber appends to a description (`[Token Usage: … | Time: …]`, or `[Time: …]` alone) stays in the stored text and ImageDescriber's reading views, and is removed everywhere else by `idt_core.description_text.strip_usage_line`: copying, every exporter and the gallery, the HTML report's alt text, embedded metadata (`idt embed` and ImageDescriber's Embed), `idt show` and `idt combine`. Workspace Statistics now also removes the time-only form.
+
 **Ollama descriptions: thinking off by default, and no more blank answers (#392)**
 - Descriptions sent Ollama no options and no `think` setting, so thinking models reasoned at length on every picture and the reasoning was discarded (60 to 75 percent of the output, measured on an M5 Pro). Thinking is now off for descriptions unless you turn it on.
 - No `qwen3-vl` thinking tag (2B, 8B and 32B were measured) honours "thinking off". For those, use the `-instruct` tag, such as `qwen3-vl:8b-instruct`. IDT logs once when a model keeps thinking and suggests it.
