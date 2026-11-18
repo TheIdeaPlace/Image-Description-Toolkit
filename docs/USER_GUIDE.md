@@ -574,7 +574,16 @@ Summarize token counts and estimated API costs across one or more workspaces.
 idt stats <source> [--all] [--json]
 ```
 
-Output includes: total images, descriptions written, per-provider token counts, and estimated cost in USD. Local models (Ollama) do not report token usage.
+The output shows how many images are described, then a row for each provider and model. Each row gives the number of descriptions, the input and output tokens, and an estimated cost in US dollars, with a total.
+
+- **Every description is counted.** A picture described twice, say once with Haiku 5.5 and again with Haiku 4.5, appears in both rows, because both were paid for. The progress line counts each picture once.
+- **Costs use the providers' list prices** for Claude and OpenAI models as of this release. They're an estimate; your provider's billing page is the final word.
+- **A row without a price says why:**
+  - "no charge" for models that run on your computer: Ollama, Windows AI, Apple Intelligence and MLX.
+  - "Ollama plan" for Ollama cloud models.
+  - "your plan" for Claude Code.
+  - "no price" for a model IDT has no price for.
+- **Windows AI reports no token counts.** Every other provider does.
 
 ---
 

@@ -2503,11 +2503,21 @@ def cmd_prompts(args):
 # config                                                               #
 # ------------------------------------------------------------------ #
 
-#: Rough cost table for `idt stats` (USD per 1M tokens, input/output):
-#: Anthropic's list prices as of November 2026. Haiku 5.5's is the price for
-#: prompts up to 100K tokens, which every image description is. A test checks
-#: every model in the built-in Claude list has an entry.
+#: Rough cost table for `idt stats` (USD per 1M tokens, input/output): list
+#: prices as of November 2026, Anthropic's and OpenAI's (developers.openai.com
+#: pricing page, Standard tier, checked 11/17/2026). Haiku 5.5's is the price
+#: for prompts up to 100K tokens, which every image description is. A test
+#: checks every model in the built-in Claude list has an entry. OpenAI's page
+#: lists no price for o4-mini, gpt-4.1-nano or o1, so they have none here.
 STATS_COST_TABLE = {
+    "gpt-5.2":                     (1.75,  14.0),
+    "gpt-5.1":                     (1.25,  10.0),
+    "gpt-5":                       (1.25,  10.0),
+    "gpt-5-mini":                  (0.25,  2.0),
+    "gpt-5-nano":                  (0.05,  0.40),
+    "o3":                          (2.0,   8.0),
+    "gpt-4.1":                     (2.0,   8.0),
+    "gpt-4.1-mini":                (0.40,  1.60),
     "claude-fable-5-2":            (8.0,   40.0),
     "claude-fable-5-1":            (10.0,  50.0),
     "claude-fable-5":              (10.0,  50.0),
@@ -2529,6 +2539,74 @@ STATS_COST_TABLE = {
     "gpt-4o-mini":                 (0.15,  0.6),
 }
 
+#: Providers that don't bill per token, and what `idt stats` says instead of a
+#: price. Ollama's cloud models (tags ending "-cloud") are on Ollama's plan.
+_STATS_NO_PER_TOKEN_CHARGE = {
+    "ollama": "no charge",
+    "windows-ai": "no charge",
+    "apple": "no charge",
+    "mlx": "no charge",
+    "claude-code": "your plan",
+}
+
+
+def stats_token_rows(items) -> list:
+    """Tokens and cost per (provider, model), across EVERY description.
+
+    Not only each picture's current description: a picture described twice,
+    say with Haiku 5.5 and then Haiku 4.5, was paid for twice, and counting
+    just the latest left the first run's cost out entirely (11/17/2026).
+    Providers are grouped by their canonical name, so "anthropic" from the
+    command line and "claude" from ImageDescriber are one row.
+
+    Returns dicts sorted by provider then model, each with: provider (display
+    name), model, descriptions, pictures, input_tokens, output_tokens,
+    missing_tokens (descriptions with no input count), cost (float or None)
+    and cost_note (why there's no cost, or "").
+    """
+    from idt_core.providers.registry import capabilities_for, display_name
+
+    rows: dict = {}
+    for item in items:
+        descs = list(getattr(item, "descriptions", None) or [])
+        if not descs and getattr(item, "active_description", None):
+            descs = [item.active_description]
+        seen_here = set()
+        for desc in descs:
+            raw = desc.provider or "unknown"
+            canonical = capabilities_for(raw).provider
+            provider = raw.lower() if canonical == "unknown" else canonical
+            key = (provider, desc.model or "unknown")
+            row = rows.setdefault(key, {"descriptions": 0, "pictures": 0, "input_tokens": 0,
+                                        "output_tokens": 0, "missing_tokens": 0})
+            row["descriptions"] += 1
+            if key not in seen_here:
+                row["pictures"] += 1
+                seen_here.add(key)
+            if desc.input_tokens:
+                row["input_tokens"] += desc.input_tokens
+            elif provider != "windows-ai":   # on-device; it never reports tokens
+                row["missing_tokens"] += 1
+            if desc.output_tokens:
+                row["output_tokens"] += desc.output_tokens
+
+    out = []
+    for (provider, model), row in sorted(rows.items()):
+        note = _STATS_NO_PER_TOKEN_CHARGE.get(provider, "")
+        if provider == "ollama" and model.endswith("-cloud"):
+            note = "Ollama plan"
+        cost = None
+        if not note:
+            rates = STATS_COST_TABLE.get(model)
+            if rates is None:
+                note = "no price"
+            else:
+                cost = (row["input_tokens"] / 1_000_000 * rates[0]
+                        + row["output_tokens"] / 1_000_000 * rates[1])
+        out.append({"provider": display_name(provider) if provider != "unknown" else "unknown",
+                    "model": model, **row, "cost": cost, "cost_note": note})
+    return out
+
 
 def cmd_stats(args):
     """
@@ -2542,7 +2620,6 @@ def cmd_stats(args):
     from idt_core.workspace import Workspace
 
     root = Path(args.source).resolve()
-    COST_TABLE = STATS_COST_TABLE
 
     # workspace_rows: [(name, total, described, undescribed), ...]
     workspace_rows = []
@@ -2588,44 +2665,28 @@ def cmd_stats(args):
                 sys.exit(1)
             _collect_proj(Project.open(root))
 
-    # Accumulate token stats per provider+model
-    totals: dict = {}
-    grand_images = grand_in = grand_out = 0
-    no_token_count = 0
-
-    for item in described_items:
-        desc = item.active_description
-        if not desc:
-            continue
-        key = (desc.provider or "unknown", desc.model or "unknown")
-        if key not in totals:
-            totals[key] = {"images": 0, "input_tokens": 0, "output_tokens": 0}
-        totals[key]["images"] += 1
-        grand_images += 1
-        if desc.input_tokens:
-            totals[key]["input_tokens"] += desc.input_tokens
-            grand_in += desc.input_tokens
-        else:
-            no_token_count += 1
-        if desc.output_tokens:
-            totals[key]["output_tokens"] += desc.output_tokens
-            grand_out += desc.output_tokens
+    # Tokens and cost across every description, not only each picture's
+    # current one: every description was paid for.
+    rows = stats_token_rows(described_items)
+    grand_descs = sum(r["descriptions"] for r in rows)
+    grand_in = sum(r["input_tokens"] for r in rows)
+    grand_out = sum(r["output_tokens"] for r in rows)
+    no_token_count = sum(r["missing_tokens"] for r in rows)
+    priced = [r["cost"] for r in rows if r["cost"] is not None]
+    grand_cost = sum(priced) if priced else None
 
     if args.json_out:
         grand_total = sum(r[1] for r in workspace_rows)
         grand_described = sum(r[2] for r in workspace_rows)
-        token_rows = []
-        for (prov, model), d in sorted(totals.items()):
-            cost_in, cost_out = COST_TABLE.get(model, (0, 0))
-            cost = (d["input_tokens"] / 1_000_000 * cost_in +
-                    d["output_tokens"] / 1_000_000 * cost_out)
-            token_rows.append({
-                "provider": prov, "model": model,
-                "images": d["images"],
-                "input_tokens": d["input_tokens"],
-                "output_tokens": d["output_tokens"],
-                "estimated_cost_usd": round(cost, 4) if cost else None,
-            })
+        token_rows = [{
+            "provider": r["provider"], "model": r["model"],
+            "images": r["pictures"],
+            "descriptions": r["descriptions"],
+            "input_tokens": r["input_tokens"],
+            "output_tokens": r["output_tokens"],
+            "estimated_cost_usd": round(r["cost"], 4) if r["cost"] is not None else None,
+            "cost_note": r["cost_note"],
+        } for r in rows]
         print(json.dumps({
             "workspaces": [
                 {"name": r[0], "total": r[1], "described": r[2], "undescribed": r[3]}
@@ -2634,6 +2695,7 @@ def cmd_stats(args):
             "grand_total": grand_total,
             "grand_described": grand_described,
             "token_breakdown": token_rows,
+            "total_estimated_cost_usd": round(grand_cost, 4) if grand_cost is not None else None,
         }, indent=2))
         return
 
@@ -2651,32 +2713,32 @@ def cmd_stats(args):
             ws_pct = int(100 * described / total) if total else 0
             print(f"  {name:<40} {total:>6,} {described:>6,} {undescribed:>6,} {ws_pct:>3}%")
 
-    if not totals:
+    if not rows:
         return
 
     # ── Token/cost section ──────────────────────────────────────────────
     print()
-    print(f"Token usage: {grand_images:,} described images")
+    print(f"Token usage: {grand_descs:,} descriptions of {grand_described:,} images, "
+          f"every description counted")
     if no_token_count:
-        print(f"  (No token data for {no_token_count} image(s) — token counts may not be recorded for all runs)")
+        print(f"  (No token data for {no_token_count} description(s) — token counts may not be recorded for all runs)")
     print()
-    print(f"{'Provider':<12} {'Model':<35} {'Images':>7} {'Input tok':>10} {'Output tok':>11} {'Est. cost':>10}")
+    print(f"{'Provider':<12} {'Model':<32} {'Descr.':>7} {'Input tok':>11} {'Output tok':>11} {'Est. cost':>11}")
     print("-" * 90)
 
-    for (prov, model), d in sorted(totals.items()):
-        cost_in_rate, cost_out_rate = COST_TABLE.get(model, (0, 0))
-        cost = (d["input_tokens"] / 1_000_000 * cost_in_rate +
-                d["output_tokens"] / 1_000_000 * cost_out_rate)
-        cost_str = f"${cost:.4f}" if cost else "n/a"
-        in_str = f"{d['input_tokens']:,}" if d["input_tokens"] else "n/a"
-        out_str = f"{d['output_tokens']:,}" if d["output_tokens"] else "n/a"
-        print(f"{prov:<12} {model:<35} {d['images']:>7} {in_str:>10} {out_str:>11} {cost_str:>10}")
+    for r in rows:
+        cost_str = f"${r['cost']:.4f}" if r["cost"] is not None else r["cost_note"]
+        in_str = f"{r['input_tokens']:,}" if r["input_tokens"] else "n/a"
+        out_str = f"{r['output_tokens']:,}" if r["output_tokens"] else "n/a"
+        print(f"{r['provider']:<12} {r['model']:<32} {r['descriptions']:>7} "
+              f"{in_str:>11} {out_str:>11} {cost_str:>11}")
 
-    if len(totals) > 1:
+    if len(rows) > 1:
         total_in_str = f"{grand_in:,}" if grand_in else "n/a"
         total_out_str = f"{grand_out:,}" if grand_out else "n/a"
+        total_cost = f"${grand_cost:.4f}" if grand_cost is not None else ""
         print("-" * 90)
-        print(f"{'TOTAL':<12} {'':<35} {grand_images:>7} {total_in_str:>10} {total_out_str:>11} {''!s:>10}")
+        print(f"{'TOTAL':<12} {'':<32} {grand_descs:>7} {total_in_str:>11} {total_out_str:>11} {total_cost:>11}")
 
 
 def cmd_config(args):
