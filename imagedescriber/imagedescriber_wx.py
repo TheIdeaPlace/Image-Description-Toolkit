@@ -7003,7 +7003,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 parts.append(
                     f"{failures} image(s) in this batch could not be described. "
                     "They are marked X in the image list, and "
-                    "Process > Describe All Undescribed tries them again.\n\n"
+                    "Process > Process Undescribed Images (Entire Workspace) tries them again.\n\n"
                     f"First failure: {first_failure}")
             if video_failures:
                 name, reason = video_failures[0]
@@ -7032,8 +7032,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 "Batch stopped: the provider declined many images in a row.\n\n"
                 f"{halted}\n\n"
                 "The declined images are marked X in the image list. Describing "
-                f"them again with {remedy} (Process > Describe All "
-                "Undescribed) may work.\n\n"
+                f"them again with {remedy} (Process > Process Undescribed "
+                "Images (Entire Workspace)) may work.\n\n"
                 # A halt skips the end-of-batch warning, so say it here.
                 + (f"Frames could not be extracted from {len(video_failures)} "
                    "video(s); the next batch tries them again.\n\n"
@@ -8960,8 +8960,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
             if models is not None:
                 count = len(models)
-                model_list = "\\n".join(models) if models else "No Ollama models found"
-                show_info(self, f"Successfully refreshed {count} Ollama model(s):\\n\\n{model_list}{extra}")
+                model_list = "\n".join(models) if models else "No Ollama models found"
+                show_info(self, f"Successfully refreshed {count} Ollama model(s):\n\n{model_list}{extra}")
                 self.SetStatusText(f"Refreshed {count} Ollama model(s)", 0)
             elif api_counts:
                 # Ollama is unreachable but the API providers refreshed, so this
@@ -9565,7 +9565,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self.cached_ollama_models = None  # Force reload on next use
 
         except Exception as e:
-            show_error(self, f"Error launching Configure Settings:\\n{e}")
+            show_error(self, f"Error launching Configure Settings:\n{e}")
 
     def on_install_ollama(self, event):
         """Help user install Ollama if not already present"""

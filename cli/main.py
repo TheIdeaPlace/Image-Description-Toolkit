@@ -785,8 +785,8 @@ def cmd_describe(args):
             print("Error: --showgui takes a folder of pictures, not a workspace.\n"
                   f"To carry on with this workspace, run without --showgui:\n"
                   f"  idt describe \"{source}\"\n"
-                  "or open it in ImageDescriber and choose Process > Describe All "
-                  "Undescribed.", file=sys.stderr)
+                  "or open it in ImageDescriber and choose Process > Process "
+                  "Undescribed Images (Entire Workspace).", file=sys.stderr)
             sys.exit(EXIT_USAGE)
         _launch_gui_describe(source, args)
         return
