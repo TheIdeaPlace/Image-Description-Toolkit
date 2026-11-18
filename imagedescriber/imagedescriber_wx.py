@@ -4264,7 +4264,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                         f"First failure: {name}: {reason}")
                 else:
                     show_info(self, "All images already have descriptions.")
-                self.image_list.SetFocus()
+                self._focus_current_mode()
                 return
 
             if worker is not None:
@@ -4650,7 +4650,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                  "Batch processing stopped before describing started.\n\n")
         show_info(self, first + "Videos whose frames were fully extracted keep them; "
                         "any video still being extracted will be extracted again next time.")
-        self.image_list.SetFocus()
+        self._focus_current_mode()
 
     def _close_progress_dialog(self):
         """Close the batch progress dialog and restore the menus it disabled."""
@@ -6655,7 +6655,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
     def _restore_focus_after_error(self):
         """Restore keyboard focus to image list after error dialog"""
         if self.image_list:
-            self.image_list.SetFocus()
+            self._focus_current_mode()
 
     def on_workflow_complete(self, event):
         """Handle workflow completion (including video extraction and downloads)"""
@@ -6848,7 +6848,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
                 show_info(self, f"Downloaded {len(downloaded_images)} images from URL.\n\n"
                                f"Images saved to: {output_dir}")
-                self.image_list.SetFocus()
+                self._focus_current_mode()
 
             self.SetStatusText(f"Download complete: {len(downloaded_images)} images added", 0)
             return
@@ -6894,7 +6894,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     else:
                         show_info(self, f"Extracted {len(extracted_frames)} frames from video.\n\nFrames have been added to the workspace.")
                         # Restore focus to image list after dialog
-                        self.image_list.SetFocus()
+                        self._focus_current_mode()
 
                 self.SetStatusText(f"Extracted {len(extracted_frames)} frames", 0)
 
@@ -6978,7 +6978,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self._auto_save_bundle()
 
         # Return keyboard focus to image list
-        self.image_list.SetFocus()
+        self._focus_current_mode()
 
         refusals_halt = bool(halted) and getattr(event, 'halted_refusals', False)
         self.SetStatusText("Batch stopped: the provider declined many images" if refusals_halt
@@ -7085,7 +7085,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         self.SetFocus()
         show_error(self, f"Workflow failed:\n{event.error}")
         # Restore focus to image list after dialog
-        self.image_list.SetFocus()
+        self._focus_current_mode()
         self.SetStatusText("Workflow failed", 0)
 
     # Directory scan event handlers (for async file loading performance)
@@ -7663,7 +7663,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # Restore focus to image list after dialog
         self._batch_active = False
         self.refresh_image_list()
-        self.image_list.SetFocus()
+        self._focus_current_mode()
 
     def _end_close_stopped_batch(self, worker) -> None:
         """A cancelled close stopped this batch's worker: end the batch as a

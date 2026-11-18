@@ -243,6 +243,9 @@ class ViewerPanel(wx.Panel):
         # What a screen reader says when switching to Viewer mode lands here
         # (#419): it has to make clear the view changed.
         self.desc_list.accessible_name = "Viewer, all descriptions"
+        # Attaches the accessible that speaks that name now, not on the first
+        # load: switching to an empty Viewer must say it too (#452 review).
+        self.desc_list.LoadDescriptions([])
         left_sizer.Add(self.desc_list, 1, wx.EXPAND | wx.ALL, 5)
         
         left_panel.SetSizer(left_sizer)
