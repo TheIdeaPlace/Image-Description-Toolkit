@@ -79,6 +79,62 @@ or "covered by your Ollama plan" or "your Claude plan".
   showed $10 where the true figure was $21. Workspaces you already have now report
   correctly, with nothing to redo.
 
+### OpenAI's current models, and GPT-6 Luna as the default
+
+- **The OpenAI model list is current.** It stopped at GPT-5.2. It now has the GPT-6
+  family (GPT-6 Luna, GPT-6.1 Terra, GPT-6.2 Sol, GPT-6.2 Astra and the others), GPT-5.6
+  Luna, Terra and Sol, GPT-5.5, and GPT-5.4 and GPT-5.4 mini, even before IDT has asked
+  OpenAI for the current list. Older models OpenAI still runs, such as `gpt-5.2`,
+  `gpt-5-mini`, `gpt-4o` and `o3`, are still offered.
+- **GPT-6 Luna is the new default OpenAI model.** It is the cheapest of OpenAI's current
+  models, at $0.10 per million input tokens and $0.50 per million output, the same price as
+  Claude Haiku 5.5. In a short test with the Detailed prompt it came to about 15 cents
+  per 1,000 pictures. Choose another model in Configure, or with `--model`, when a
+  picture needs more.
+- **Models OpenAI has shut down are no longer offered:** `o1`, `o4-mini` and
+  `gpt-4.1-nano`. Workspaces described with them still show the model's name, and
+  `idt stats` still prices those descriptions.
+- **`idt stats` and the cost meter have a price for every OpenAI model offered.**
+
+### The command line follows ImageDescriber's settings
+
+- **`idt describe` and the other describing commands use the default provider and
+  prompt style chosen in ImageDescriber's Configure.** Before, a settings file the
+  command line saved on its own (ImageDescriber's update check saved it too) froze in
+  the defaults of the day it was first written, so later choices in Configure never
+  reached the command line. A new workspace uses Configure's default prompt style
+  (`narrative` as shipped). Configure's default model is its Ollama model, so it is used
+  only with Ollama; Claude and OpenAI use their own defaults.
+- **A default set with `idt config --set` overrides Configure's,** for the command line
+  only. `idt config` says where each default comes from: "set with idt config" or "from
+  Configure". `--set` checks a provider or prompt name before saving it and accepts any
+  capitalization, so a typo is refused instead of breaking every later run.
+- **Exit codes tell a script how a run went.** `idt describe`, `idt download
+  --describe`, `idt video` and `idt watch` exit with:
+  - **0** when every picture tried was described, or there was nothing to describe;
+  - **1** when nothing was described and at least one picture failed, or the run
+    couldn't start (no API key, say, or the provider can't be reached);
+  - **2** when an option was wrong, and nothing was run;
+  - **3** when some pictures were described and some failed.
+
+  Before, they exited 0 even when every picture failed. Each command's `--help` lists
+  the codes.
+
+### Configure → API Keys: add a key for the provider you're on, and test it
+
+- **One button adds or replaces the selected provider's key.** It says **Add Key** when
+  that provider has no key and **Replace Key** when it has one, and the box it opens is
+  for that provider only, with no provider list to choose from first.
+- **New: Test Key (Alt+T).** It checks that the selected provider's key works by sending
+  one tiny request: for Claude and OpenAI, a one-word question to the provider's
+  cheapest model, which costs a small fraction of a cent on your account; for the Ollama
+  web search key, one web search. The answer appears in a **Test result** box: "Your
+  Claude key works. That test cost 0.00038 cents.", or, when it fails, a short reason
+  first (the key wasn't accepted, the account is out of credit, the provider is
+  overloaded, IDT couldn't reach it), then what to do, then the provider's own message.
+- **Replace Key now warns when an environment variable outranks the key you just
+  saved,** as Delete already did.
+
 ### Descriptions with Ollama thinking models are faster and no longer come back blank
 
 - **Thinking is off for descriptions by default.** Models that reason before they answer
@@ -128,10 +184,63 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
   reasoning models and Claude Code, not only Ollama. Claude and OpenAI reasoning models
   can't switch reasoning off, so Off asks for the least they take: low effort for Claude
   and Claude Code, and for OpenAI `none` on GPT-5.1 and later, `minimal` on the original
-  GPT-5 models, `low` on the o-series.
+  GPT-5 models, `low` on the o-series and on GPT-6 Astra, GPT-6.1 Sol, GPT-6.2 Sol and
+  GPT-6.2 Astra, which don't take `none`.
 
 ### Fixed
 
+- **Saving an older description overwrote the newest one.** In ImageDescriber's Editor
+  mode, on a picture with two or more descriptions, the editor shows the first one, but
+  Save, Copy Description, Copy Image + Description, Edit Description and Delete
+  Description all acted on the newest. So editing the description on screen and
+  pressing Save replaced the newest description with it, and that text was lost. They
+  now act on the description shown.
+- **Save stored the details shown under a description as part of it.** The editor shows
+  the provider, model, prompt and date under the description; Save kept them in the
+  description's text, so they went into exports and embedded metadata, and a second copy
+  appeared next time. Save now leaves them out. If you edited the details themselves,
+  Save says so and asks you to undo that change or delete the details, rather than
+  guess. With no description yet, the editor shows a video's details, and Save no longer
+  stores those as its description.
+- **In Viewer mode, the Descriptions menu acted on a picture you couldn't see.** It used
+  the picture selected in Editor mode, which is hidden in Viewer mode. Copy Description
+  said "No description to copy" while a description was on screen, and Edit, Delete,
+  Process, Rename, Auto Rename, Play Video, Add Manual Description and Ask Followup
+  Question would have acted on the hidden picture. Now the copy commands copy the
+  description and picture selected in the Viewer, and the others say they are done in
+  Editor mode, how to switch, and which picture to select there. For a video
+  description, Copy Image copies its first frame.
+- **`idt describe` couldn't continue a workspace described with Claude in
+  ImageDescriber.** It stopped with "Unknown provider: 'claude'". It now carries on.
+- **`--provider anthropic` or `--provider openai` without `--model` sent another
+  provider's model,** the Ollama default or the workspace's last Ollama model, and
+  every picture failed. A saved model is now used only with its own provider; otherwise
+  the provider's own default is used, and the run's header names the model.
+- **A misspelled `--prompt` was accepted without a word,** the default prompt's text
+  sent, and the misspelling saved as the workspace's prompt. Prompt names now match
+  whatever their capitalization, and an unknown `--prompt` stops the run with the list of
+  prompt names (exit code 2). An unknown name saved in a workspace or the settings gets
+  a warning, and the default prompt is used. Configure offered "Simple" with a capital
+  S, which matched no prompt; it offers "simple" now.
+- **On Windows, video frames went missing when the workspace's path had letters outside
+  plain English,** such as a user folder named `José`: every frame was lost without a
+  word. Frames are written there now, in the command line and ImageDescriber, and a
+  frame that can't be written is an error rather than silently missing: `idt describe`
+  reports the video and counts it as a failure.
+- **`idt download --describe --embed` crashed at the end** with a Python error, after
+  it had done the work.
+- **`idt show <picture>` couldn't find a picture in a subfolder** of the folder that was
+  described. It finds it now, and matches on the picture's full path, so a picture with
+  the same name in another folder isn't shown instead.
+- **ImageDescriber showed "Prompt: custom" for descriptions the command line made with a
+  named prompt style.** It shows the style's name. A description only shows "custom"
+  when it was made with a prompt of your own, or with a style whose text has since been
+  changed.
+- **`idt guideme` said a key saved in Configure wasn't set,** and offered "No" as the
+  default answer. It finds keys the same way `idt describe` does.
+- **The message after a batch with failures named a menu item that doesn't exist,**
+  "Process > Describe All Undescribed". It names **Process > Process Undescribed Images
+  (Entire Workspace)**.
 - **Settings changed in Configure now take effect on an installed Windows copy.** They
   were saved to your settings folder, but processing and the command line read the copy
   installed beside the app first, so nothing you changed in Configure was used, including
@@ -193,7 +302,8 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
   checks from your network, it says when to try again.
 - **The default provider list offered Apple Intelligence on Windows** (and Windows AI on a
   Mac). Each is now listed only where it can run.
-- **`idt describe --provider openai` failed on every image with the default model.** It
+- **`idt describe --provider openai` failed on every image with `gpt-5.2`,** the default
+  OpenAI model before this release. It
   sent `max_tokens`, which `gpt-5.2` and OpenAI's other reasoning models reject ("Use
   'max_completion_tokens' instead"). It now sends `max_completion_tokens`. Checked live
   with `gpt-4o-mini`, `gpt-5-nano`, `gpt-5-mini` and `gpt-5.2`; with thinking off,
@@ -226,6 +336,19 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 
 - IDT's links, updater and user guide now point at the TheIdeaPlace organization on
   GitHub. Installed copies keep finding updates.
+- **The command line checks numbers when you type them,** with an error that says what
+  to enter, before anything runs (exit code 2): `--limit` must be 1 or more (leave it
+  out for no limit), a video frame interval 0.5 to 60 seconds, `--scene` 1 to 100,
+  `idt watch --interval` and `idt chat --max-tokens` more than 0, and `idt download
+  --min-size` in the form `200x200`. Before, `idt watch --interval 0` checked the folder
+  without pause, and a malformed `--min-size` was ignored. `idt guideme` asks again when
+  the number of pictures to describe is below 1.
+- `idt --version` works as well as `idt version`.
+- The user guide, the configuration guide and the command line's `--help` text were
+  checked against what IDT does and corrected in many places: setting up API keys,
+  every `idt` command's options and defaults, what `idt export`, `idt combine` and
+  `idt embed` write, what the location and date settings send to the AI, and how the
+  command line's settings relate to Configure's.
 
 ### For screen reader users
 
@@ -263,6 +386,30 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
   the item.
 - **The Ollama pickers say a model is slow in its name** ("(thinks, slower)"), not only
   by a mark you would have to see.
+- **Adding an API key goes straight to the key.** On Configure's API Keys tab, the Add
+  Key or Replace Key button opens a box titled for the provider selected in the list,
+  such as "Add Claude (Anthropic) API Key", with focus already in the key field, which
+  is read as "Claude (Anthropic) API key". There's no provider list to get past first.
+  A provider in the list is always selected, also after you add, replace or delete a
+  key.
+- **Test Key's result is read to you.** When you press Test Key, focus moves to the
+  read-only **Test result** box, which says "Testing your Claude (Anthropic) key...".
+  When the answer comes, if you're still in the box, focus moves to the Test Key button
+  and straight back, so JAWS and NVDA read the result.
+  The box is after the buttons in the Tab order. A failure puts the short reason on the
+  first line, so it is heard first; Down Arrow reads what to do and the provider's own
+  message.
+- **Delete Description says which description it will delete:** "Delete description 2
+  of 3, by Claude Haiku 5.5?" and how it begins. It used to say "the most recent"
+  whichever one you were on. After Edit or Delete, the editor stays on that position in
+  the list instead of going back to the first description.
+- **In Viewer mode, the Descriptions menu works on the description you're reading.**
+  Copy Description copies it. The commands that change descriptions say, in a message,
+  that this is done in Editor mode, how to switch (View, Application Mode, Editor Mode),
+  and which picture to select there. When the Viewer is showing a workflow folder, the
+  message says to import it with File, Import Workflow (to Workspace) instead.
+- **Messages no longer read "backslash n".** The message after Refresh AI Models and
+  the error when Configure couldn't open showed `\n` as text where a line break belonged.
 
 ## From 4.8.1: runs that stop when everything is failing
 
@@ -569,8 +716,8 @@ IDT does not include an AI model. Choose one:
 | Provider | Cost | Runs where | Notes |
 |---|---|---|---|
 | **[Ollama](https://ollama.com)** | Free | Your machine | **Recommended to start.** Nothing leaves your computer. The Windows installer can set it up for you. |
-| **Claude** (Anthropic) | Paid API | Cloud | Highest quality. Needs `ANTHROPIC_API_KEY`. |
-| **OpenAI GPT** | Paid API | Cloud | Needs `OPENAI_API_KEY`. |
+| **Claude** (Anthropic) | Paid API | Cloud | Highest quality. Needs an API key: add it in ImageDescriber's Configure → API Keys, or set `ANTHROPIC_API_KEY`. |
+| **OpenAI GPT** | Paid API | Cloud | Needs an API key: add it in Configure → API Keys, or set `OPENAI_API_KEY`. |
 | **Apple Intelligence** | Free | Your Mac | **New in 4.6.** macOS 27 on Apple Silicon. Nothing leaves the machine. |
 | **Claude Code** | Your Claude plan | Cloud | **New in 4.6.** Uses a Pro/Max subscription instead of an API key. |
 | **Windows AI** | Free | Your PC | **New in 4.8.** A Copilot+ PC with Windows 11 24H2 or later. Nothing leaves the machine. Describes; can't chat. |
@@ -825,7 +972,7 @@ models each provider recommends for describing images:
 | Provider | Recommended models |
 |---|---|
 | Claude | `claude-haiku-5-5` (the default), `claude-sonnet-5-5`, `claude-opus-5-5` |
-| OpenAI | `gpt-5.2`, `gpt-5.1`, `gpt-5-mini`, `gpt-5-nano`, `o3` |
+| OpenAI | `gpt-6-luna` (the default), `gpt-6.1-terra`, `gpt-6.2-sol`, `gpt-6.2-astra` |
 | Ollama | whatever you've pulled — `idt models --provider ollama` |
 | Claude Code | `haiku`, `sonnet`, `opus` — aliases that always point at the current model of each tier |
 | Apple Intelligence | `system` — the one on-device model; run `idt models --provider apple` to check this Mac is ready |
