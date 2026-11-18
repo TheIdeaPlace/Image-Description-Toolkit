@@ -209,6 +209,17 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 
 ### For screen reader users
 
+- **Models are read by name.** ImageDescriber now says "Model: Claude Haiku 5.5" rather
+  than the model's ID, `claude-haiku-5-5`, which screen readers read with its dashes. This
+  covers:
+  - a description's details;
+  - the batch progress window;
+  - Properties and Workspace Statistics;
+  - the chat window;
+  - the Viewer.
+
+  An Ollama model keeps its tag, such as `moondream`, since that is its name. Exported
+  files keep the ID, which is also what you type with `--model`.
 - **Arrowing along the Configure dialog's tabs reaches every tab.** On Windows each
   press of Left or Right moved two tabs, so after the first pass only half the tabs
   could be reached. One press now moves one tab, and Up and Down move between tabs too.

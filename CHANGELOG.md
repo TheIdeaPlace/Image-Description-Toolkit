@@ -14,6 +14,7 @@
 - The default Claude model is `claude-haiku-5-5` (was `claude-opus-4-8`). With the Detailed prompt it cost about $1 per 1,000 images, against $13 for Sonnet 5.5, $30 for Opus 5.5 and $25 for Opus 4.8.
 - Context and output limits match Anthropic's model list (1M context from 4.6 on). Claude chats still drop their oldest turns past 200K tokens, so a long chat doesn't re-send up to 800K tokens a turn.
 - `idt stats` has a price for every listed Claude model; it had none for 5.x and charged Opus 4.8 and 4.6 at $15/$75 instead of $5/$25.
+- ImageDescriber shows and speaks models by name ("Claude Haiku 5.5"), not API ID, in description details, batch progress, Properties, Workspace Statistics, the chat window and the Viewer (#448). Exports keep the ID.
 - `idt stats` counts input tokens for pictures ImageDescriber described (#446). They were saved only in the description's metadata, so the input cost was left out: $10.14 shown against $21.36 actual on a 6,819-picture workspace. Existing workspaces read correctly without being rewritten.
 
 ### ✨ Improvements
