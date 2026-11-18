@@ -809,7 +809,8 @@ class ConfigureDialog(wx.Dialog):
                     "file": "image_describer",
                     "path": ["default_prompt_style"],
                     "type": "choice",
-                    "choices": ["detailed", "concise", "narrative", "artistic", "technical", "colorful", "Simple"],
+                    # The prompts' real names; "Simple" (capitalised) matched none (guru bug bash S5).
+                    "choices": ["detailed", "concise", "narrative", "artistic", "technical", "colorful", "simple"],
                     "description": "Default prompt style for image descriptions. 'narrative' provides objective, detailed descriptions. 'artistic' focuses on composition and mood. 'technical' analyzes photographic aspects."
                 }
             },
