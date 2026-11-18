@@ -190,6 +190,21 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 
 ### Fixed
 
+- **Descriptions no longer remark that they can't confirm the location.** With geocoding
+  on, IDT tells the model where a photo was taken. Claude Haiku 5.5 often answered with
+  a sentence like "You've provided the location as Madison, Wisconsin, but nothing in
+  the photo itself confirms it": in a test run of 4,386 photos, 30% of descriptions had
+  one. The line IDT sends is reworded. On the photos that had the remark, it went from
+  11 of 24 to none, and descriptions came out about a quarter shorter. ImageDescriber,
+  which starts each description with the place, no longer asks the model to name it
+  too, so you don't hear it twice.
+- **Wide panoramas and very large pictures are described with Claude.** Claude refuses a
+  picture with a side over 8,000 pixels. A panorama under the size limit in bytes was
+  sent as it was, and failed. Pictures are now scaled to fit, in ImageDescriber, the
+  command line and Claude chat attachments. In ImageDescriber, BMP and TIFF pictures sent
+  to Claude are converted rather than refused, transparent areas become white rather
+  than black, and a phone photo over 3.75 MB is no longer sent on its side to any
+  provider when ImageDescriber shrinks it.
 - **Saving an older description overwrote the newest one.** In ImageDescriber's Editor
   mode, on a picture with two or more descriptions, the editor shows the first one, but
   Save, Copy Description, Copy Image + Description, Edit Description and Delete
