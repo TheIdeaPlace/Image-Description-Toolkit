@@ -1,6 +1,6 @@
 # Image Description Toolkit — User Guide
 
-**Version 4.5** · [Report an issue](https://github.com/TheIdeaPlace/Image-Description-Toolkit/issues)
+**Version 4.9** · [Report an issue](https://github.com/TheIdeaPlace/Image-Description-Toolkit/issues)
 
 ---
 
@@ -59,9 +59,10 @@ IDT includes three standalone applications that share the same AI provider infra
 
 **For HEIC/HEIF image support (iPhone photos)**
 
-- `pillow-heif` Python package installed (`pip install pillow-heif`)
-- Nothing else. `pillow-heif` bundles its own decoder, and the packaged Windows and
-  macOS builds ship it, so HEIC works out of the box there
+- Nothing to install with the Windows installer, the macOS disk image or the
+  standalone downloads. They include `pillow-heif`, which brings its own decoder,
+  so HEIC works out of the box.
+- Running from source: `pip install -r requirements.txt` installs `pillow-heif`.
 
 **For video support**
 
@@ -69,14 +70,27 @@ IDT includes three standalone applications that share the same AI provider infra
 
 ### Installation on Windows
 
-**Option 1: Pre-built executables (recommended)**
+**Option 1: The installer (recommended)**
 
-1. Download `idt.exe` and `ImageDescriber.exe` from the [releases page](https://github.com/TheIdeaPlace/Image-Description-Toolkit/releases).
-2. Place them in any folder on your system—no installation required.
-3. To run `idt` from any terminal: add the folder to your `PATH` environment variable (Control Panel → System → Advanced → Environment Variables).
-4. Launch `ImageDescriber.exe` by double-clicking.
+1. Download `ImageDescriptionToolkitSetup-<version>-windows.exe` from the [releases page](https://github.com/TheIdeaPlace/Image-Description-Toolkit/releases).
+2. Run it. Windows asks for administrator permission. It installs `idt`, ImageDescriber and IDT Chat in `C:\idt`, and adds them to the Start menu.
+3. The installer offers some choices:
+   - **Add to PATH**, so `idt` runs from any command prompt. Off by default.
+   - **Desktop shortcuts**: one checkbox adds shortcuts for all three apps. Off by default.
+   - Installing Ollama and the `minicpm-v4.6` model through winget. Off by default, and offered only when winget is available.
+   - **Set up Windows AI**. Offered on Windows 11 24H2 or later (build 26100 and up), and on by default there. On a PC with an NPU it installs IDT's Windows AI helper, first downloading Microsoft's Windows App Runtime (about 100 MB) if the PC doesn't have it. On a PC without an NPU it does nothing. IDT works without it.
+4. Start ImageDescriber or IDT Chat from the Start menu. For `idt`, use the Start menu's **Image Description Toolkit (CLI)**, which opens a command prompt in the install folder, or any command prompt if you added it to PATH.
 
-**Option 2: From source**
+**Option 2: The standalone zips**
+
+If you want one tool without installing anything, download its zip from the releases page: `idt-<version>-windows-x64.zip`, `ImageDescriber-<version>-windows-x64.zip` or `IDTChat-<version>-windows-x64.zip`.
+
+Each zip holds a folder. Inside it is the program, such as `ImageDescriber.exe`, and beside it a folder with the same name ending in `-lib`, such as `imagedescriber-lib`. The program needs that folder: keep the two together, and move or copy the whole folder, never the exe on its own.
+
+1. Unzip it anywhere.
+2. Run the exe inside the folder. To run `idt` from any command prompt, add the folder holding `idt.exe` to your `PATH`.
+
+**Option 3: From source**
 
 ```bat
 git clone https://github.com/TheIdeaPlace/Image-Description-Toolkit.git
@@ -90,7 +104,7 @@ call .winenv\Scripts\activate.bat
 pip install -r requirements.txt
 
 :: Run CLI
-python idt/idt_cli.py describe --help
+python cli/main.py describe --help
 
 :: Run GUI
 python imagedescriber/imagedescriber_wx.py
@@ -98,17 +112,22 @@ python imagedescriber/imagedescriber_wx.py
 
 ### Installation on macOS
 
-**Option 1: Pre-built app bundle (recommended)**
+**Option 1: The disk image (recommended)**
 
-1. Download `ImageDescriber.app` and `idt` from the [releases page](https://github.com/TheIdeaPlace/Image-Description-Toolkit/releases).
-2. Drag `ImageDescriber.app` to your `/Applications` folder.
-3. Copy `idt` to `/usr/local/bin/` and mark it executable:
-   ```bash
-   sudo cp idt /usr/local/bin/idt
-   sudo chmod +x /usr/local/bin/idt
-   ```
+1. Download `IDT-<version>-macos-arm64.dmg` from the [releases page](https://github.com/TheIdeaPlace/Image-Description-Toolkit/releases) and open it.
+2. Drag the **IDT** folder to your Applications folder. It holds `ImageDescriber.app`, `IDTChat.app` and the `idt` command-line tool.
+3. To run `idt` from any Terminal window, open the IDT folder and run `INSTALL_CLI_TO_PATH.sh`. It copies `idt` to `/usr/local/bin` and asks for your password.
 
-**Option 2: From source**
+**Option 2: The command-line tool alone**
+
+Download `idt-<version>-macos-arm64.tar.gz`, unpack it, and copy `idt` to `/usr/local/bin`:
+
+```bash
+sudo cp idt /usr/local/bin/idt
+sudo chmod +x /usr/local/bin/idt
+```
+
+**Option 3: From source**
 
 ```bash
 git clone https://github.com/TheIdeaPlace/Image-Description-Toolkit.git
@@ -119,7 +138,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # Run CLI
-python idt/idt_cli.py describe --help
+python cli/main.py describe --help
 
 # Run GUI
 python imagedescriber/imagedescriber_wx.py
@@ -127,22 +146,30 @@ python imagedescriber/imagedescriber_wx.py
 
 ### Setting Up API Keys
 
-IDT uses environment variables for API keys so they are never stored in your workspace bundles.
+Claude (through the API) and OpenAI need an API key. Ollama, Claude Code, Apple Intelligence and Windows AI don't. API keys are never stored in your workspace bundles.
 
-**Anthropic Claude**
+**Getting a key**
 
-1. Sign up at [console.anthropic.com](https://console.anthropic.com).
-2. Create an API key.
-3. Set the environment variable:
-   - **Windows (permanent):** Control Panel → System → Environment Variables → New: `ANTHROPIC_API_KEY` = your key
-   - **Windows (current session):** `set ANTHROPIC_API_KEY=sk-ant-...`
-   - **macOS/Linux:** Add `export ANTHROPIC_API_KEY="sk-ant-..."` to `~/.zshrc` or `~/.bashrc`
+- Claude: sign up at [console.anthropic.com](https://console.anthropic.com) and create an API key.
+- OpenAI: sign up at [platform.openai.com](https://platform.openai.com) and create an API key.
 
-**OpenAI GPT**
+**Saving the key: the easy way**
 
-1. Sign up at [platform.openai.com](https://platform.openai.com).
-2. Create an API key.
-3. Set the environment variable: `OPENAI_API_KEY`
+In ImageDescriber, open **Tools → Configure Settings** (on a Mac, **ImageDescriber → Preferences**), go to the **API Keys** tab and choose **Add Key**. The key is saved in Windows Credential Manager or the macOS Keychain. Both ImageDescriber and `idt` use it, so you only enter it once.
+
+**Other ways to give IDT a key**
+
+IDT looks in these places, in this order, and uses the first key it finds:
+
+1. An environment variable: `ANTHROPIC_API_KEY` for Claude, `OPENAI_API_KEY` for OpenAI.
+   - Windows, permanent: Control Panel → System → Environment Variables → New.
+   - Windows, current Command Prompt only: `set ANTHROPIC_API_KEY=sk-ant-...`
+   - macOS: add `export ANTHROPIC_API_KEY="sk-ant-..."` to `~/.zshrc`.
+2. The key saved through **Configure → API Keys** (Windows Credential Manager or the macOS Keychain).
+3. The `api_keys` section of your `image_describer_config.json` settings file. Older versions of ImageDescriber saved keys there, and it is still used on a system with no credential store.
+4. A plain text key file, from older versions of IDT: `claude.txt` or `anthropic.txt` for Claude, `openai_api_key.txt` or `openai.txt` for OpenAI. IDT looks for it in the current folder and, for the installed programs, in the folder that holds `idt.exe` or `ImageDescriber.exe`. The file must contain only the key: no label, no second key, nothing else.
+
+Because an environment variable comes first, an old or wrong key in `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` wins over the one saved in Configure.
 
 **Ollama (no key required)**
 
@@ -178,7 +205,8 @@ When an update is found you get three choices:
   Windows asks for administrator permission, because IDT installs to the root of
   your system drive.
 - **macOS:** Download saves the disk image to your Downloads folder and shows it in
-  Finder. Quit ImageDescriber, then drag the new ImageDescriber to Applications.
+  Finder. Quit ImageDescriber, then drag the disk image's **IDT** folder to
+  Applications, replacing the old one.
 
 **One update covers both tools.** The Windows installer and the macOS disk image each
 contain `idt` *and* ImageDescriber, so updating from either one updates both.
@@ -192,8 +220,8 @@ telemetry, no data sent.
 **Installing an update by hand**
 
 1. Download the latest installer (Windows) or disk image (macOS) from the [releases page](https://github.com/TheIdeaPlace/Image-Description-Toolkit/releases).
-2. Run the installer, or drag the new `ImageDescriber.app` to `/Applications`. If you use the standalone Windows downloads instead, unzip the new one and replace the whole old folder, not just the exe: each app's `.exe` needs the `-lib` folder that comes with it.
-3. Your existing `.idtw` workspace bundles and `~/.idt/config.json` settings are preserved — no migration needed.
+2. Run the installer, or open the disk image and drag its **IDT** folder to Applications, replacing the old one. If you use the standalone Windows downloads instead, unzip the new one and replace the whole old folder, not just the exe: each app's `.exe` needs the `-lib` folder that comes with it.
+3. Your existing `.idtw` workspace bundles, your `~/.idt/config.json` command-line settings and your ImageDescriber settings (in `%APPDATA%\IDT` on Windows, `~/Library/Application Support/IDT` on macOS) are kept — no migration needed.
 
 **From source**
 
@@ -206,13 +234,17 @@ If you installed via a virtual environment, activate it first (`.winenv\Scripts\
 
 ### Uninstalling IDT
 
-**Pre-built executables**
+**Pre-built programs**
 
-1. Delete `idt.exe` and `ImageDescriber.exe` (or `ImageDescriber.app` on macOS) from your system.
+1. Remove the programs:
+   - Windows installer: open **Settings → Apps → Installed apps**, find **Image Description Toolkit** and choose **Uninstall**. Or use **Uninstall Image Description Toolkit** in the Start menu's Image Description Toolkit folder.
+   - Windows standalone zips: delete the folder you unzipped.
+   - macOS: delete the **IDT** folder from Applications. If you ran `INSTALL_CLI_TO_PATH.sh`, also delete `/usr/local/bin/idt`.
 2. To remove configuration and cache data, delete the `~/.idt/` directory:
    - **Windows:** `rmdir /s %USERPROFILE%\.idt`
    - **macOS/Linux:** `rm -rf ~/.idt`
-3. Your `.idtw` workspace bundles are not removed — delete them manually if desired.
+3. To remove ImageDescriber's settings too, delete its settings folder: `%APPDATA%\IDT` on Windows, `~/Library/Application Support/IDT` on macOS. API keys saved through Configure are in Windows Credential Manager or the macOS Keychain, under "Image Description Toolkit"; remove them there, or with **Delete Key** in Configure before you uninstall.
+4. Your `.idtw` workspace bundles are not removed — delete them manually if desired.
 
 **From source**
 
@@ -240,7 +272,7 @@ idt guideme
 1. Launch `ImageDescriber` (double-click the app or run `ImageDescriber.exe`).
 2. Choose **File → New Workspace** (or press `Ctrl+N`).
 3. Choose **File → Load Directory** (`Ctrl+L`) and select your image folder.
-4. Choose **Process → Process Undescribed Images**.
+4. Choose **Process → Process Undescribed Images (Entire Workspace)**.
 5. Select your AI provider and model in the dialog, then click **OK**.
 6. Watch the Batch Progress dialog as descriptions are generated.
 7. When done, choose **File → Export Descriptions** or **File → Export HTML Gallery**.
@@ -278,18 +310,25 @@ idt describe <source> [options]
 
 **Provider and Model Options**
 
-| Option | Default | Description |
-|---|---|---|
-| `--provider {anthropic\|ollama\|openai}` | From config | AI provider to use |
-| `--model NAME` | Provider default | Model name (e.g., `claude-opus-5-5`, `gpt-4o`, `minicpm-v4.6`) |
-| `--ollama-host URL` | `http://localhost:11434` | Ollama server address |
+- `--provider NAME`: the AI provider. One of `anthropic`, `apple`, `claude-code`, `ollama`, `openai` or `Windows-AI`; `claude` also means `anthropic`, and case doesn't matter.
+- `--model NAME`: the model, for example `claude-haiku-5-5`, `gpt-5.2` or `minicpm-v4.6`.
+- `--ollama-host URL`: the Ollama server address. Default `http://127.0.0.1:11434`.
+
+Without `--provider`, `idt describe` uses the first of these:
+
+1. The provider the workspace was last described with, once it has descriptions.
+2. A default provider set with `idt config --set default_provider=...`.
+3. The default provider in ImageDescriber's Configure. If that is one only ImageDescriber can run, such as MLX, `idt` says so and uses Ollama.
+4. Ollama.
+
+Without `--model`, `idt describe` uses the workspace's last model or the configured default model, but only when that model belongs to the provider being used. Otherwise it uses the provider's own default: `claude-haiku-5-5` for Claude, `gpt-5.2` for OpenAI. Configure's default model is treated as the Ollama model, so it is used only with Ollama. So `--provider anthropic` on its own is enough to switch to Claude.
 
 **Prompt Options**
 
-| Option | Default | Description |
-|---|---|---|
-| `--prompt NAME` | `detailed` | Named prompt style (see `idt prompts`) |
-| `--prompt-text TEXT` | — | Custom prompt text; overrides `--prompt` |
+- `--prompt NAME`: a named prompt style; `idt prompts` lists them. Case doesn't matter. An unknown name stops the command before anything is created, with exit code 2 and the list of prompt names.
+- `--prompt-text TEXT`: your own prompt text. It overrides `--prompt`.
+
+Without either, `idt describe` uses the prompt the workspace last used, once it has descriptions. A new workspace uses the default prompt style: the one set with `idt config --set default_prompt_name=...`, else Configure's default prompt style (`narrative` as shipped).
 
 **Generation Settings**
 
@@ -306,8 +345,8 @@ Leave these out and IDT uses sensible defaults for the provider and model you pi
 
 | Option | Default | Description |
 |---|---|---|
-| `--no-metadata` | Off | Disable EXIF extraction |
-| `--geocode` | Off | Reverse-geocode GPS coordinates to city/state (requires internet; ~1 second per unique location) |
+| `--no-metadata` | Off | Don't read EXIF data (date, camera, GPS) from the images. `--geocode` then has nothing to work with |
+| `--geocode` | Off | Turn GPS coordinates into a place name and add it to the prompt (requires internet; ~1 second per unique location). Without it, nothing from EXIF is added to the prompt |
 
 **Processing Control**
 
@@ -315,11 +354,12 @@ Leave these out and IDT uses sensible defaults for the provider and model you pi
 |---|---|---|
 | `--limit N` | Unlimited | Stop after describing N images (useful for testing). N must be 1 or more; leave it out for no limit |
 | `--redescribe` | Off | Re-describe already-described images (adds new description, keeps old ones) |
-| `--workspace PATH` | Auto-created | Path or name for the workspace bundle |
+| `--workspace PATH` | `<folder name>.idtw` in the workspace root | Path or name for the workspace bundle |
+| `--copy-originals` / `--no-copy-originals` | Off for a new workspace | Copy the pictures into the workspace, or reference them where they are |
 | `--no-video` | Off | Skip automatic video frame extraction |
 | `--video-interval SECONDS` | 5.0 | Seconds between extracted video frames, 0.5 to 60 |
 | `--show-descriptions` | Off | Print each description to the terminal as it's generated |
-| `--quiet, -q` | Off | Minimal output; in stdin mode, prints `filename TAB description` |
+| `--quiet, -q` | Off | Minimal output; in stdin mode, prints the image's full path, a tab, then the description |
 
 **Output Control**
 
@@ -378,6 +418,8 @@ idt guideme
 
 The wizard uses numbered choices throughout, no ANSI codes, and supports pressing `b` to go back one step. When the job completes it offers to open the HTML report.
 
+`idt guideme` takes no options. It uses your saved [Generation settings](#generation-settings); to override them for one run, use `idt describe` with `--think`, `--no-think`, `--temperature` or `--max-tokens`.
+
 ---
 
 #### idt download — Download Web Images
@@ -409,15 +451,15 @@ idt download <url> [directory] [options]
 | `--provider`, `--model`, `--prompt`, `--prompt-text` | — | AI options (same as `idt describe`) |
 | `--quiet, -q` | Off | Minimal output |
 
-**Where images land:** `idt download` uses the same `.idtw` workspace model as `idt describe` (see [Workspaces (.idtw)](#workspaces-idtw) below) — it never writes into an old-style `.idt` sibling folder. Downloaded images are copied into `<workspace>.idtw/derived/downloads/<page title>-<timestamp>/` and registered as workspace items, so `idt describe`, `idt status`, `idt show`, and the ImageDescriber GUI can all see them. With `[directory]` omitted, the workspace is named after the URL's domain (e.g. `nytimes.com.idtw`) and created under the workspace root (`~/Documents/idt` by default). Running `idt download` against the same site again reuses that same workspace — each run just adds a new timestamped batch — so history accumulates per site instead of scattering across one-off folders. Pass `[directory]` (a bare name or a full path) to target a different or explicitly named workspace, exactly like `idt describe --workspace`.
+**Where images land:** `idt download` uses the same `.idtw` workspace model as `idt describe` (see [Workspaces (.idtw)](#workspaces-idtw) below) — it never writes into an old-style `.idt` sibling folder. Downloaded images are copied into `<workspace>.idtw/derived/downloads/<page title>-<timestamp>/` and registered as workspace items, so `idt describe`, `idt status`, `idt show`, and the ImageDescriber GUI can all see them. With `[directory]` omitted, the workspace is named after the URL's domain (e.g. `nytimes.com.idtw`) and created under the workspace root (`~/Documents/idt` by default). Running `idt download` against the same site again reuses that same workspace — each run just adds a new timestamped batch — so history accumulates per site instead of scattering across one-off folders. Pass `[directory]` (a bare name or a full path) to target a different or explicitly named workspace, exactly like `idt describe --workspace`. A name with no folder in it goes under the workspace root, and so does one written as `./name`; to put the workspace anywhere else, give a full path.
 
 The command captures the original HTML `alt` attribute from each `<img>` tag alongside the downloaded image. By default (`preserve_alt_text` config, on) that alt text is stored two ways: as prompt context, and (when non-trivial — at least 3 characters and containing a space, to filter out bare filenames) as its own description entry, so it shows up in the workspace history alongside the AI-generated description for comparison.
 
 **Examples**
 
 ```bash
-# Download all images from a page
-idt download https://example.com/gallery ./my-images
+# Download all images from a page into my-images.idtw under the workspace root
+idt download https://example.com/gallery my-images
 
 # Download and immediately describe, limit to 20 images
 idt download https://news-site.com --max 20 --describe --prompt aialttext
@@ -491,12 +533,13 @@ idt embed <source> [options]
 
 **Metadata written by file type**
 
-| Format | Metadata fields written |
-|---|---|
-| JPEG / TIFF | EXIF `UserComment` (shows in Windows Explorer "Comments"), XMP `dc:description` |
-| PNG | `tEXt` chunk "Description", `iTXt` XMP chunk |
-| WebP | EXIF `UserComment`, XMP `dc:description` |
-| HEIC | Converted to JPEG first; then JPEG fields written |
+- JPEG: EXIF `UserComment` and XMP `dc:description`.
+- PNG: a `tEXt` chunk named "Description", and XMP `dc:description` in an `iTXt` chunk.
+- WebP: EXIF `UserComment` only.
+- TIFF: the `ImageDescription` tag and the `XPComment` tag.
+- HEIC: converted to JPEG first, then the JPEG fields are written.
+
+[Where the Description Is Stored](#where-the-description-is-stored) explains which of these Windows and macOS show.
 
 Embedded copies are saved to `<workspace>/embedded/`. Original source files are **never modified**.
 
@@ -526,10 +569,12 @@ idt export <source> [--format {html|csv|txt}] [--quiet]
 | Format | Description |
 |---|---|
 | `html` (default) | Accessible HTML report with skip navigation, landmark regions, image thumbnails, and full descriptions. Works without JavaScript. |
-| `csv` | Spreadsheet-compatible; one row per image with columns: file, source\_path, workspace, description, model, provider, prompt\_name, timestamp, metadata\_context, input\_tokens, output\_tokens, alt\_text |
-| `txt` | Plain text, one entry per image |
+| `csv` | Spreadsheet-compatible; one row per described image, holding its active description. Columns: image, subfolder, source\_path, description, model, provider, prompt\_name, created, input\_tokens, output\_tokens, description\_count |
+| `txt` | Plain text, with every description of every described image |
 
-Reports are saved to `<workspace>/reports/`.
+The HTML report also shows every description of each image. Only the CSV is limited to the active one; `description_count` says how many the image has.
+
+Reports are saved to `<workspace>.idtw/reports/`, as `descriptions.html`, `descriptions.csv` or `descriptions.txt`. Exporting again replaces the earlier file of that format.
 
 ---
 
@@ -544,7 +589,7 @@ idt show <target> [options]
 | Option | Description |
 |---|---|
 | `--json` | Output JSONL (one JSON object per line) |
-| `--quiet, -q` | Suppress headers and separators |
+| `--quiet, -q` | Leave out the "No description found" and "No described images" messages. The descriptions themselves print exactly as without it, with their File, Model and Date lines |
 
 **JSON output fields:** `file`, `source`, `described`, `description`, `model`, `provider`, `timestamp`, `metadata_context`, `metadata`, `alt_text`
 
@@ -557,9 +602,11 @@ idt show ~/Photos/Trip
 # Output as JSON for piping to jq or Python
 idt show ~/Photos/Trip --json | jq '.description'
 
-# Extract all descriptions to a text file
-idt show ~/Photos/Trip --quiet > descriptions.txt
+# Save every description, with its File, Model and Date lines, to a text file
+idt show ~/Photos/Trip > descriptions.txt
 ```
+
+For the description text alone, use `--json` and pick out the `description` field, as in the jq example above.
 
 ---
 
@@ -568,14 +615,13 @@ idt show ~/Photos/Trip --quiet > descriptions.txt
 Show how many images have been described in a workspace or folder tree.
 
 ```
-idt status <directory> [--all] [--json] [--quiet]
+idt status <directory> [--all] [--json]
 ```
 
 | Option | Description |
 |---|---|
 | `--all` | Scan all IDT workspaces under the given directory |
 | `--json` | JSON output |
-| `--quiet, -q` | Minimal output |
 
 ---
 
@@ -623,7 +669,15 @@ idt combine <directory> [options]
 | `--format {csv\|tsv}` | `csv` | Output format |
 | `--sort {date\|file\|timestamp}` | `timestamp` | Sort order |
 
-The `date` sort uses EXIF `DateTimeOriginal` first, falling back to file modification time.
+Each described image gives one row, with its active description. The columns are file, source\_path, workspace, description, model, provider, prompt\_name, timestamp, metadata\_context, input\_tokens, output\_tokens and alt\_text.
+
+What the sorts do:
+
+- `timestamp` sorts by when each description was made.
+- `file` sorts by file name.
+- `date` does not use the photo's EXIF date. It sorts by the `metadata_context` text, which is the place name `--geocode` added, and by when the description was made for rows without one. So it groups rows by place, alphabetically, rather than by when the photos were taken.
+
+A description can run over several lines, and those line breaks stay inside its field. Programs that read CSV properly, such as Excel or Python's `csv` module, handle that. Line-based tools such as `sort` or `cut` see each line separately.
 
 ---
 
@@ -657,8 +711,8 @@ idt models [--provider NAME] [--ollama-host URL] [--json] [--refresh] [--all]
 
 | Option | Description |
 |---|---|
-| `--provider` | `ollama`, `anthropic`, or `openai`. Omit to check all three |
-| `--ollama-host URL` | Ollama service address. Default `http://localhost:11434` |
+| `--provider` | One of `anthropic`, `apple`, `claude-code`, `ollama`, `openai` or `Windows-AI`. Omit it to check them all |
+| `--ollama-host URL` | Ollama service address. Default `http://127.0.0.1:11434` |
 | `--json` | Machine-readable output |
 | `--refresh` | Ignore the cached list and ask the APIs right now |
 | `--all` | Include every model the API reports, skipping the filter that hides non-chat OpenAI models (speech, images, embeddings) |
@@ -700,7 +754,7 @@ idt chat [--provider NAME] [--model ID] [--system TEXT] [--message TEXT]
 
 | Option | Description |
 |---|---|
-| `--provider` | `ollama`, `claude` (or `anthropic`), or `openai`. Default `ollama` |
+| `--provider` | Which provider to talk to. See the list below |
 | `--model` | Model id. Defaults to the provider's default |
 | `--system TEXT` | System prompt for the conversation |
 | `--attach PATH` | Attach a file to the first message. Repeat for several. HEIC is converted to JPEG |
@@ -711,8 +765,16 @@ idt chat [--provider NAME] [--model ID] [--system TEXT] [--message TEXT]
 | `--max-tokens N` | Cap the reply length |
 | `--temperature F` | Sampling temperature. Skipped for Claude and for OpenAI's reasoning models, which don't take it |
 | `--think`, `--no-think` | Turn a reasoning model's thinking on or off. Without either, the model decides. For Claude and OpenAI, off means the least effort the model takes |
-| `--show-thinking` | Print the model's thinking to stderr as it arrives (Ollama) |
+| `--show-thinking` | Print the model's thinking to stderr as it arrives. Only Ollama models send their thinking, so with other providers it prints nothing extra |
+| `--web-search` | Let the model search the web. Ollama only, and needs a free ollama.com API key in `OLLAMA_API_KEY` |
 | `--quiet`, `-q` | Suppress status notes on stderr |
+
+**Providers for `--provider`**
+
+- `ollama`, `claude` (or `anthropic`), `claude-code`, `openai` or `apple`.
+- The default is `ollama`, even when `idt config` names another default provider.
+- A resumed conversation keeps its own provider unless you give `--provider`.
+- Windows AI can't chat.
 
 **Examples**
 
@@ -766,10 +828,13 @@ idt config [--set KEY=VALUE]
 
 | Key | Description |
 |---|---|
-| `default_provider` | AI provider: `anthropic`, `ollama`, `openai` |
+| `default_provider` | AI provider: `anthropic` (or `claude`), `apple`, `claude-code`, `ollama`, `openai` or `Windows-AI`. Any other name is refused |
 | `default_model` | Model name for the provider |
-| `default_prompt_name` | Default prompt style |
+| `default_prompt_name` | Default prompt style. It must be one `idt prompts` lists; case doesn't matter |
 | `workspace_root` | Root folder for workspaces (default: `~/Documents/idt`) |
+| `preserve_alt_text` | Whether `idt download` saves a web page's alt text as its own description: `true` (the default) or `false` |
+
+`idt config` with no options shows every value. There is no `--get`. After each of the default provider, model and prompt, it says where the value comes from: "(set with idt config)", "(from Configure)" or "(default)". The default model also says "used with Ollama" when it is Configure's model.
 
 **Examples**
 
@@ -779,13 +844,22 @@ idt config
 
 # Set Claude as default
 idt config --set default_provider=anthropic
-idt config --set default_model=claude-opus-5-5
+idt config --set default_model=claude-haiku-5-5
 
 # Change workspace root
 idt config --set workspace_root=~/MyDescriptions
 ```
 
-Configuration is stored in `~/.idt/config.json`.
+Configuration is stored in `~/.idt/config.json` (on Windows, `%USERPROFILE%\.idt\config.json`).
+
+**How this relates to ImageDescriber's settings.** `idt config` has its own settings file, separate from the one ImageDescriber's **Tools → Configure Settings** saves (on a Mac, **ImageDescriber → Preferences**). See the [Configuration Guide](CONFIGURATION_GUIDE.md).
+
+- The file holds only the defaults you set with `idt config --set`. Every default you haven't set follows Configure: its default provider, its default prompt style, and its default model (used with Ollama).
+- A default set with `idt config --set` wins over Configure's for the command line. The file lists those defaults under `user_set`. To go back to following Configure, delete the setting and its name in `user_set` from `~/.idt/config.json`.
+- A file from before 4.9 has no `user_set`. If its default provider, model and prompt are all values IDT used to ship, IDT treats them as left over and follows Configure. If any of them differs, all three are kept as your choices.
+- The workspace root is shared: Configure's **Workspace** tab and `idt config --set workspace_root=...` change the same setting.
+- Generation settings (thinking, temperature and so on) and API keys are shared too.
+- Prompt styles saved in ImageDescriber's Prompt Editor reach the command line. Custom prompts added to `~/.idt/config.json` work only in `idt`.
 
 ---
 
@@ -795,7 +869,7 @@ Configuration is stored in `~/.idt/config.json`.
 idt version
 ```
 
-Prints the application version, Python version, and executable path. Never touches
+Prints the application version, Python version, and executable path. `idt --version` prints just the version. Neither touches
 the network — use `idt update` to check for a newer release.
 
 #### idt update — Check for a Newer Release
@@ -825,14 +899,18 @@ you are up to date.
 
 ### Workspaces (.idtw)
 
-A workspace is a folder ending in `.idtw` that holds all job state: image copies, description sidecars, logs, and reports. You never need to edit workspace files directly—both tools manage them automatically.
+A workspace is a folder ending in `.idtw` that holds all job state: description sidecars, logs, reports and, if you ask for them, copies of the images. You never need to edit workspace files directly—both tools manage them automatically.
+
+`idt describe` creates it in the workspace root, `Documents\idt` (`~/Documents/idt` on a Mac), named after the folder you described: describing `C:\Photos\Trip` gives `Documents\idt\Trip.idtw`.
+
+**Copies or references.** By default a workspace references your pictures where they are and doesn't copy them. Pass `--copy-originals` to `idt describe` to copy them into the workspace's `images/` folder instead. Either way your originals are never changed.
 
 **Structure**
 
 ```
 MyTrip.idtw/
   manifest.json          Job metadata, defaults, CLI command history
-  images/                Copies of source images (originals untouched)
+  images/                Copies of source images, only with --copy-originals
   descriptions/          JSON sidecars — one per image
   derived/
     converted/           HEIC → JPEG conversions
@@ -854,23 +932,25 @@ Only undescribed images are processed. Existing descriptions are preserved.
 
 **Sharing workspaces**
 
-The `.idtw` bundle is portable. If you include image copies (`images/` subfolder), you can zip and share the entire bundle and the recipient can open it in ImageDescriber or run `idt show` on it without having the original source folder.
+A workspace made with `--copy-originals` is self-contained: zip it and share it, and the recipient can open it in ImageDescriber, read its HTML report with the pictures, or run `idt show` on it, without your original folder.
+
+A workspace made the default way holds only the descriptions. The recipient can still read them, with `idt show` or in the HTML report, but the pictures stay on your computer, so the report's images and ImageDescriber's previews won't appear for them.
 
 ---
 
 ### Metadata and Geocoding
 
-By default, `idt describe` extracts EXIF metadata from each image and prepends context to the AI prompt:
+By default, `idt describe` reads EXIF metadata from each image: capture date and time, GPS coordinates, camera make and model, and lens model. IDT shows these to you, and keeps them with each description. While describing, the progress line shows them in brackets, for example `[Munich, Germany  Sep 12, 2024  iPhone 14 Pro]`.
+
+**What the AI is told.** Only the place, and only with `--geocode`. Then the prompt starts with a line like this:
 
 ```
-Context: Munich, Germany  Sep 12, 2024  iPhone 14 Pro
+Capture metadata (not visible in the image): Munich, Germany
 
 [your prompt text]
 ```
 
-This significantly improves description quality for photos taken with smartphones or DSLR cameras.
-
-**Extracted fields:** capture date/time, GPS coordinates, camera make and model, lens model.
+The date and camera are never sent: models tended to describe the camera instead of the picture, and to open every description by reciting the date. Without `--geocode` there is no place name, so nothing from EXIF is added to the prompt.
 
 **Geocoding** (opt-in with `--geocode`) reverses GPS coordinates to a human-readable place name using OpenStreetMap Nominatim. It requires an internet connection and adds approximately one second per unique location. Results are cached in `~/.idt/geocode_cache.json`.
 
@@ -935,8 +1015,10 @@ The application has two modes:
 | Item | Description |
 |---|---|
 | Process Current Image | Generate a description for the selected image |
-| Process Undescribed Images | Batch-process only images that have no description |
-| Redescribe All Images | Re-process all images (adds new descriptions alongside existing ones) |
+| Process Undescribed in Selected Folder | Batch-process the images with no description in the folder selected in the image list |
+| Redescribe All in Selected Folder | Re-process every image in the selected folder (adds new descriptions) |
+| Process Undescribed Images (Entire Workspace) | Batch-process only images that have no description, in the whole workspace |
+| Redescribe All Images (Entire Workspace) | Re-process all images (adds new descriptions alongside existing ones) |
 | Show Batch Progress | Show the batch progress dialog |
 | Update Image List (F5) | Refresh the image list |
 | Refresh AI Models | Reload available models from all providers |
@@ -1023,7 +1105,7 @@ A hierarchical tree showing all items in the workspace:
 | `P` | Being described now |
 | `.` | Waiting its turn in a batch |
 | `!` | In a paused batch |
-| `X` | Describing it failed (Describe All Undescribed tries again) |
+| `X` | Describing it failed. **Process → Process Undescribed Images, Entire Workspace** tries it again |
 | `E12`, … | A video, with that many frames extracted |
 | `[!]` | The file is no longer on disk (its descriptions are kept) |
 
@@ -1089,7 +1171,7 @@ If you add new images to the source folder after loading:
 
 **Starting a batch job**
 
-1. Choose **Process → Process Undescribed Images** (or **Redescribe All Images** to re-process everything).
+1. Choose **Process → Process Undescribed Images (Entire Workspace)** (or **Redescribe All Images (Entire Workspace)** to re-process everything).
 2. The **Processing Options** dialog appears:
    - **Provider** — Ollama, OpenAI, Claude, or MLX.
    - **Model** — Populated from the chosen provider.
@@ -1630,7 +1712,7 @@ IDT extracts still frames from video files before describing them. The AI then d
 
 **In the GUI:** Videos appear in the image list as expandable nodes. Use **Process → Extract Video Frames...** to control extraction settings, or **Process → Describe Video with AI...** to run the full pipeline. To watch a video, select it and press **Enter** (or use **Process → Play Video**); it opens in your system's default video player.
 
-When a batch includes videos (for example **Process → Describe All Undescribed**), ImageDescriber describes the photos straight away and extracts the videos' frames at the same time. Each video's frames are added to the batch as soon as that video is done. The progress window shows both: an **Items Processed** line, whose total grows as videos finish, and an **Extracting Frames** line with the number of videos done. **Stop** stops both. Videos that were fully extracted keep their frames, and a video stopped partway is extracted again next time; quitting ImageDescriber partway keeps them too. If a batch stops before it finishes (the provider refused the request, for example because you were signed out, or ImageDescriber was quit or closed unexpectedly), opening the workspace again offers to resume it, and resuming extracts the videos it hadn't reached while describing the rest. While videos are still being extracted, the progress bar shows activity rather than a percentage, because the total is still growing.
+When a batch includes videos (for example **Process → Process Undescribed Images (Entire Workspace)**), ImageDescriber describes the photos straight away and extracts the videos' frames at the same time. Each video's frames are added to the batch as soon as that video is done. The progress window shows both: an **Items Processed** line, whose total grows as videos finish, and an **Extracting Frames** line with the number of videos done. **Stop** stops both. Videos that were fully extracted keep their frames, and a video stopped partway is extracted again next time; quitting ImageDescriber partway keeps them too. If a batch stops before it finishes (the provider refused the request, for example because you were signed out, or ImageDescriber was quit or closed unexpectedly), opening the workspace again offers to resume it, and resuming extracts the videos it hadn't reached while describing the rest. While videos are still being extracted, the progress bar shows activity rather than a percentage, because the total is still growing.
 
 **Extraction modes**
 
@@ -1667,7 +1749,7 @@ HEIC is the default format for photos taken on iPhones running iOS 11 and later.
 - In the CLI: HEIC files are converted to JPEG in memory before being sent to the AI. The conversion is cached in the workspace's `derived/converted/` folder.
 - In the GUI: **Process → Convert HEIC Files...** converts a batch to JPEG. Originals are preserved.
 
-HEIC support requires `pillow-heif` to be installed (`pip install pillow-heif`).
+HEIC works out of the box in the installed and standalone builds, which include `pillow-heif`. Running from source, `pip install -r requirements.txt` installs it.
 
 ---
 
@@ -1675,11 +1757,13 @@ HEIC support requires `pillow-heif` to be installed (`pip install pillow-heif`).
 
 When `--geocode` is used (CLI) or **Enable Geocoding** is checked (GUI), IDT reverse-geocodes GPS coordinates from image EXIF data to human-readable place names using the OpenStreetMap Nominatim API.
 
-The location string is prepended to the AI prompt context:
+The place name, and only the place name, is added to the start of the prompt:
 
 ```
-Context: Paris, France  Jun 10, 2024  Canon EOS R5
+Capture metadata (not visible in the image): Paris, France
 ```
+
+The date and camera are not sent to the AI. See [Metadata and Geocoding](#metadata-and-geocoding).
 
 Geocoding results are cached in `~/.idt/geocode_cache.json` so each unique location is only looked up once.
 
@@ -1765,11 +1849,11 @@ Unlike Windows, macOS needs no per-format advice here: Get Info and Preview read
 If you have descriptions spread across many workspace bundles—for example, one per event or per year—use `idt combine` to merge them into a single CSV for analysis, reporting, or import into another tool.
 
 ```bash
-# Combine all workspaces under ~/Pictures into one CSV sorted by photo date
-idt combine ~/Pictures --output all-photos.csv --sort date
+# Combine all workspaces under ~/Pictures into one CSV sorted by file name
+idt combine ~/Pictures --output all-photos.csv --sort file
 ```
 
-The CSV includes all description fields: filename, source path, description text, provider, model, timestamp, metadata context, and token counts.
+The CSV has one row per described image, with its active description: file name, source path, workspace, description text, model, provider, prompt name, timestamp, metadata context, token counts and alt text. See [idt combine](#idt-combine--merge-multiple-projects) for what each sort does.
 
 ---
 
@@ -1782,7 +1866,7 @@ The CSV includes all description fields: filename, source path, description text
 get_images.sh | idt describe - --provider anthropic --quiet
 ```
 
-In `--quiet` mode, stdin mode outputs `filename\tdescription` (tab-separated), making it easy to pipe into `awk`, `cut`, or a database import script.
+In `--quiet` mode, stdin mode prints, for each image, the image's full path, a tab, then the description. A description that runs over several lines keeps its line breaks, so check for that before splitting the output by line with `awk` or `cut`.
 
 **Exit codes.** The describing commands (`idt describe`, including stdin mode, `idt download --describe`, `idt video` and `idt watch`) end with:
 
@@ -1821,7 +1905,7 @@ for line in sys.stdin:
 
 ## Part 7: IDT Chat
 
-IDT Chat is a standalone chat client for Ollama, Claude and OpenAI. It is not an image tool — attachments are supported, but the point is the conversation.
+IDT Chat is a standalone chat client for Ollama, Claude, OpenAI, Claude Code (your Claude subscription) and, on a Mac with macOS 27, Apple Intelligence. It is not an image tool — attachments are supported, but the point is the conversation.
 
 It exists because mainstream chat applications are poorly suited to screen reader use. The conversation is a list you arrow through, responses are announced once and completely rather than a token at a time, and every action has a keyboard shortcut.
 
@@ -2038,13 +2122,13 @@ The CLI uses no ANSI color codes in interactive mode (`idt guideme`) and all out
 
 **No models showing in the GUI**
 
-- Ollama: Open a terminal and run `ollama list`. If nothing appears, open `http://localhost:11434` in a browser. If that fails, restart Ollama or reinstall it.
-- OpenAI / Claude: Check that the API key environment variable is set. Open **Tools → AI Info → Ollama Models...** to test connectivity.
+- Ollama: Open a terminal and run `ollama list`. If nothing appears, open `http://127.0.0.1:11434` in a browser. If that fails, restart Ollama or reinstall it.
+- OpenAI / Claude: Check that a key is saved under **Tools → Configure Settings → API Keys** (on a Mac, **ImageDescriber → Preferences → API Keys**), or that the `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable is set. See [Setting Up API Keys](#setting-up-api-keys). Run `idt models` to see whether each provider answers.
 
 **Processing completes but descriptions are blank or very short**
 
 - Some models (especially small Ollama models on CPU) time out if the image is very large. Try resizing images to under 2048 × 2048 pixels before describing.
-- Switch to a higher-quality model: `claude-opus-5-5` or `gpt-4o`.
+- Switch to a higher-quality model: `claude-opus-5-5` or `gpt-5.2`.
 
 **Video extraction fails**
 
@@ -2097,7 +2181,7 @@ The CLI uses no ANSI color codes in interactive mode (`idt guideme`) and all out
 | GIF | `.gif` | Static frame only |
 | TIFF | `.tiff`, `.tif` | Converted to JPEG before API |
 | BMP | `.bmp` | Converted to JPEG before API |
-| HEIC / HEIF | `.heic`, `.heif` | Requires `pillow-heif`; converted in memory |
+| HEIC / HEIF | `.heic`, `.heif` | Converted to JPEG; `pillow-heif` is included in the builds |
 
 ### Video Formats
 
@@ -2114,28 +2198,41 @@ The CLI uses no ANSI color codes in interactive mode (`idt guideme`) and all out
 
 ## Appendix B: Configuration File Reference
 
+This is the command line's own settings file, the one `idt config` shows and changes. ImageDescriber's settings are in other files; see the [Configuration Guide](CONFIGURATION_GUIDE.md).
+
 **Location:** `~/.idt/config.json`
+
+The file holds only the defaults you set with `idt config --set`, named again under `user_set`. In this example only the provider and model were set, so the default prompt follows Configure:
 
 ```json
 {
-  "default_provider": "ollama",
-  "default_model": "minicpm-v4.6",
-  "default_prompt_name": "detailed",
-  "workspace_root": "/home/yourname/Documents/idt",
+  "default_provider": "anthropic",
+  "default_model": "claude-haiku-5-5",
+  "user_set": ["default_model", "default_provider"],
+  "default_model_provider": "anthropic",
   "custom_prompts": {
     "my_prompt": "Describe this image for a museum label. 50–75 words.",
     "product_shot": "E-commerce product description: visible features, materials, condition."
-  }
+  },
+  "copy_originals": false,
+  "preserve_alt_text": true,
+  "auto_check_updates": true,
+  "workspace_root": "/home/yourname/Documents/idt"
 }
 ```
 
 | Key | Default | Description |
 |---|---|---|
-| `default_provider` | `ollama` | AI provider used when none is specified |
-| `default_model` | Provider default | Model used when none is specified |
-| `default_prompt_name` | `detailed` | Prompt style used by default |
+| `default_provider` | Configure's default provider (`ollama` as shipped) | AI provider used when none is specified. Present only when set with `idt config` |
+| `default_model` | Configure's default model (`minicpm-v4.6` as shipped), used with Ollama | Model used when none is specified. Present only when set with `idt config` |
+| `default_prompt_name` | Configure's default prompt style (`narrative` as shipped) | Prompt style for a new workspace. Present only when set with `idt config` |
+| `user_set` | `[]` | Which of the three defaults above were set with `idt config` |
+| `default_model_provider` | none | The provider `default_model` was set for. If the default provider later changes to a different one, that model isn't sent to it; the new provider's default model is used instead. Written by `idt config`; don't edit it by hand |
 | `workspace_root` | `~/Documents/idt` | Root folder where new workspaces are created |
-| `custom_prompts` | `{}` | Dictionary of name → prompt text for user-defined styles |
+| `custom_prompts` | `{}` | Dictionary of name → prompt text for user-defined styles. Edit the file to add them; `idt config --set` can't |
+| `preserve_alt_text` | `true` | Whether `idt download` saves a page's alt text as its own description |
+| `copy_originals` | `false` | Whether new workspaces copy the pictures in. Edit the file to change it, or use `--copy-originals` per run |
+| `auto_check_updates` | `true` | Whether ImageDescriber checks for a newer release at startup. **Help → Automatically Check for Updates** changes it |
 
 ---
 
@@ -2144,7 +2241,7 @@ The CLI uses no ANSI color codes in interactive mode (`idt guideme`) and all out
 ```
 MyTrip.idtw/                        Workspace bundle (a folder ending in .idtw)
   manifest.json                     Job metadata
-  images/                           Copies of source images
+  images/                           Copies of source images, only with --copy-originals
   descriptions/                     JSON description sidecars
     vacation-photo-001.jpg.json
     vacation-photo-002.jpg.json
