@@ -74,25 +74,83 @@ def _pil_to_jpeg_bytes(path: Path) -> tuple[bytes, str]:
     return _pil_image_to_jpeg_bytes(img)
 
 
+#: The most pixels fit_image will decode. Pillow's own guard against
+#: "decompression bombs" stops at about 179 MP, which a stitched phone or drone
+#: panorama can pass; IDT reads only pictures the user chose, so it allows
+#: more, but not without limit (#487 review).
+_MAX_DECODE_PIXELS = 600_000_000
+
+
+def _open_large(image_bytes: bytes):
+    """Image.open with the pixel cap above instead of Pillow's."""
+    from PIL import Image
+
+    saved = Image.MAX_IMAGE_PIXELS
+    Image.MAX_IMAGE_PIXELS = _MAX_DECODE_PIXELS
+    try:
+        return Image.open(io.BytesIO(image_bytes))
+    finally:
+        Image.MAX_IMAGE_PIXELS = saved
+
+
+def _side_of(image_bytes: bytes) -> int:
+    """The longer side in pixels, read from the header only; 0 if it can't be read."""
+    try:
+        with _open_large(image_bytes) as img:
+            return max(img.size)
+    except Exception:
+        return 0
+
+
+def _flatten(img):
+    """RGB for JPEG. Transparent areas go white, not black: a transparent PNG
+    diagram or logo strip otherwise reaches the model as dark on black."""
+    from PIL import Image
+
+    if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+        img = img.convert("RGBA")
+        white = Image.new("RGB", img.size, (255, 255, 255))
+        white.paste(img, mask=img.getchannel("A"))
+        return white
+    return img if img.mode == "RGB" else img.convert("RGB")
+
+
 def fit_image(image_bytes: bytes, mime_type: str, max_bytes: int,
-              long_edge: int) -> tuple[bytes, str]:
-    """``(bytes, mime)`` no bigger than ``max_bytes``: unchanged when it already is, otherwise
-    scaled to ``long_edge`` on its longer side and saved as a JPEG.
+              long_edge: int, max_side: int | None = None,
+              accepted_types: frozenset | None = None) -> tuple[bytes, str]:
+    """``(bytes, mime)`` no bigger than ``max_bytes``, with no side over ``max_side`` pixels
+    (when given) and of a type in ``accepted_types`` (when given): unchanged when it already
+    is. Over the bytes, it's scaled to ``long_edge`` on its longer side; otherwise only down to
+    ``max_side``, so a panorama keeps as much detail as the provider allows. Anything changed is
+    saved as a JPEG.
 
     For providers that take a picture's bytes inline and have a size limit. A 24 or 48 MP phone
     JPEG, or a large PNG scan, is over most limits and would otherwise fail on every attempt.
     """
-    if len(image_bytes) <= max_bytes:
+    over_bytes = len(image_bytes) > max_bytes
+    wrong_type = bool(accepted_types) and mime_type not in accepted_types
+    side = _side_of(image_bytes) if (max_side or wrong_type) else 0
+    too_big = bool(max_side) and side > max_side
+    if not (over_bytes or too_big or wrong_type):
         return image_bytes, mime_type
+    if over_bytes:
+        long_edge = min(long_edge, max_side) if max_side else long_edge
+    elif too_big:
+        long_edge = max_side
+    else:  # only the type: keep the size, up to the long edge it would get anyway
+        long_edge = max(side, 1) if side else long_edge
     from PIL import Image
 
     from PIL import ImageOps
 
+    img = _open_large(image_bytes)
+    # A JPEG can decode at 1/2, 1/4 or 1/8 size directly: much faster for a huge
+    # picture, and the full-size image is never held in memory.
+    if img.format == "JPEG":
+        img.draft("RGB", (long_edge, long_edge))
     # The copy is saved without EXIF, so a phone photo is turned upright first, or it would
     # reach the model on its side.
-    img = ImageOps.exif_transpose(Image.open(io.BytesIO(image_bytes)))
-    if img.mode != "RGB":
-        img = img.convert("RGB")
+    img = _flatten(ImageOps.exif_transpose(img))
     # Almost every photo fits at long_edge. One that doesn't (fine detail or noise compresses
     # badly) is made smaller again until it does, rather than sent over the limit.
     while True:
