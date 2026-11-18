@@ -398,6 +398,9 @@ ProcessingErrorEvent, EVT_PROCESSING_ERROR = wx.lib.newevent.NewEvent()
 # "claude-code" -> "Claude Code". idt_core imports the same way in dev and
 # frozen builds, so no try/except fallback is needed.
 from idt_core.providers.registry import display_name as _display_provider  # noqa: E402
+# "claude-haiku-5-5" -> "Claude Haiku 5.5" wherever a model is shown or spoken.
+# Exports keep the ID: they're data, and the viewer reads them back.
+from idt_core.providers.catalog import model_display_name as _display_model  # noqa: E402
 
 
 def _format_chat_name(provider: str, model: str, dt=None) -> str:
@@ -2176,7 +2179,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 if desc.provider:
                     metadata_lines.append(f"Provider: {_display_provider(desc.provider)}")
                 if desc.model:
-                    metadata_lines.append(f"Model: {desc.model}")
+                    metadata_lines.append(f"Model: {_display_model(desc.provider, desc.model)}")
                 if desc.prompt_style:
                     # If custom prompt was used, show 'custom' instead of base style
                     if desc.custom_prompt:
@@ -2228,7 +2231,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             if first_desc.provider:
                 metadata_lines.append(f"Provider: {_display_provider(first_desc.provider)}")
             if first_desc.model:
-                metadata_lines.append(f"Model: {first_desc.model}")
+                metadata_lines.append(f"Model: {_display_model(first_desc.provider, first_desc.model)}")
             if first_desc.prompt_style:
                 if first_desc.custom_prompt:
                     prompt_display = "custom"
@@ -2325,7 +2328,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 if selected_desc.provider:
                     metadata_lines.append(f"Provider: {_display_provider(selected_desc.provider)}")
                 if selected_desc.model:
-                    metadata_lines.append(f"Model: {selected_desc.model}")
+                    metadata_lines.append(f"Model: {_display_model(selected_desc.provider, selected_desc.model)}")
                 if selected_desc.prompt_style:
                     # If custom prompt was used, show 'custom' instead of base style
                     if selected_desc.custom_prompt:
@@ -7790,7 +7793,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             f"{progress}"
             f"Remaining: {remaining}\n\n"
             f"Provider: {_display_provider(batch_state.get('provider')) or 'Unknown'}\n"
-            f"Model: {batch_state.get('model', 'Unknown')}\n"
+            f"Model: {_display_model(batch_state.get('provider'), batch_state.get('model')) or 'Unknown'}\n"
             f"Prompt: {batch_state.get('prompt_style', 'Unknown')}"
         )
 
@@ -9042,7 +9045,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # Show completion message
         processing_time = result.get('processing_time', 0)
         num_frames = result.get('num_frames_used', 0)
-        model = result.get('model', 'unknown')
+        model = _display_model(result.get('provider', ''), result.get('model', '')) or 'unknown'
 
         show_info(self,
             f"Video description complete!\n\n"

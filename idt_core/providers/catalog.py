@@ -266,6 +266,22 @@ def _live_entry(provider: str, model_id: str, metadata: dict,
     return _unknown_entry(provider, model_id, live_by_id.get(model_id))
 
 
+def model_display_name(provider: str, model_id: str) -> str:
+    """The name to show or speak for a model: "Claude Haiku 5.5", not
+    "claude-haiku-5-5".
+
+    For details shown after the fact (a description's Model line, a batch's
+    progress). A model IDT has no name for -- an Ollama tag, say -- shows its
+    ID, which is its name. No I/O; never raises.
+    """
+    if not model_id:
+        return ""
+    try:
+        return model_entry(provider or "", model_id).name or model_id
+    except Exception:  # noqa: BLE001 - a label must never break a window
+        return model_id
+
+
 def _unknown_entry(provider: str, model_id: str,
                    record: Optional[dict] = None) -> ModelEntry:
     """An entry for a model with no curated metadata.

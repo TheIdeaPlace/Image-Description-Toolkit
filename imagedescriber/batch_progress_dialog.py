@@ -43,6 +43,8 @@ def _is_stopping_row(row: str) -> bool:
 # "claude-code" -> "Claude Code". idt_core imports the same way in dev and
 # frozen builds, so no try/except fallback is needed.
 from idt_core.providers.registry import display_name as _display_provider  # noqa: E402
+# "claude-haiku-5-5" -> "Claude Haiku 5.5": the name is what's spoken.
+from idt_core.providers.catalog import model_display_name as _display_model  # noqa: E402
 
 
 class BatchProgressDialog(wx.Dialog):
@@ -417,7 +419,8 @@ class BatchProgressDialog(wx.Dialog):
             if self.batch_provider:
                 self.stats_list.Append(f"Provider:                   {_display_provider(self.batch_provider)}")
             if self.batch_model:
-                self.stats_list.Append(f"Model:                      {self.batch_model}")
+                self.stats_list.Append(f"Model:                      "
+                                       f"{_display_model(self.batch_provider, self.batch_model)}")
             if self.batch_prompt:
                 self.stats_list.Append(f"Prompt Style:               {self.batch_prompt}")
 
@@ -447,8 +450,8 @@ class BatchProgressDialog(wx.Dialog):
         if image_name:
             self.stats_list.Append(f"Current:                    {image_name}")
             if provider and model:
-                self.stats_list.Append(f"Provider:                   {provider}")
-                self.stats_list.Append(f"Model:                      {model}")
+                self.stats_list.Append(f"Provider:                   {_display_provider(provider)}")
+                self.stats_list.Append(f"Model:                      {_display_model(provider, model)}")
         elif file_path:
             self.stats_list.Append(f"Current Image:              {Path(file_path).name}")
         elif self._waiting and self._extraction is not None:
