@@ -2174,6 +2174,7 @@ The file holds only the defaults you set with `idt config --set`, named again un
   "default_provider": "anthropic",
   "default_model": "claude-haiku-5-5",
   "user_set": ["default_model", "default_provider"],
+  "default_model_provider": "anthropic",
   "custom_prompts": {
     "my_prompt": "Describe this image for a museum label. 50–75 words.",
     "product_shot": "E-commerce product description: visible features, materials, condition."
@@ -2191,6 +2192,7 @@ The file holds only the defaults you set with `idt config --set`, named again un
 | `default_model` | Configure's default model (`minicpm-v4.6` as shipped), used with Ollama | Model used when none is specified. Present only when set with `idt config` |
 | `default_prompt_name` | Configure's default prompt style (`narrative` as shipped) | Prompt style for a new workspace. Present only when set with `idt config` |
 | `user_set` | `[]` | Which of the three defaults above were set with `idt config` |
+| `default_model_provider` | none | The provider `default_model` was set for. If the default provider later changes to a different one, that model isn't sent to it; the new provider's default model is used instead. Written by `idt config`; don't edit it by hand |
 | `workspace_root` | `~/Documents/idt` | Root folder where new workspaces are created |
 | `custom_prompts` | `{}` | Dictionary of name → prompt text for user-defined styles. Edit the file to add them; `idt config --set` can't |
 | `preserve_alt_text` | `true` | Whether `idt download` saves a page's alt text as its own description |

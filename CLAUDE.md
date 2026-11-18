@@ -63,7 +63,7 @@ All code must support both modes:
 `idt describe <folder>` runs these steps into one `.idtw` workspace bundle:
 1. Scan the folder → `idt_core/scanner.py` (`scan_images`, `is_heic`)
 2. Video frame extraction → `idt_core/video.py` (`extract_frames_to_dir`), into `<bundle>/derived/frames/`
-3. HEIC conversion → `idt_core/converter.py` (`convert_heic_to_jpg`), into `<bundle>/derived/converted/`
+3. HEIC conversion → `idt_core/converter.py` (`save_heic_copy`), into `<bundle>/derived/converted/`
 4. EXIF and geocoding → `idt_core/metadata.py` (`MetadataExtractor`, `NominatimGeocoder`)
 5. AI description → `idt_core/pipeline.py` (`WorkspacePipeline.run()`, a generator of events) and `idt_core/providers/`
 6. HTML report → `idt_core/exporter.py` (`export_workspace_html`), into `<bundle>/reports/`

@@ -39,7 +39,7 @@ For what's new in 4.9.0, see the [4.9.0 release notes](docs/release-notes-v4.9.0
 3. **Choose** a folder of images with File → Load Directory.
 4. **Describe** them with Process → Process Undescribed Images (Entire Workspace).
 5. **Save the workspace** when asked. Before the first batch, ImageDescriber asks where to save a workspace bundle. Choose Yes, and a folder picker opens in `Documents\idt`; press Enter to accept it. Then a box asks for the workspace's name, filled in with your folder's name; press Enter to accept that too. The results go in `Documents\idt\<folder name>.idtw`.
-6. **Confirm** the number of images to process, then choose your AI provider, model and prompt style in the dialog that opens, and start. Use Tools → Edit Prompts to customize description styles, and View → Application Mode → Viewer Mode to browse results.
+6. Choose your AI provider, model and prompt style in the dialog that opens, and start. Use Tools → Edit Prompts to customize description styles, and View → Application Mode → Viewer Mode to browse results.
 
 #### Command Line (For Batch Processing)
 
