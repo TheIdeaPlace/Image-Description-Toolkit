@@ -7034,8 +7034,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 "Batch stopped: the provider declined many images in a row.\n\n"
                 f"{halted}\n\n"
                 "The declined images are marked X in the image list. Describing "
-                f"them again with {remedy} (Process > Describe All "
-                "Undescribed) may work.\n\n"
+                f"them again with {remedy} (Process > Process Undescribed "
+                "Images (Entire Workspace)) may work.\n\n"
                 # A halt skips the end-of-batch warning, so say it here.
                 + (f"Frames could not be extracted from {len(video_failures)} "
                    "video(s); the next batch tries them again.\n\n"
