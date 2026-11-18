@@ -3119,6 +3119,15 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         avg_total = round(sum(r['total'] for r in self._token_records) / n)
         total = sum(r['total'] for r in self._token_records)
         peak = max(self._token_records, key=lambda r: r['total'])
+        # The cost meter: list prices from idt_core.pricing, the same table
+        # `idt stats` uses. Provider names are made canonical ("anthropic"
+        # and "claude" price the same).
+        from idt_core import pricing
+        from idt_core.providers.registry import capabilities_for
+        meter = pricing.running_cost(
+            {'provider': capabilities_for(r.get('provider') or '').provider,
+             'model': r.get('model') or '', 'input': r['input'], 'output': r['output']}
+            for r in self._token_records)
         return {
             'avg_input': avg_in,
             'avg_output': avg_out,
@@ -3126,6 +3135,9 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             'total': total,
             'peak_total': peak['total'],
             'peak_name': peak['name'],
+            'cost': meter['cost'],
+            'avg_cost': meter['avg'],
+            'cost_note': meter['note'],
         }
 
     def refresh_image_list(self):
@@ -6418,7 +6430,10 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     'input': in_t,
                     'output': out_t,
                     'total': tot_t,
-                    'name': Path(event.file_path).name
+                    'name': Path(event.file_path).name,
+                    # For the cost meter: the price depends on both.
+                    'provider': event.provider,
+                    'model': event.model,
                 })
             desc = ImageDescription(
                 text=event.description,
