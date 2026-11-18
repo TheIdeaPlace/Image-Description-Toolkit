@@ -124,6 +124,30 @@ def test_ok_saves_under_the_selected_provider(env, monkeypatch):
     assert dlg._selected_api_key_provider() == "openai", "selection stays on the row"
 
 
+def test_enter_in_the_key_box_presses_ok(env, monkeypatch):
+    """#478: paste the key, press Enter. No button was the default, so Enter
+    did nothing. Sent as a real key press, the way a keyboard user does it."""
+    dlg, cfg, wx, _ = env
+    pressed = []
+    monkeypatch.setattr(cfg.ApiKeyEditDialog, "on_ok", lambda self, event: pressed.append(True))
+    box = cfg.ApiKeyEditDialog(dlg, provider="claude")
+    try:
+        assert box.GetDefaultItem() is box.ok_btn
+        box.Show()
+        box.key_text.SetFocus()
+        for _ in range(5):
+            wx.SafeYield()
+        sim = wx.UIActionSimulator()
+        sim.Char(wx.WXK_RETURN)
+        for _ in range(20):
+            wx.SafeYield()
+            if pressed:
+                break
+        assert pressed, "Enter in the key box should press OK"
+    finally:
+        box.Destroy()
+
+
 def test_without_a_provider_the_list_is_still_offered(env):
     dlg, cfg, _wx, _ = env
     plain = cfg.ApiKeyEditDialog(dlg)
