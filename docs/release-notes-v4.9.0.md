@@ -54,6 +54,12 @@ from IDT not doing this consistently, and add controls for people who want them.
   oldest turns once a chat reaches about 160,000 tokens.
 - **`idt stats` prices every Claude model correctly.** It showed no cost for the 5.x
   models and charged Opus 4.8 three times its real price.
+- **`idt stats` counts every description, not just each picture's latest.**
+  - **Pictures described more than once:** describe the same pictures with two models and both runs are counted, since both were paid for. Before, only the latest showed. On one workspace described with Haiku 5.5 and then Haiku 4.5, it showed $1.19 where $1.55 had been spent.
+  - **Whole-video descriptions** are counted too.
+  - **OpenAI models have current prices.**
+  - **Models that don't charge per token** say why instead of showing a price: "no charge" for models on your computer, "Ollama plan" or "your plan".
+  - **Missing token counts:** when some descriptions have none, the cost reads "at least".
 - **`idt stats` now counts the input for pictures described in ImageDescriber.**
   ImageDescriber didn't save those token counts where `idt stats` reads them, so the
   cost it showed covered only the output. On one real workspace of 6,800 pictures it
