@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shlex
 import sys
 from pathlib import Path
@@ -2540,14 +2541,35 @@ STATS_COST_TABLE = {
 }
 
 #: Providers that don't bill per token, and what `idt stats` says instead of a
-#: price. Ollama's cloud models (tags ending "-cloud") are on Ollama's plan.
+#: price. Ollama's cloud models (is_cloud_model: ":cloud" or "-cloud" tags, or
+#: the old "ollama cloud" provider) are on Ollama's plan.
 _STATS_NO_PER_TOKEN_CHARGE = {
     "ollama": "no charge",
+    "ollama cloud": "Ollama plan",
     "windows-ai": "no charge",
     "apple": "no charge",
     "mlx": "no charge",
     "claude-code": "your plan",
 }
+
+#: Descriptions that aren't AI output and cost nothing: a web page's alt text,
+#: saved as a description by `idt download` and ImageDescriber's download.
+_STATS_NOT_AI_PROVIDERS = {"website"}
+
+#: Providers that never report token counts, so a description without them
+#: isn't missing anything.
+_STATS_NO_TOKEN_PROVIDERS = {"windows-ai"}
+
+_DATED_SNAPSHOT = re.compile(r"-(\d{4}-\d{2}-\d{2}|\d{8})$")
+
+
+def _stats_rates(model: str):
+    """List price for a model, trying it without a dated snapshot suffix
+    ("gpt-5-mini-2025-08-07" is priced as "gpt-5-mini")."""
+    rates = STATS_COST_TABLE.get(model)
+    if rates is None:
+        rates = STATS_COST_TABLE.get(_DATED_SNAPSHOT.sub("", model))
+    return rates
 
 
 def stats_token_rows(items) -> list:
@@ -2559,11 +2581,18 @@ def stats_token_rows(items) -> list:
     Providers are grouped by their canonical name, so "anthropic" from the
     command line and "claude" from ImageDescriber are one row.
 
-    Returns dicts sorted by provider then model, each with: provider (display
-    name), model, descriptions, pictures, input_tokens, output_tokens,
-    missing_tokens (descriptions with no input count), cost (float or None)
-    and cost_note (why there's no cost, or "").
+    Web-page alt text saved as a description is left out: it isn't AI output
+    and cost nothing.
+
+    Returns dicts sorted by provider then model, each with: provider (the
+    canonical lowercase name, as before), provider_name (for display), model,
+    descriptions, pictures, input_tokens, output_tokens, missing_tokens
+    (descriptions with no input count, from a provider that reports them),
+    cost (float or None), cost_is_partial (True when some descriptions had no
+    token counts, so the cost is a floor) and cost_note (why there's no cost
+    or why it's partial, else "").
     """
+    from idt_core.providers.ollama import is_cloud_model
     from idt_core.providers.registry import capabilities_for, display_name
 
     rows: dict = {}
@@ -2573,7 +2602,9 @@ def stats_token_rows(items) -> list:
             descs = [item.active_description]
         seen_here = set()
         for desc in descs:
-            raw = desc.provider or "unknown"
+            raw = (desc.provider or "unknown").strip()
+            if raw.lower() in _STATS_NOT_AI_PROVIDERS:
+                continue
             canonical = capabilities_for(raw).provider
             provider = raw.lower() if canonical == "unknown" else canonical
             key = (provider, desc.model or "unknown")
@@ -2585,7 +2616,7 @@ def stats_token_rows(items) -> list:
                 seen_here.add(key)
             if desc.input_tokens:
                 row["input_tokens"] += desc.input_tokens
-            elif provider != "windows-ai":   # on-device; it never reports tokens
+            elif provider not in _STATS_NO_TOKEN_PROVIDERS:
                 row["missing_tokens"] += 1
             if desc.output_tokens:
                 row["output_tokens"] += desc.output_tokens
@@ -2593,18 +2624,26 @@ def stats_token_rows(items) -> list:
     out = []
     for (provider, model), row in sorted(rows.items()):
         note = _STATS_NO_PER_TOKEN_CHARGE.get(provider, "")
-        if provider == "ollama" and model.endswith("-cloud"):
+        if provider in ("ollama", "ollama cloud") and is_cloud_model(model):
             note = "Ollama plan"
         cost = None
+        partial = False
         if not note:
-            rates = STATS_COST_TABLE.get(model)
+            rates = _stats_rates(model)
             if rates is None:
                 note = "no price"
+            elif row["missing_tokens"] >= row["descriptions"]:
+                note = "no token data"
             else:
                 cost = (row["input_tokens"] / 1_000_000 * rates[0]
                         + row["output_tokens"] / 1_000_000 * rates[1])
-        out.append({"provider": display_name(provider) if provider != "unknown" else "unknown",
-                    "model": model, **row, "cost": cost, "cost_note": note})
+                if row["missing_tokens"]:
+                    partial = True
+                    note = f"{row['missing_tokens']} without token counts"
+        out.append({"provider": provider,
+                    "provider_name": display_name(provider) if provider != "unknown" else "unknown",
+                    "model": model, **row, "cost": cost, "cost_is_partial": partial,
+                    "cost_note": note})
     return out
 
 
@@ -2623,12 +2662,15 @@ def cmd_stats(args):
 
     # workspace_rows: [(name, total, described, undescribed), ...]
     workspace_rows = []
+    # Items whose descriptions are added up for tokens and cost. Unlike the
+    # progress counts, this includes whole-video descriptions: they were paid
+    # for too. Chats are stored apart and aren't counted.
     described_items = []
 
     def _collect_ws(ws):
         st = ws.status()
         workspace_rows.append((ws.name, st["total"], st["described"], st["undescribed"]))
-        described_items.extend(i for i in ws.media_items() if i.described)
+        described_items.extend(i for i in ws.items() if i.described)
 
     def _collect_proj(pr):
         all_items = list(pr.items())
@@ -2636,7 +2678,7 @@ def cmd_stats(args):
         total = len(all_items)
         described = len(desc_items)
         workspace_rows.append((str(pr.source_dir), total, described, total - described))
-        described_items.extend(desc_items)
+        described_items.extend(pr.described(include_videos=True))
 
     if args.all:
         for bundle in sorted(root.rglob("*.idtw")):
@@ -2674,17 +2716,23 @@ def cmd_stats(args):
     no_token_count = sum(r["missing_tokens"] for r in rows)
     priced = [r["cost"] for r in rows if r["cost"] is not None]
     grand_cost = sum(priced) if priced else None
+    # The total is a floor when any paid row is missing token counts.
+    grand_partial = any(r["cost_is_partial"] or r["cost_note"] == "no token data" for r in rows)
 
     if args.json_out:
         grand_total = sum(r[1] for r in workspace_rows)
         grand_described = sum(r[2] for r in workspace_rows)
         token_rows = [{
-            "provider": r["provider"], "model": r["model"],
+            "provider": r["provider"], "provider_name": r["provider_name"],
+            "model": r["model"],
+            # Pictures with at least one description by this model. Before
+            # 4.9 it counted only pictures whose current description it was.
             "images": r["pictures"],
             "descriptions": r["descriptions"],
             "input_tokens": r["input_tokens"],
             "output_tokens": r["output_tokens"],
             "estimated_cost_usd": round(r["cost"], 4) if r["cost"] is not None else None,
+            "cost_is_partial": r["cost_is_partial"],
             "cost_note": r["cost_note"],
         } for r in rows]
         print(json.dumps({
@@ -2696,6 +2744,7 @@ def cmd_stats(args):
             "grand_described": grand_described,
             "token_breakdown": token_rows,
             "total_estimated_cost_usd": round(grand_cost, 4) if grand_cost is not None else None,
+            "total_cost_is_partial": grand_partial,
         }, indent=2))
         return
 
@@ -2723,22 +2772,35 @@ def cmd_stats(args):
     if no_token_count:
         print(f"  (No token data for {no_token_count} description(s) — token counts may not be recorded for all runs)")
     print()
-    print(f"{'Provider':<12} {'Model':<32} {'Descr.':>7} {'Input tok':>11} {'Output tok':>11} {'Est. cost':>11}")
-    print("-" * 90)
+
+    def _cost_text(r):
+        if r["cost"] is None:
+            return r["cost_note"]
+        text = f"${r['cost']:.4f}"
+        return f"at least {text} ({r['cost_note']})" if r["cost_is_partial"] else text
+
+    # Column widths fit the longest name ("Apple Intelligence", dated model IDs).
+    pw = max([len("Provider")] + [len(r["provider_name"]) for r in rows]) + 2
+    mw = max([len("Model")] + [len(r["model"]) for r in rows]) + 2
+    print(f"{'Provider':<{pw}}{'Model':<{mw}}{'Descr.':>7} {'Input tok':>11} {'Output tok':>11}  Est. cost")
+    rule = "-" * (pw + mw + 7 + 1 + 11 + 1 + 11 + 2 + 12)
+    print(rule)
 
     for r in rows:
-        cost_str = f"${r['cost']:.4f}" if r["cost"] is not None else r["cost_note"]
         in_str = f"{r['input_tokens']:,}" if r["input_tokens"] else "n/a"
         out_str = f"{r['output_tokens']:,}" if r["output_tokens"] else "n/a"
-        print(f"{r['provider']:<12} {r['model']:<32} {r['descriptions']:>7} "
-              f"{in_str:>11} {out_str:>11} {cost_str:>11}")
+        print(f"{r['provider_name']:<{pw}}{r['model']:<{mw}}{r['descriptions']:>7} "
+              f"{in_str:>11} {out_str:>11}  {_cost_text(r)}")
 
     if len(rows) > 1:
         total_in_str = f"{grand_in:,}" if grand_in else "n/a"
         total_out_str = f"{grand_out:,}" if grand_out else "n/a"
-        total_cost = f"${grand_cost:.4f}" if grand_cost is not None else ""
-        print("-" * 90)
-        print(f"{'TOTAL':<12} {'':<32} {grand_descs:>7} {total_in_str:>11} {total_out_str:>11} {total_cost:>11}")
+        total_cost = ""
+        if grand_cost is not None:
+            total_cost = (f"at least ${grand_cost:.4f}" if grand_partial
+                          else f"${grand_cost:.4f}")
+        print(rule)
+        print(f"{'TOTAL':<{pw}}{'':<{mw}}{grand_descs:>7} {total_in_str:>11} {total_out_str:>11}  {total_cost}")
 
 
 def cmd_config(args):
@@ -3223,9 +3285,11 @@ Supported providers:
         "stats",
         help="Show token usage and cost estimates for a project",
         description=(
-            "Summarise token counts and estimated API costs across all described "
-            "images, broken down by provider and model. Local models (Ollama) "
-            "do not report tokens so no cost is shown for them."
+            "Summarise token counts and estimated API costs across every description, "
+            "broken down by provider and model. A picture described twice counts "
+            "twice, since both were paid for. Models that run on your computer "
+            "(Ollama, Windows AI, Apple Intelligence, MLX) show 'no charge'; Claude "
+            "Code shows 'your plan'."
         ),
     )
     p_stats.add_argument("source", help="Source directory (or parent directory with --all)")

@@ -576,14 +576,23 @@ idt stats <source> [--all] [--json]
 
 The output shows how many images are described, then a row for each provider and model. Each row gives the number of descriptions, the input and output tokens, and an estimated cost in US dollars, with a total.
 
-- **Every description is counted.** A picture described twice, say once with Haiku 5.5 and again with Haiku 4.5, appears in both rows, because both were paid for. The progress line counts each picture once.
+- **Every description is counted, including whole-video descriptions.** A picture described twice, say once with Haiku 5.5 and again with Haiku 4.5, appears in both rows, because both were paid for. The progress line counts each picture once.
+- **Not counted:**
+  - chats, which are kept separately;
+  - a web page's alt text saved by `idt download`, which isn't AI output and cost nothing.
 - **Costs use the providers' list prices** for Claude and OpenAI models as of this release. They're an estimate; your provider's billing page is the final word.
 - **A row without a price says why:**
   - "no charge" for models that run on your computer: Ollama, Windows AI, Apple Intelligence and MLX.
   - "Ollama plan" for Ollama cloud models.
   - "your plan" for Claude Code.
   - "no price" for a model IDT has no price for.
-- **Windows AI reports no token counts.** Every other provider does.
+  - "no token data" when none of that model's descriptions recorded token counts.
+- **Some descriptions have no token counts:**
+  - Windows AI never reports them;
+  - descriptions made in ImageDescriber before 4.9 didn't save the input count;
+  - descriptions imported from old workflow folders have none.
+
+  When some of a model's descriptions lack counts, its cost reads "at least $…", followed by how many had none, and so does the total.
 
 ---
 

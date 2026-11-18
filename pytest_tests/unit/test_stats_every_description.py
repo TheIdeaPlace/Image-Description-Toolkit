@@ -32,7 +32,7 @@ def _item(*descs):
 
 
 def _rows(items):
-    return {(r["provider"], r["model"]): r for r in cli_main.stats_token_rows(items)}
+    return {(r["provider_name"], r["model"]): r for r in cli_main.stats_token_rows(items)}
 
 
 def test_a_picture_described_twice_is_paid_for_twice():
@@ -90,7 +90,7 @@ def test_openai_models_are_priced(model):
 def test_windows_ai_is_not_reported_as_missing_tokens():
     rows = cli_main.stats_token_rows([_item(_desc("windows-ai", "accessible", None, None)),
                                       _item(_desc("ollama", "moondream", None, None))])
-    by = {r["provider"]: r for r in rows}
+    by = {r["provider_name"]: r for r in rows}
     assert by["Windows AI"]["missing_tokens"] == 0
     assert by["Ollama"]["missing_tokens"] == 1
 
@@ -114,3 +114,90 @@ def test_idt_stats_json_reports_every_description_and_a_total(tmp_path, capsys):
     assert out["grand_described"] == 1
     expected = (3925 * 0.10 + 932 * 0.50 + 1529 * 1.0 + 294 * 5.0) / 1e6
     assert out["total_estimated_cost_usd"] == pytest.approx(expected, abs=0.0001)
+    assert out["total_cost_is_partial"] is False
+    # provider stays the canonical lowercase name scripts matched on before
+    assert models["claude-haiku-5-5"]["provider"] == "claude"
+    assert models["claude-haiku-5-5"]["provider_name"] == "Claude"
+
+
+# --- Review findings (independent review of #450) ---------------------------
+
+@pytest.mark.parametrize("provider, model", [
+    ("ollama", "kimi-k2.5:cloud"),        # ":cloud" tags, not only "-cloud"
+    ("ollama", "gpt-oss:120b-cloud"),
+    ("ollama_cloud", "gpt-oss:120b-cloud"),  # ImageDescriber's old provider key
+])
+def test_ollama_cloud_models_are_on_the_plan_not_free(provider, model):
+    row = cli_main.stats_token_rows([_item(_desc(provider, model, 100, 10))])[0]
+    assert row["cost_note"] == "Ollama plan"
+    assert row["cost"] is None
+
+
+def test_a_priced_model_with_no_tokens_says_so_rather_than_zero():
+    row = cli_main.stats_token_rows([_item(_desc("claude", "claude-haiku-4-5-20251001", None, None))])[0]
+    assert row["cost"] is None
+    assert row["cost_note"] == "no token data"
+
+
+def test_a_priced_model_with_some_tokens_missing_is_a_floor():
+    row = cli_main.stats_token_rows([
+        _item(_desc("claude", "claude-sonnet-4-6", 1000, 100)),
+        _item(_desc("claude", "claude-sonnet-4-6", None, 500)),   # before #446
+    ])[0]
+    assert row["cost_is_partial"] is True
+    assert row["cost_note"] == "1 without token counts"
+    assert row["cost"] == pytest.approx((1000 * 3.0 + 600 * 15.0) / 1e6)
+
+
+def test_website_alt_text_is_not_counted():
+    rows = cli_main.stats_token_rows([_item(
+        _desc("website", "Website Alt Text", None, None),
+        _desc("claude", "claude-haiku-5-5", 100, 10))])
+    assert [r["model"] for r in rows] == ["claude-haiku-5-5"]
+    assert rows[0]["missing_tokens"] == 0
+
+
+def test_a_dated_snapshot_is_priced_as_its_model():
+    row = cli_main.stats_token_rows([_item(_desc("openai", "gpt-5-mini-2025-08-07", 1_000_000, 0))])[0]
+    assert row["cost"] == pytest.approx(0.25)
+
+
+def test_whole_video_descriptions_are_counted(tmp_path, capsys):
+    from idt_core.workspace import WorkspaceItem
+
+    ws = Workspace.create(tmp_path / "run.idtw")
+    video = WorkspaceItem(image="clip.mov", source_path=str(tmp_path / "clip.mov"),
+                          item_type="video")
+    video.add_description(_desc("claude", "claude-haiku-5-5", 20000, 800))
+    Workspace(ws.path).save_item(video)
+
+    cli_main.cmd_stats(SimpleNamespace(source=str(ws.path), all=False, json_out=True))
+    out = json.loads(capsys.readouterr().out)
+    assert [r["input_tokens"] for r in out["token_breakdown"]] == [20000]
+
+
+def test_text_output_reads_cleanly_for_long_names_and_partial_costs(tmp_path, capsys):
+    src = tmp_path / "photos"
+    src.mkdir()
+    (src / "a.jpg").write_bytes(b"x")
+    ws = Workspace.create(tmp_path / "run.idtw")
+    ws.add_source_folder(src)
+    bundle = Workspace(ws.path)
+    item = bundle.media_items()[0]
+    item.add_description(_desc("apple", "system", 300, 40))
+    item.add_description(_desc("claude", "claude-sonnet-4-6", None, 500))
+    item.add_description(_desc("claude", "claude-sonnet-4-6", 1000, 100))
+    bundle.save_item(item)
+
+    cli_main.cmd_stats(SimpleNamespace(source=str(ws.path), all=False, json_out=False))
+    text = capsys.readouterr().out
+    header = next(l for l in text.splitlines() if l.startswith("Provider"))
+    lines = [l for l in text.splitlines() if l.startswith(("Apple Intelligence", "Claude", "TOTAL"))]
+    assert len(lines) == 3
+    # Columns line up: each row's description count ends where "Descr." ends.
+    end = header.index("Descr.") + len("Descr.")
+    for line in lines:
+        assert line[end - 1].isdigit() and line[end] == " ", line
+    assert "no charge" in lines[0]
+    assert "at least $" in lines[1] and "1 without token counts" in lines[1]
+    assert "at least $" in lines[2]
