@@ -131,10 +131,29 @@ def test_enter_in_the_key_box_presses_ok(env):
     The key press itself was checked on the VM's desktop (11/18/2026): Enter
     in the key box pressed OK with the typed key."""
     dlg, cfg, wx, _ = env
+    for provider in ("claude", ""):   # with and without the provider list
+        box = cfg.ApiKeyEditDialog(dlg, provider=provider)
+        try:
+            assert box.GetDefaultItem() is box.ok_btn
+            assert box.ok_btn.GetId() == wx.ID_OK
+        finally:
+            box.Destroy()
+
+
+@pytest.mark.parametrize("typed", ["", "   "])
+def test_enter_with_no_key_keeps_the_dialog_open(env, monkeypatch, typed):
+    """With OK the default, an accidental Enter reaches on_ok; its empty-key
+    check is all that stops a blank key being saved (#486 review)."""
+    dlg, cfg, wx, _ = env
+    warned, ended = [], []
+    monkeypatch.setattr(cfg, "show_warning", lambda parent, msg, *a, **k: warned.append(msg))
     box = cfg.ApiKeyEditDialog(dlg, provider="claude")
+    monkeypatch.setattr(box, "EndModal", lambda code: ended.append(code))
     try:
-        assert box.GetDefaultItem() is box.ok_btn
-        assert box.ok_btn.GetId() == wx.ID_OK
+        box.key_text.SetValue(typed)
+        box.on_ok(None)
+        assert warned == ["Please enter an API key."]
+        assert ended == []
     finally:
         box.Destroy()
 
