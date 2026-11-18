@@ -32,12 +32,40 @@ from .workspace import Workspace, WorkspaceItem, WorkspaceDescription
 #
 # A bare "Context:" gave the model no way to tell capture metadata from scene
 # content — with the camera in that line, a Ray-Ban Meta capture was described
-# as a photo *of* Ray-Ban glasses. The camera is gone from prompt_context() now,
-# but the label still states plainly that this is not visible in the image, so
-# a place name is used to ground the description rather than described as if
-# printed on it. Shared by the CLI pipeline and the GUI worker so the two
-# cannot drift.
-META_PREFIX = "Capture metadata (not visible in the image): "
+# as a photo *of* Ray-Ban glasses. The camera is gone from prompt_context() now
+# (only the place is sent), and the line still says plainly that it comes from
+# the file, not the picture, so a place name grounds the description rather
+# than being described as if printed on it. Shared by the CLI pipeline and the
+# GUI worker so the two cannot drift.
+#
+# The old label, "Capture metadata (not visible in the image): ", made Claude
+# Haiku 5.5 say so in 30% of the descriptions of Kelly's 4.9.0 run ("You've
+# provided the location as Madison, Wisconsin, but nothing in the photo itself
+# confirms it"). Measured 11/18/2026 on 24 of those photos: 11 of 24 commented
+# with the old label, 0 of 24 with this one, and output was 27% shorter
+# (1,407 to 1,032 tokens). GPT-6 Luna, measured on a draft of this wording,
+# never commented with either.
+#
+# Naming the place is asked for only when nothing else will show it. On 10 of
+# those photos, Haiku 5.5 named it in 9 with "such as to name the place" and in
+# 1 without; ImageDescriber already starts every description with the place
+# ("Madison, Wisconsin - ", workers_wx._add_location_byline), so there it
+# would be said twice. minicpm-v4.6 never named it with any wording, and never
+# repeated the instruction.
+META_PREFIX = "Where this photo was taken, from the file's metadata: "
+_META_SOURCE = "This comes from the file, not the picture, so the picture needn't show it. "
+_META_NO_COMMENT = "don't comment on it or say whether the picture confirms it."
+
+
+def metadata_preamble(context: str, name_place: bool = True) -> str:
+    """What goes before the prompt when a picture has capture metadata.
+
+    ``name_place`` False when the caller shows the place itself, so the
+    description doesn't name it a second time.
+    """
+    use = ("Use it where it helps, such as to name the place, and " if name_place
+           else "Use it where it helps, and ")
+    return f"{META_PREFIX}{context}\n{_META_SOURCE}{use}{_META_NO_COMMENT}\n\n"
 
 
 @dataclass
@@ -123,7 +151,7 @@ class Pipeline:
             # Build enriched prompt: context line first, then the actual prompt
             prompt = options.prompt_text
             if meta_context:
-                prompt = f"{META_PREFIX}{meta_context}\n\n{prompt}"
+                prompt = metadata_preamble(meta_context) + prompt
 
             image_bytes, mime_type = load_for_api(item.processable_path)
             result = self.provider.describe(image_bytes, mime_type, prompt)
@@ -165,7 +193,7 @@ def _extract_and_build_prompt(extractor, geocoder, exif_path, prompt_text):
             meta_context = meta.prompt_context()
     prompt = prompt_text
     if meta_context:
-        prompt = f"{META_PREFIX}{meta_context}\n\n{prompt_text}"
+        prompt = metadata_preamble(meta_context) + prompt_text
     return meta, meta_context, prompt
 
 
