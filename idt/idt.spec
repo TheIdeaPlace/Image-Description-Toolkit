@@ -86,6 +86,8 @@ a = Analysis(
         # imports (registry.model_limits, the pickers), which is exactly the
         # shape hiddenimports exists for.
         'idt_core.providers.catalog',
+        # Price table for idt stats.
+        'idt_core.pricing',
         'idt_core.providers.model_cache',
 
         # ---- idt_core new modules ----

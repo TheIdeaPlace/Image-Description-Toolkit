@@ -125,6 +125,8 @@ except ImportError:
 # Saves each described image while a batch runs. Module scope: the frame
 # constructs one at startup.
 from idt_core.gui_bridge import BundleCheckpointWriter  # noqa: E402
+# The batch window's cost meter. Module scope: the frame makes one at startup.
+from idt_core.pricing import CostMeter  # noqa: E402
 
 
 class ExtractionCancelled(Exception):
@@ -790,6 +792,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         self._refreshing_list = False
         # Per-batch token usage accumulation (reset each time a new batch starts)
         self._token_records = []   # list of {input, output, total, name} dicts
+        self._cost_meter = CostMeter()   # the batch's running cost
         # Batch settings shown in the progress dialog Job Settings section
         self._batch_provider = ''
         self._batch_model = ''
@@ -3138,6 +3141,9 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         avg_total = round(sum(r['total'] for r in self._token_records) / n)
         total = sum(r['total'] for r in self._token_records)
         peak = max(self._token_records, key=lambda r: r['total'])
+        # The cost meter: list prices from idt_core.pricing, the same table
+        # `idt stats` uses, totalled as each picture finished.
+        meter = self._cost_meter.reading()
         return {
             'avg_input': avg_in,
             'avg_output': avg_out,
@@ -3145,6 +3151,9 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             'total': total,
             'peak_total': peak['total'],
             'peak_name': peak['name'],
+            'cost': meter['cost'],
+            'avg_cost': meter['avg'],
+            'cost_note': meter['note'],
         }
 
     def refresh_image_list(self):
@@ -4494,6 +4503,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         self._stage_no = 0
         self._batch_active = True
         self._token_records = []
+        self._cost_meter = CostMeter()
         self._batch_provider = options.get('provider', '')
         self._batch_model = options.get('model', '')
         self._batch_prompt = options.get('prompt_style', '')
@@ -6437,8 +6447,10 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     'input': in_t,
                     'output': out_t,
                     'total': tot_t,
-                    'name': Path(event.file_path).name
+                    'name': Path(event.file_path).name,
                 })
+                # Priced once, here, and added to the running total.
+                self._cost_meter.add(event.provider, event.model, in_t, out_t)
             desc = ImageDescription(
                 text=event.description,
                 model=event.model,

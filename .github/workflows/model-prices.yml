@@ -1,0 +1,80 @@
+name: Model prices
+
+# Providers don't report prices through their APIs, so idt_core/pricing.py is
+# a hand-copied table that goes stale. Every Monday this compares it with
+# Anthropic's and OpenAI's pricing pages and keeps one issue up to date:
+# opened (or updated) when anything differs, closed when it all matches again.
+
+on:
+  schedule:
+    - cron: "0 14 * * 1"   # Mondays, 14:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: model-prices
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Exits 1 (failing the run, so GitHub sends its own notice) when a page
+      # can't be read; the issue step then doesn't run, so a download hiccup
+      # never replaces the real findings in an open issue.
+      - name: Compare prices with the pricing pages
+        run: python tools/check_model_prices.py --report price-report.md
+
+      - name: File, update or close the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: "Model prices differ from the providers' pricing pages"
+        run: |
+          label=model-prices
+          gh label create "$label" --color FBCA04 \
+            --description "Weekly model price check" 2>/dev/null || true
+          open=$(gh issue list --label "$label" --state open --json number --jq '.[0].number')
+          status=$(head -n 1 price-report.md)
+          tail -n +3 price-report.md > findings.md
+          cp findings.md body.md
+          printf '\n_Checked by the [Model prices workflow](%s/%s/actions/runs/%s)._\n' \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> body.md
+          if [ "$status" = "DIFFERS" ]; then
+            if [ -n "$open" ]; then
+              # Compare without the run-link line, which changes every week.
+              gh issue view "$open" --json body --jq .body | grep -v '^_Checked by the ' \
+                | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > previous.md || true
+              sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' findings.md > current.md
+              gh issue edit "$open" --body-file body.md
+              if ! diff -q previous.md current.md >/dev/null; then
+                # Body edits notify nobody; a comment does.
+                gh issue comment "$open" --body-file body.md
+                echo "Updated issue #$open and commented: the findings changed"
+              else
+                echo "Issue #$open unchanged"
+              fi
+            else
+              gh issue create --title "$TITLE" --label "$label" --body-file body.md
+            fi
+          elif [ -n "$open" ]; then
+            gh issue comment "$open" --body-file body.md
+            gh issue close "$open" --reason completed
+            echo "Closed issue #$open: prices match again"
+          else
+            echo "Prices match; nothing to do."
+          fi
