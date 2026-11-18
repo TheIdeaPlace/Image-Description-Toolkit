@@ -425,6 +425,20 @@ def _format_chat_name(provider: str, model: str, dt=None) -> str:
     return f"Chat - {_display_provider(provider)} {model} - {date_str}"
 
 
+def _added_text_head(added: str) -> str:
+    """The start of text the editor added for display, up to its first line
+    of substance: "\\n\\n---\\nProvider: Claude" for a details block, "Video
+    Metadata" for a video's details. Found in the editor without the whole,
+    it means the added text was edited (#484 review). A description may
+    contain a "---" of its own, so the rule alone isn't enough.
+    """
+    lines = added.split("\n")
+    for i, line in enumerate(lines):
+        if line.strip() and line.strip() != "---":
+            return "\n".join(lines[:i + 1])
+    return added
+
+
 def open_with_default_app(path: Path) -> None:
     """Open a file in whatever application the OS associates with it.
 
@@ -2155,9 +2169,11 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 self.desc_list.Set(desc_texts)
                 self.desc_list.SetSelection(len(desc_texts) - 1)
                 self.description_text.SetValue(image_item.descriptions[-1].text)
+                self._note_editor_shows(image_item, len(image_item.descriptions) - 1, "")
             else:
                 self.desc_list.Set(["(no messages yet)"])
                 self.description_text.SetValue("")
+                self._note_editor_shows(image_item, None, "")
             return
 
         file_path = Path(image_item.file_path)
@@ -2281,6 +2297,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
             first_text_with_metadata = first_text + "\n".join(metadata_lines)
             self.description_text.SetValue(first_text_with_metadata)
+            self._note_editor_shows(image_item, 0, "\n".join(metadata_lines))
 
             # Enable save button
             self.save_desc_btn.Enable(True)
@@ -2318,6 +2335,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     metadata_text += "No metadata available.\nUse Process > Extract Video Frames to extract frames from this video."
 
                 self.description_text.SetValue(metadata_text)
+                self._note_editor_shows(image_item, None, metadata_text)
 
                 # Also add to descriptions list for accessibility
                 desc_data = [{
@@ -2330,8 +2348,62 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 self.desc_list.LoadDescriptions(desc_data)
             else:
                 self.description_text.SetValue("")
+                self._note_editor_shows(image_item, None, "")
 
             self.save_desc_btn.Enable(False)
+
+    def _note_editor_shows(self, item, index, added):
+        """Record what the description editor is showing (#482, #449).
+
+        ``index`` is the description shown, or None when it shows none (a
+        video's details, or nothing). ``added`` is the text the app put there
+        that isn't the description: the details block after it, or the whole
+        of a video's details. Save, Copy, Edit and Delete act on that
+        description, and Save leaves ``added`` out.
+        """
+        self._editor_shown = (item, index, added)
+
+    def _shown_description_index(self):
+        """Index of the current image's description the editor shows.
+
+        Falls back to the latest when the record doesn't match the current
+        image, which keeps the old behaviour wherever this wasn't recorded.
+        """
+        item = self.current_image_item
+        if not item or not item.descriptions:
+            return None
+        shown_item, index, _added = getattr(self, '_editor_shown', (None, None, ""))
+        if shown_item is item and index is not None and 0 <= index < len(item.descriptions):
+            return index
+        return len(item.descriptions) - 1
+
+    def _editor_text_to_save(self):
+        """(text to save, problem): the editor's text without what the app
+        added for display (#449), or why it can't be saved as it is.
+
+        The added text -- the details block, or a video's details -- is
+        removed wherever it still is word for word, keeping everything typed
+        before and after it. If it was edited, nothing is guessed: dropping
+        it could lose what was typed, and keeping it stores the details in
+        the description, so the user is told instead. Deleted entirely, it's
+        simply not there.
+        """
+        text = self.description_text.GetValue()
+        shown_item, index, added = getattr(self, '_editor_shown', (None, None, ""))
+        if shown_item is not self.current_image_item or not added.strip():
+            return text.strip(), None
+        pos = text.rfind(added)
+        if pos != -1:
+            text = text[:pos] + text[pos + len(added):]
+        elif _added_text_head(added) in text:
+            return None, ("The details shown with the description were changed, so "
+                          "ImageDescriber can't tell them from the description. Undo "
+                          "that change, or delete the details, then save.")
+        text = text.strip()
+        if not text and index is None:
+            return None, ("The editor is showing this video's details, not a "
+                          "description. Type a description, then save.")
+        return text, None
 
     def on_description_selected(self, event):
         """Handle selection of a description from the descriptions list"""
@@ -2376,6 +2448,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
                 full_text = desc_text + "\n".join(metadata_lines)
                 self.description_text.SetValue(full_text)
+                self._note_editor_shows(self.current_image_item, selection,
+                                        "\n".join(metadata_lines))
                 self.save_desc_btn.Enable(True)
 
     # Edit Menu Handlers
@@ -5109,15 +5183,19 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         if not self.current_image_item:
             return
 
-        new_text = self.description_text.GetValue().strip()
+        new_text, problem = self._editor_text_to_save()
+        if problem:
+            show_warning(self, problem)
+            return
         if not new_text:
             show_warning(self, "Description is empty")
             return
 
-        # Update the latest description or create new one
-        if self.current_image_item.descriptions:
-            # Update latest
-            self.current_image_item.descriptions[-1].text = new_text
+        # Update the description being shown (#482: it was always the latest,
+        # so editing an older one overwrote the newest), or create one.
+        index = self._shown_description_index()
+        if index is not None:
+            self.current_image_item.descriptions[index].text = new_text
         else:
             # Create new description
             desc = ImageDescription(
@@ -8637,13 +8715,11 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             show_error(self, "Processing worker not available")
             return
 
-        # Get the description the user is currently viewing in the desc_list.
-        # Fall back to the most recently added description if nothing is selected.
-        sel = self.desc_list.GetSelection()
-        if sel != wx.NOT_FOUND and 0 <= sel < len(self.current_image_item.descriptions):
-            focused_description = self.current_image_item.descriptions[sel]
-        else:
-            focused_description = self.current_image_item.descriptions[-1]
+        # The description the editor shows, as Save, Copy, Edit and Delete
+        # use (#484 review): after opening an image the list has no
+        # selection, so this used to fall back to the latest.
+        focused_description = self.current_image_item.descriptions[
+            self._shown_description_index()]
         existing_desc = focused_description.text
 
         # Get original provider and model from the description
@@ -9160,8 +9236,9 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             show_warning(self, "No description to edit")
             return
 
-        # Get the latest description
-        desc = self.current_image_item.descriptions[-1]
+        # The description being shown (#482), not always the latest.
+        index = self._shown_description_index()
+        desc = self.current_image_item.descriptions[index]
 
         dlg = wx.TextEntryDialog(
             self,
@@ -9178,6 +9255,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 desc.text = new_text
                 self.mark_modified()
                 self.display_image_info(self.current_image_item)
+                self._show_description(index)
                 self.SetStatusText("Description updated", 0)
 
         dlg.Destroy()
@@ -9190,12 +9268,37 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             show_warning(self, "No description to delete")
             return
 
-        if ask_yes_no(self, "Delete the most recent description?"):
-            self.current_image_item.descriptions.pop()
+        # The description being shown (#482). The question says which one,
+        # since it used to be the latest whatever was on screen.
+        descriptions = self.current_image_item.descriptions
+        index = self._shown_description_index()
+        desc = descriptions[index]
+        is_chat = self.current_image_item.item_type == "chat"
+        words = " ".join(desc.text.split())
+        start = words if len(words) <= 80 else words[:80].rsplit(" ", 1)[0] + "…"
+        which = f"{'message' if is_chat else 'description'} {index + 1} of {len(descriptions)}"
+        if desc.model and desc.prompt_style != "user_question":
+            which += f", by {_display_model(desc.provider, desc.model)}"
+        if ask_yes_no(self, f"Delete {which}?\n\nIt begins: {start}"):
+            descriptions.pop(index)
             self.mark_modified()
             self.refresh_image_list()  # Update "d" indicator in image list
             self.display_image_info(self.current_image_item)
+            self._show_description(min(index, len(descriptions) - 1))
             self.SetStatusText("Description deleted", 0)
+
+    def _show_description(self, index):
+        """Select description ``index`` in the editor's list and show it."""
+        item = self.current_image_item
+        if not item or index is None or not 0 <= index < len(item.descriptions):
+            return
+        self.desc_list.SetSelection(index)
+        if item.item_type == "chat":
+            # A chat shows each turn's text alone, no details block.
+            self.description_text.SetValue(item.descriptions[index].text)
+            self._note_editor_shows(item, index, "")
+        else:
+            self.on_description_selected(None)
 
     def on_copy_description(self, event):
         """Copy description to clipboard"""
@@ -9210,15 +9313,16 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         """The description text the Copy items use, or None.
 
         Viewer mode: the description selected there. Editor mode: the
-        selected image's latest description.
+        description the editor shows (#482).
         """
         if self._viewer_showing():
             entry = self._viewer_entry()
             text = (entry or {}).get('description') or ''
             return text if text.strip() else None
-        if not self.current_image_item or not self.current_image_item.descriptions:
+        index = self._shown_description_index()
+        if index is None:
             return None
-        return self.current_image_item.descriptions[-1].text
+        return self.current_image_item.descriptions[index].text
 
     def on_copy_image_path(self, event):
         """Copy image path to clipboard"""
