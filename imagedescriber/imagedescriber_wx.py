@@ -425,6 +425,20 @@ def _format_chat_name(provider: str, model: str, dt=None) -> str:
     return f"Chat - {_display_provider(provider)} {model} - {date_str}"
 
 
+def _added_text_head(added: str) -> str:
+    """The start of text the editor added for display, up to its first line
+    of substance: "\\n\\n---\\nProvider: Claude" for a details block, "Video
+    Metadata" for a video's details. Found in the editor without the whole,
+    it means the added text was edited (#484 review). A description may
+    contain a "---" of its own, so the rule alone isn't enough.
+    """
+    lines = added.split("\n")
+    for i, line in enumerate(lines):
+        if line.strip() and line.strip() != "---":
+            return "\n".join(lines[:i + 1])
+    return added
+
+
 def open_with_default_app(path: Path) -> None:
     """Open a file in whatever application the OS associates with it.
 
@@ -2364,23 +2378,32 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         return len(item.descriptions) - 1
 
     def _editor_text_to_save(self):
-        """The editor's text without what the app added for display (#449).
+        """(text to save, problem): the editor's text without what the app
+        added for display (#449), or why it can't be saved as it is.
 
-        The details block is removed when it's still there word for word, or
-        from where it starts if it was edited (anything typed below it goes
-        with it). If its start can't be found, the text is kept as typed.
+        The added text -- the details block, or a video's details -- is
+        removed wherever it still is word for word, keeping everything typed
+        before and after it. If it was edited, nothing is guessed: dropping
+        it could lose what was typed, and keeping it stores the details in
+        the description, so the user is told instead. Deleted entirely, it's
+        simply not there.
         """
         text = self.description_text.GetValue()
         shown_item, index, added = getattr(self, '_editor_shown', (None, None, ""))
-        if shown_item is not self.current_image_item or not added or index is None:
-            return text.strip()
-        if text.endswith(added):
-            return text[:-len(added)].strip()
-        # The block's first two lines ("\n\n---" and the first detail) mark
-        # where it starts; a description may well contain a "---" of its own.
-        head = "\n".join(added.split("\n")[:4])
-        pos = text.rfind(head)
-        return (text[:pos] if pos != -1 else text).strip()
+        if shown_item is not self.current_image_item or not added.strip():
+            return text.strip(), None
+        pos = text.rfind(added)
+        if pos != -1:
+            text = text[:pos] + text[pos + len(added):]
+        elif _added_text_head(added) in text:
+            return None, ("The details shown with the description were changed, so "
+                          "ImageDescriber can't tell them from the description. Undo "
+                          "that change, or delete the details, then save.")
+        text = text.strip()
+        if not text and index is None:
+            return None, ("The editor is showing this video's details, not a "
+                          "description. Type a description, then save.")
+        return text, None
 
     def on_description_selected(self, event):
         """Handle selection of a description from the descriptions list"""
@@ -5160,16 +5183,12 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         if not self.current_image_item:
             return
 
-        new_text = self._editor_text_to_save()
+        new_text, problem = self._editor_text_to_save()
+        if problem:
+            show_warning(self, problem)
+            return
         if not new_text:
             show_warning(self, "Description is empty")
-            return
-        shown_item, shown_index, added = getattr(self, '_editor_shown', (None, None, ""))
-        if (shown_item is self.current_image_item and shown_index is None and added
-                and new_text == added.strip()):
-            # Saving a video's details as its description (#449).
-            show_warning(self, "The editor is showing this video's details, not a "
-                               "description. Type a description, then save.")
             return
 
         # Update the description being shown (#482: it was always the latest,
@@ -8696,13 +8715,11 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             show_error(self, "Processing worker not available")
             return
 
-        # Get the description the user is currently viewing in the desc_list.
-        # Fall back to the most recently added description if nothing is selected.
-        sel = self.desc_list.GetSelection()
-        if sel != wx.NOT_FOUND and 0 <= sel < len(self.current_image_item.descriptions):
-            focused_description = self.current_image_item.descriptions[sel]
-        else:
-            focused_description = self.current_image_item.descriptions[-1]
+        # The description the editor shows, as Save, Copy, Edit and Delete
+        # use (#484 review): after opening an image the list has no
+        # selection, so this used to fall back to the latest.
+        focused_description = self.current_image_item.descriptions[
+            self._shown_description_index()]
         existing_desc = focused_description.text
 
         # Get original provider and model from the description
@@ -9256,11 +9273,12 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         descriptions = self.current_image_item.descriptions
         index = self._shown_description_index()
         desc = descriptions[index]
-        start = " ".join(desc.text.split())[:80]
-        model = _display_model(desc.provider, desc.model) if desc.model else ""
-        which = f"description {index + 1} of {len(descriptions)}"
-        if model:
-            which += f", by {model}"
+        is_chat = self.current_image_item.item_type == "chat"
+        words = " ".join(desc.text.split())
+        start = words if len(words) <= 80 else words[:80].rsplit(" ", 1)[0] + "…"
+        which = f"{'message' if is_chat else 'description'} {index + 1} of {len(descriptions)}"
+        if desc.model and desc.prompt_style != "user_question":
+            which += f", by {_display_model(desc.provider, desc.model)}"
         if ask_yes_no(self, f"Delete {which}?\n\nIt begins: {start}"):
             descriptions.pop(index)
             self.mark_modified()
@@ -9272,11 +9290,15 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
     def _show_description(self, index):
         """Select description ``index`` in the editor's list and show it."""
         item = self.current_image_item
-        if (not item or item.item_type == "chat" or index is None
-                or not 0 <= index < len(item.descriptions)):
+        if not item or index is None or not 0 <= index < len(item.descriptions):
             return
         self.desc_list.SetSelection(index)
-        self.on_description_selected(None)
+        if item.item_type == "chat":
+            # A chat shows each turn's text alone, no details block.
+            self.description_text.SetValue(item.descriptions[index].text)
+            self._note_editor_shows(item, index, "")
+        else:
+            self.on_description_selected(None)
 
     def on_copy_description(self, event):
         """Copy description to clipboard"""
