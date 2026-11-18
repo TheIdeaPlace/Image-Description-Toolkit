@@ -70,14 +70,27 @@ IDT includes three standalone applications that share the same AI provider infra
 
 ### Installation on Windows
 
-**Option 1: Pre-built executables (recommended)**
+**Option 1: The installer (recommended)**
 
-1. Download `idt.exe` and `ImageDescriber.exe` from the [releases page](https://github.com/TheIdeaPlace/Image-Description-Toolkit/releases).
-2. Place them in any folder on your system—no installation required.
-3. To run `idt` from any terminal: add the folder to your `PATH` environment variable (Control Panel → System → Advanced → Environment Variables).
-4. Launch `ImageDescriber.exe` by double-clicking.
+1. Download `ImageDescriptionToolkitSetup-<version>-windows.exe` from the [releases page](https://github.com/TheIdeaPlace/Image-Description-Toolkit/releases).
+2. Run it. Windows asks for administrator permission. It installs `idt`, ImageDescriber and IDT Chat in `C:\idt`, and adds them to the Start menu.
+3. The installer offers some choices:
+   - **Add to PATH**, so `idt` runs from any command prompt. Off by default.
+   - A desktop shortcut for each app. Off by default.
+   - Installing Ollama and the `minicpm-v4.6` model through winget. Off by default, and offered only when winget is available.
+   - Setting up Windows AI. On by default, and offered only where it can be set up.
+4. Start ImageDescriber or IDT Chat from the Start menu. For `idt`, use the Start menu's **Image Description Toolkit (CLI)**, which opens a command prompt in the install folder, or any command prompt if you added it to PATH.
 
-**Option 2: From source**
+**Option 2: The standalone zips**
+
+If you want one tool without installing anything, download its zip from the releases page: `idt-<version>-windows-x64.zip`, `ImageDescriber-<version>-windows-x64.zip` or `IDTChat-<version>-windows-x64.zip`.
+
+Each zip holds a folder. Inside it is the program, such as `ImageDescriber.exe`, and beside it a folder with the same name ending in `-lib`, such as `imagedescriber-lib`. The program needs that folder: keep the two together, and move or copy the whole folder, never the exe on its own.
+
+1. Unzip it anywhere.
+2. Run the exe inside the folder. To run `idt` from any command prompt, add the folder holding `idt.exe` to your `PATH`.
+
+**Option 3: From source**
 
 ```bat
 git clone https://github.com/TheIdeaPlace/Image-Description-Toolkit.git
@@ -99,17 +112,22 @@ python imagedescriber/imagedescriber_wx.py
 
 ### Installation on macOS
 
-**Option 1: Pre-built app bundle (recommended)**
+**Option 1: The disk image (recommended)**
 
-1. Download `ImageDescriber.app` and `idt` from the [releases page](https://github.com/TheIdeaPlace/Image-Description-Toolkit/releases).
-2. Drag `ImageDescriber.app` to your `/Applications` folder.
-3. Copy `idt` to `/usr/local/bin/` and mark it executable:
-   ```bash
-   sudo cp idt /usr/local/bin/idt
-   sudo chmod +x /usr/local/bin/idt
-   ```
+1. Download `IDT-<version>-macos-arm64.dmg` from the [releases page](https://github.com/TheIdeaPlace/Image-Description-Toolkit/releases) and open it.
+2. Drag the **IDT** folder to your Applications folder. It holds `ImageDescriber.app`, `IDTChat.app` and the `idt` command-line tool.
+3. To run `idt` from any Terminal window, open the IDT folder and run `INSTALL_CLI_TO_PATH.sh`. It copies `idt` to `/usr/local/bin` and asks for your password.
 
-**Option 2: From source**
+**Option 2: The command-line tool alone**
+
+Download `idt-<version>-macos-arm64.tar.gz`, unpack it, and copy `idt` to `/usr/local/bin`:
+
+```bash
+sudo cp idt /usr/local/bin/idt
+sudo chmod +x /usr/local/bin/idt
+```
+
+**Option 3: From source**
 
 ```bash
 git clone https://github.com/TheIdeaPlace/Image-Description-Toolkit.git
@@ -250,7 +268,7 @@ idt guideme
 1. Launch `ImageDescriber` (double-click the app or run `ImageDescriber.exe`).
 2. Choose **File → New Workspace** (or press `Ctrl+N`).
 3. Choose **File → Load Directory** (`Ctrl+L`) and select your image folder.
-4. Choose **Process → Process Undescribed Images**.
+4. Choose **Process → Process Undescribed Images (Entire Workspace)**.
 5. Select your AI provider and model in the dialog, then click **OK**.
 6. Watch the Batch Progress dialog as descriptions are generated.
 7. When done, choose **File → Export Descriptions** or **File → Export HTML Gallery**.
@@ -967,8 +985,10 @@ The application has two modes:
 | Item | Description |
 |---|---|
 | Process Current Image | Generate a description for the selected image |
-| Process Undescribed Images | Batch-process only images that have no description |
-| Redescribe All Images | Re-process all images (adds new descriptions alongside existing ones) |
+| Process Undescribed in Selected Folder | Batch-process the images with no description in the folder selected in the image list |
+| Redescribe All in Selected Folder | Re-process every image in the selected folder (adds new descriptions) |
+| Process Undescribed Images (Entire Workspace) | Batch-process only images that have no description, in the whole workspace |
+| Redescribe All Images (Entire Workspace) | Re-process all images (adds new descriptions alongside existing ones) |
 | Show Batch Progress | Show the batch progress dialog |
 | Update Image List (F5) | Refresh the image list |
 | Refresh AI Models | Reload available models from all providers |
@@ -1055,7 +1075,7 @@ A hierarchical tree showing all items in the workspace:
 | `P` | Being described now |
 | `.` | Waiting its turn in a batch |
 | `!` | In a paused batch |
-| `X` | Describing it failed (Describe All Undescribed tries again) |
+| `X` | Describing it failed (Process Undescribed Images (Entire Workspace) tries again) |
 | `E12`, … | A video, with that many frames extracted |
 | `[!]` | The file is no longer on disk (its descriptions are kept) |
 
@@ -1121,7 +1141,7 @@ If you add new images to the source folder after loading:
 
 **Starting a batch job**
 
-1. Choose **Process → Process Undescribed Images** (or **Redescribe All Images** to re-process everything).
+1. Choose **Process → Process Undescribed Images (Entire Workspace)** (or **Redescribe All Images (Entire Workspace)** to re-process everything).
 2. The **Processing Options** dialog appears:
    - **Provider** — Ollama, OpenAI, Claude, or MLX.
    - **Model** — Populated from the chosen provider.
@@ -1662,7 +1682,7 @@ IDT extracts still frames from video files before describing them. The AI then d
 
 **In the GUI:** Videos appear in the image list as expandable nodes. Use **Process → Extract Video Frames...** to control extraction settings, or **Process → Describe Video with AI...** to run the full pipeline. To watch a video, select it and press **Enter** (or use **Process → Play Video**); it opens in your system's default video player.
 
-When a batch includes videos (for example **Process → Describe All Undescribed**), ImageDescriber describes the photos straight away and extracts the videos' frames at the same time. Each video's frames are added to the batch as soon as that video is done. The progress window shows both: an **Items Processed** line, whose total grows as videos finish, and an **Extracting Frames** line with the number of videos done. **Stop** stops both. Videos that were fully extracted keep their frames, and a video stopped partway is extracted again next time; quitting ImageDescriber partway keeps them too. If a batch stops before it finishes (the provider refused the request, for example because you were signed out, or ImageDescriber was quit or closed unexpectedly), opening the workspace again offers to resume it, and resuming extracts the videos it hadn't reached while describing the rest. While videos are still being extracted, the progress bar shows activity rather than a percentage, because the total is still growing.
+When a batch includes videos (for example **Process → Process Undescribed Images (Entire Workspace)**), ImageDescriber describes the photos straight away and extracts the videos' frames at the same time. Each video's frames are added to the batch as soon as that video is done. The progress window shows both: an **Items Processed** line, whose total grows as videos finish, and an **Extracting Frames** line with the number of videos done. **Stop** stops both. Videos that were fully extracted keep their frames, and a video stopped partway is extracted again next time; quitting ImageDescriber partway keeps them too. If a batch stops before it finishes (the provider refused the request, for example because you were signed out, or ImageDescriber was quit or closed unexpectedly), opening the workspace again offers to resume it, and resuming extracts the videos it hadn't reached while describing the rest. While videos are still being extracted, the progress bar shows activity rather than a percentage, because the total is still growing.
 
 **Extraction modes**
 
