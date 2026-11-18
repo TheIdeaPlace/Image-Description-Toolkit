@@ -361,11 +361,10 @@ A script can tell from the exit code how the run went:
 |---|---|
 | `0` | Every picture tried was described, or there was nothing to describe |
 | `1` | Nothing was described and at least one picture failed, or the run couldn't start (a missing API key, the provider not reachable) |
-| `2` | Some pictures were described and some failed |
+| `2` | An option was wrong, such as `--limit 0`; it's refused with a message before anything runs |
+| `3` | Some pictures were described and some failed |
 
-An option IDT can't accept, such as `--limit 0`, is refused with a message before anything runs, and also exits with code 2.
-
-Pictures left out on purpose, such as ones a provider declined before or originals no longer on disk, count as neither. In stdin mode, a path that doesn't exist counts as a failure. `idt download --describe`, `idt video` and `idt watch` use the same codes; see [Piping and Scripting with idt](#piping-and-scripting-with-idt).
+Pictures left out on purpose, such as ones a provider declined before or originals no longer on disk, count as neither. A video in the folder whose frames can't be extracted counts as a failure. In stdin mode, a path that doesn't exist counts as a failure. `idt download --describe`, `idt video` and `idt watch` use the same codes; see [Piping and Scripting with idt](#piping-and-scripting-with-idt).
 
 ---
 
@@ -1791,16 +1790,18 @@ In `--quiet` mode, stdin mode outputs `filename\tdescription` (tab-separated), m
 |---|---|
 | `0` | Every picture tried was described, or there was nothing to describe |
 | `1` | Nothing was described and at least one picture failed, or the run couldn't start |
-| `2` | Some pictures were described and some failed |
+| `2` | An option was wrong, such as `--limit 0`; nothing was run, and the message says what's wrong |
+| `3` | Some pictures were described and some failed |
 
-A wrong option, such as `--limit 0`, exits with code 2 before anything runs, with a message saying what's wrong. For `idt video`, a video whose frames can't be extracted counts as a failure; without `--describe`, the codes count videos extracted rather than pictures described. For `idt watch`, they cover everything since it started, when you stop it with Ctrl+C.
+For `idt describe` and `idt video`, a video whose frames can't be extracted counts as a failure; for `idt video` without `--describe`, the codes count videos extracted rather than pictures described. For `idt watch`, they cover everything since it started, when you stop it with Ctrl+C.
 
 ```bash
 # Stop a script when a run described nothing
 idt describe ~/Photos/Trip --quiet --no-export
 case $? in
   0) echo "All described" ;;
-  2) echo "Some failed; run again to retry them" ;;
+  3) echo "Some failed; run again to retry them" ;;
+  2) echo "Check the options"; exit 2 ;;
   *) echo "Nothing described"; exit 1 ;;
 esac
 ```

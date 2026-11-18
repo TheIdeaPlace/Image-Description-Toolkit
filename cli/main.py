@@ -348,6 +348,20 @@ def _float_in_range(low: float, high: float):
     return _check
 
 
+def _size_arg(value: str) -> str:
+    """An argparse type for --min-size: WIDTHxHEIGHT, both whole numbers of 0 or
+    more. Anything else was ignored without a word ("wide", "200")."""
+    parts = value.lower().split("x")
+    try:
+        ok = len(parts) == 2 and all(int(p) >= 0 for p in parts)
+    except ValueError:
+        ok = False
+    if not ok:
+        raise argparse.ArgumentTypeError(
+            f"use WIDTHxHEIGHT in pixels, e.g. 200x200; got {value!r}")
+    return value
+
+
 class _KeepLinesFormatter(argparse.HelpFormatter):
     """Wraps a one-line description as usual, but prints text that has its own
     line breaks (the exit codes epilog) as written."""
@@ -584,23 +598,23 @@ def _launch_gui_describe(source: Path, args) -> None:
 #: Exit codes of the describing commands (describe, download --describe,
 #: video --describe, watch). A script can tell a clean run from a partial one.
 EXIT_OK = 0        # everything tried was described, or there was nothing to do
-EXIT_FAILED = 1    # nothing was described and at least one picture failed
-EXIT_PARTIAL = 2   # some pictures were described and some failed
+EXIT_FAILED = 1    # nothing was described and something failed, or the run couldn't start
+EXIT_USAGE = 2     # an invalid option (argparse's own code), refused before anything runs
+EXIT_PARTIAL = 3   # some pictures were described and some failed
 
 #: The --help text for those codes, shared so the commands can't drift apart.
 EXIT_CODES_HELP = (
     "exit codes:\n"
     "  0  every picture tried was described, or there was nothing to describe\n"
-    "  1  nothing was described and at least one picture failed (or the run\n"
-    "     couldn't start: no API key, provider not reachable)\n"
-    "  2  some pictures were described and some failed\n"
-    "An option out of range (--limit 0) is refused with a message and code 2\n"
-    "before anything runs."
+    "  1  nothing was described and at least one picture failed, or the run\n"
+    "     couldn't start (no API key, provider not reachable)\n"
+    "  2  an option was wrong (--limit 0, say); nothing was run\n"
+    "  3  some pictures were described and some failed"
 )
 
 
 def _describe_exit_code(described: int, failed: int) -> int:
-    """The exit code for a describing run: 0, 1 or 2 (see EXIT_CODES_HELP).
+    """The exit code for a describing run: 0, 1 or 3 (see EXIT_CODES_HELP).
     Pictures skipped on purpose (declined before, missing originals in a
     folder run) are neither."""
     if failed <= 0:
@@ -628,7 +642,7 @@ def cmd_describe(args):
     if getattr(args, "showgui", False):
         if not source.is_dir():
             print("Error: --showgui requires a source directory.", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
         from idt_core.workspace import Workspace
         if Workspace.is_bundle(source):
             # ImageDescriber opens a workspace but doesn't start describing it,
@@ -638,7 +652,7 @@ def cmd_describe(args):
                   f"  idt describe \"{source}\"\n"
                   "or open it in ImageDescriber and choose Process > Describe All "
                   "Undescribed.", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
         _launch_gui_describe(source, args)
         return
 
@@ -681,12 +695,14 @@ def cmd_describe(args):
             print(f"Source:     {source}")
         print(f"Workspace:  {ws.path}")
         print(f"Copy mode:  {'copy originals into workspace' if ws.copy_originals else 'reference in place'}")
+    # Videos whose frames couldn't be extracted: failures, for the exit code.
+    videos_failed = 0
     if source is not None:
         added = ws.add_source_folder(source, recursive=True, copy=ws.copy_originals)
 
         # Extract video frames and add them to the workspace (opt out with --no-video)
         if not getattr(args, "no_video", False):
-            _extract_videos_into_workspace(ws, source, args)
+            videos_failed = _extract_videos_into_workspace(ws, source, args)
 
     if not args.quiet:
         total_items = len(ws.media_items())
@@ -764,7 +780,9 @@ def cmd_describe(args):
             else:
                 print(f"All {n} image{'s are' if n != 1 else ' is'} already described.")
             print("Use --redescribe to generate additional descriptions.")
-        return EXIT_OK
+        # A folder of videos whose frames couldn't be written has nothing to
+        # describe, and that's a failure, not "nothing to do".
+        return _describe_exit_code(0, videos_failed)
 
     progress = Progress(total=len(queue), quiet=args.quiet)
     progress.start(f"{provider_name} / {model}")
@@ -821,7 +839,7 @@ def cmd_describe(args):
     if not getattr(args, "no_export", False) and described > 0:
         _auto_export_workspace(ws, args.quiet)
 
-    return _describe_exit_code(described, errors)
+    return _describe_exit_code(described, errors + videos_failed)
 
 
 def _ask_again_hint(provider_name: str) -> str:
@@ -1050,12 +1068,15 @@ def _previous_frames_rel(ws, video_wi, video: Path):
     return None
 
 
-def _extract_videos_into_workspace(ws, source: Path, args) -> None:
-    """Scan source for videos, extract frames, and add them to the workspace."""
+def _extract_videos_into_workspace(ws, source: Path, args) -> int:
+    """Scan source for videos, extract frames, and add them to the workspace.
+    Returns how many videos failed, which count towards the exit code. With
+    opencv-python not installed, videos are skipped, not failed."""
     from idt_core.video import scan_videos, VideoExtractionOptions
     videos = list(scan_videos(source))
     if not videos:
-        return
+        return 0
+    failed = 0
     if not args.quiet:
         print(f"Videos:     {len(videos)} file(s) found — extracting frames")
     interval = getattr(args, "video_interval", 5.0)
@@ -1088,6 +1109,7 @@ def _extract_videos_into_workspace(ws, source: Path, args) -> None:
         except Exception as exc:
             # To stderr even with --quiet: a video whose frames can't be
             # written (a full disk, say) mustn't vanish from the run unnoticed.
+            failed += 1
             print(f"  {video.name}: skipped ({exc})", file=sys.stderr)
     if cv_missing and not args.quiet:
         print("  Skipping video extraction: opencv-python not installed")
@@ -1100,6 +1122,7 @@ def _extract_videos_into_workspace(ws, source: Path, args) -> None:
             print(f"  {total_frames} frames added to workspace")
     if not args.quiet:
         print()
+    return failed
 
 
 def _auto_export_workspace(ws, quiet: bool) -> None:
@@ -1260,8 +1283,8 @@ def cmd_download(args):
             try:
                 min_w, min_h = int(parts[0]), int(parts[1])
             except ValueError:
-                print(f"Invalid --min-size format (use WIDTHxHEIGHT, e.g. 200x200)", file=sys.stderr)
-                sys.exit(1)
+                print("Invalid --min-size format (use WIDTHxHEIGHT, e.g. 200x200)", file=sys.stderr)
+                sys.exit(EXIT_USAGE)
 
     def _on_progress(i: int, total: int, url: str) -> None:
         if not args.quiet:
@@ -1639,7 +1662,7 @@ def _show_file(target: Path, args):
     # 1. Whether candidate itself is a bundle (target is inside the bundle's images/)
     # 2. Whether a sibling bundle exists whose items reference this file as source_path
     candidate = target.parent
-    target_str = str(target)
+    keys = _original_keys(target, getattr(args, "target", None))
     while True:
         # Case 1: target lives inside a bundle (e.g. 09.idtw/images/photo.jpg)
         if Workspace.is_bundle(candidate):
@@ -1650,12 +1673,13 @@ def _show_file(target: Path, args):
                     return
         # Case 2: sibling bundle whose workspace was created from the same source folder
         sibling = candidate.parent / (candidate.name + ".idtw")
+        # Matched on the original's path only: the same file name in another of
+        # the folder's subfolders is a different picture.
         if Workspace.is_bundle(sibling):
-            ws = Workspace.open(sibling)
-            for item in ws.items():
-                if item.source_path == target_str or item.image == target.name:
-                    _print_item(item, args)
-                    return
+            item = _item_for_original(Workspace.open(sibling), keys)
+            if item is not None:
+                _print_item(item, args)
+                return
         # Legacy sibling .idt/ project
         idt_dir = candidate.parent / (candidate.name + ".idt")
         if idt_dir.is_dir():
@@ -1675,7 +1699,7 @@ def _show_file(target: Path, args):
     # picture's original path only. A workspace is named after a folder's leaf
     # name alone, so the one found for "nested" may be another folder's entirely;
     # matching on file name too printed a different picture's description.
-    item = _find_in_mirrored_workspaces(target, getattr(args, "target", None))
+    item = _find_in_mirrored_workspaces(target, keys)
     if item is not None:
         _print_item(item, args)
         return
@@ -1685,31 +1709,46 @@ def _show_file(target: Path, args):
     sys.exit(1)
 
 
-def _find_in_mirrored_workspaces(target: Path, typed: Optional[str] = None):
-    """The workspace item whose original is ``target``, from the workspace of
-    ``target``'s folder or of any folder above it; None if there's none.
-
-    ``typed`` is the path as the user gave it: a workspace records originals by
-    absolute path without resolving links, so a mapped drive (resolved to its
-    UNC path) still matches the way it was described."""
+def _path_key(p) -> str:
+    """A path as a workspace records an original (absolute, links not resolved),
+    in the case the OS compares in."""
     import os
+    return os.path.normcase(os.path.abspath(str(p)))
 
-    def _key(p) -> str:
-        return os.path.normcase(os.path.abspath(str(p)))
 
-    keys = {_key(target)}
+def _original_keys(target: Path, typed: Optional[str] = None) -> set:
+    """The ways a workspace may have recorded ``target`` as an original.
+
+    ``typed`` is the path as the user gave it: originals are recorded by absolute
+    path without resolving links, so a mapped drive (which resolves to its UNC
+    path) still matches the way it was described."""
+    keys = {_path_key(target)}
     if typed:
-        keys.add(_key(Path(typed).expanduser()))
+        keys.add(_path_key(Path(typed).expanduser()))
+    return keys
 
+
+def _item_for_original(ws, keys: set):
+    """The item in ``ws`` whose original is one of ``keys`` (_original_keys), or None."""
+    for item in ws.items():
+        if item.source_path and _path_key(item.source_path) in keys:
+            return item
+    return None
+
+
+def _find_in_mirrored_workspaces(target: Path, keys: set):
+    """The workspace item whose original is ``target`` (``keys``, from
+    _original_keys), from the workspace of ``target``'s folder or of any folder
+    above it; None if there's none."""
     seen = set()
     folder = target.parent
     while True:
         ws = _find_workspace(str(folder))
-        if ws is not None and _key(ws.path) not in seen:
-            seen.add(_key(ws.path))
-            for item in ws.items():
-                if item.source_path and _key(item.source_path) in keys:
-                    return item
+        if ws is not None and _path_key(ws.path) not in seen:
+            seen.add(_path_key(ws.path))
+            item = _item_for_original(ws, keys)
+            if item is not None:
+                return item
         if folder == folder.parent:
             return None
         folder = folder.parent
@@ -3110,7 +3149,7 @@ Supported providers:
                            "domain, under the workspace root — see 'idt config')")
     p_dl.add_argument("--max", dest="max_images", type=int, metavar="N",
                       help="Maximum number of images to download")
-    p_dl.add_argument("--min-size", metavar="WxH",
+    p_dl.add_argument("--min-size", metavar="WxH", type=_size_arg,
                       help="Minimum image size to download (e.g. 200x200)")
     p_dl.add_argument("--timeout", type=int, default=30,
                       help="Request timeout in seconds (default: 30)")

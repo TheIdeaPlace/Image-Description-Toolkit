@@ -118,7 +118,7 @@ from idt_core.pipeline import (  # noqa: E402
 from idt_core.providers.registry import display_name as _display_provider  # noqa: E402
 from idt_core.providers.catalog import model_display_name as _display_model  # noqa: E402
 # Writes video frames; cv2.imwrite fails silently on non-ASCII paths on Windows.
-from idt_core.video import write_frame  # noqa: E402
+from idt_core.video import FrameWriteError, write_frame  # noqa: E402
 
 
 _TIMESTAMP_TAIL = re.compile(r"\s*-\s*\(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(,\d+)?\)\s*$")
@@ -1750,13 +1750,15 @@ class VideoProcessingWorker(threading.Thread):
 
         # Extract based on mode
         extraction_mode = self.extraction_config.get("extraction_mode", "time_interval")
-        if extraction_mode == "scene_change":
-            extracted_paths = self._extract_by_scene_detection(cap, fps, video_dir, video_source_metadata)
-        else:
-            # Default to time_interval if mode not recognized
-            extracted_paths = self._extract_by_time_interval(cap, fps, video_dir, video_source_metadata)
-        
-        cap.release()
+        try:
+            if extraction_mode == "scene_change":
+                extracted_paths = self._extract_by_scene_detection(cap, fps, video_dir, video_source_metadata)
+            else:
+                # Default to time_interval if mode not recognized
+                extracted_paths = self._extract_by_time_interval(cap, fps, video_dir, video_source_metadata)
+        finally:
+            # Also when a frame can't be written (FrameWriteError): don't leak the capture.
+            cap.release()
         return extracted_paths, video_metadata
     
     def _extract_by_time_interval(self, cap, fps: float, output_dir: Path, video_source_metadata: dict = None) -> list:
@@ -1915,7 +1917,12 @@ class VideoProcessingWorker(threading.Thread):
                 extracted_paths.append(str(frame_path))
             
             return extracted_paths
-            
+
+        except FrameWriteError:
+            # Not a detector crash: the basic fallback would fail to write too.
+            # Release the capture reopened above and report the real error.
+            cap.release()
+            raise
         except Exception as e:
             logger.warning(f"Enhanced scene detection failed: {e}, using basic detection")
             self._post_progress("Using basic scene detection...")

@@ -4,8 +4,9 @@ S1  video frames went missing on a non-ASCII path (cv2.imwrite fails silently
     on Windows); frames are now encoded in memory and written by Python.
 S2  `idt download --describe --embed` crashed with NameError '_do_embed' after
     doing all the work.
-S3  describing commands exited 0 when every picture failed. Now 0 / 2 / 1:
-    all done (or nothing to do) / some failed / nothing described.
+S3  describing commands exited 0 when every picture failed. Now 0 all done (or
+    nothing to do), 1 nothing described or couldn't start, 2 a wrong option
+    (argparse's code), 3 some described and some failed.
 S4  `idt show` couldn't find a picture in a subfolder of the described folder,
     and could pick an unrelated workspace named like the picture's folder.
 S7  ImageDescriber said "Prompt: custom" for every CLI description.
@@ -186,7 +187,7 @@ def test_no_cv2_imwrite_left_in_the_apps():
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.parametrize("described, failed, code", [
-    (0, 0, 0), (3, 0, 0), (2, 1, 2), (0, 1, 1), (0, 5, 1),
+    (0, 0, 0), (3, 0, 0), (2, 1, 3), (0, 1, 1), (0, 5, 1),
 ])
 def test_describe_exit_code(described, failed, code):
     assert cli_main._describe_exit_code(described, failed) == code
@@ -203,7 +204,7 @@ def test_describe_some_failed_exits_2(tmp_path, idt_home, monkeypatch):
     src = tmp_path / "Pics"
     _jpeg(src / "a.jpg")
     _png(src / "b.png")
-    assert run_idt(monkeypatch, "describe", src, *DESCRIBE) == 2
+    assert run_idt(monkeypatch, "describe", src, *DESCRIBE) == 3
 
 
 def test_describe_all_failed_exits_1(tmp_path, idt_home, monkeypatch):
@@ -227,7 +228,7 @@ def test_describe_returns_the_code_rather_than_exiting(tmp_path, idt_home, monke
     _png(src / "b.png")
     monkeypatch.setattr(sys, "argv", ["idt"])
     args = cli_main.build_parser().parse_args(["describe", str(src), *DESCRIBE])
-    assert cli_main.cmd_describe(args) == 2
+    assert cli_main.cmd_describe(args) == 3
 
 
 def _stdin(monkeypatch, lines):
@@ -238,7 +239,7 @@ def _stdin(monkeypatch, lines):
 def test_stdin_mode_missing_path_counts_as_a_failure(tmp_path, idt_home, monkeypatch):
     good = _jpeg(tmp_path / "in" / "a.jpg")
     _stdin(monkeypatch, [good, tmp_path / "in" / "gone.jpg"])
-    assert run_idt(monkeypatch, "describe", "-", *DESCRIBE) == 2
+    assert run_idt(monkeypatch, "describe", "-", *DESCRIBE) == 3
 
 
 def test_stdin_mode_all_failed_exits_1(tmp_path, idt_home, monkeypatch):
@@ -260,7 +261,7 @@ def test_watch_reports_the_whole_watch_when_stopped(tmp_path, idt_home, monkeypa
         raise KeyboardInterrupt
     monkeypatch.setattr("time.sleep", _stop)
     assert run_idt(monkeypatch, "watch", src, "--provider", "ollama", "--model", "fake",
-                   "--no-metadata", "--quiet") == 2
+                   "--no-metadata", "--quiet") == 3
 
 
 def test_video_describe_exit_code_and_unicode_workspace(tmp_path, monkeypatch, idt_home):
@@ -520,4 +521,103 @@ def test_help_documents_the_exit_codes(capsys):
             cli_main.build_parser().parse_args([cmd, "--help"])
         out = capsys.readouterr().out
         assert "exit codes" in out, cmd
-        assert "2  some pictures were described and some failed" in out, cmd
+        assert "3  some pictures were described and some failed" in out, cmd
+        assert "2  an option was wrong" in out, cmd
+
+
+def test_exit_code_constants():
+    assert (cli_main.EXIT_OK, cli_main.EXIT_FAILED, cli_main.EXIT_USAGE,
+            cli_main.EXIT_PARTIAL) == (0, 1, 2, 3)
+
+
+def test_bad_min_size_is_a_usage_error(tmp_path, idt_home, monkeypatch):
+    assert run_idt(monkeypatch, "download", "https://example.com", "site",
+                   "--min-size", "wide") == 2
+
+
+# --------------------------------------------------------------------------- #
+# Review fixes: videos in describe, guideme's limit, sibling bundles in show   #
+# --------------------------------------------------------------------------- #
+
+def _frames_cannot_be_written(monkeypatch):
+    from idt_core import video as video_mod
+
+    def _fail(dest, frame):
+        raise video_mod.FrameWriteError(f"Could not write video frame {dest}: disk full")
+    monkeypatch.setattr(video_mod, "write_frame", _fail)
+
+
+def test_describe_videos_only_folder_whose_frames_fail_exits_1(tmp_path, idt_home,
+                                                               monkeypatch, capsys):
+    src = tmp_path / "Clips"
+    _tiny_video(src / "clip.avi")
+    _frames_cannot_be_written(monkeypatch)
+    assert run_idt(monkeypatch, "describe", src, *DESCRIBE) == 1
+    assert "clip.avi: skipped" in capsys.readouterr().err
+
+
+def test_describe_failed_video_beside_good_pictures_is_partial(tmp_path, idt_home,
+                                                              monkeypatch):
+    src = tmp_path / "Clips"
+    _tiny_video(src / "clip.avi")
+    _jpeg(src / "a.jpg")
+    _frames_cannot_be_written(monkeypatch)
+    assert run_idt(monkeypatch, "describe", src, *DESCRIBE) == 3
+
+
+def test_describe_with_videos_that_extract_exits_0(tmp_path, idt_home, monkeypatch):
+    src = tmp_path / "Clips"
+    _tiny_video(src / "clip.avi")
+    assert run_idt(monkeypatch, "describe", src, *DESCRIBE) == 0
+
+
+def _answers(monkeypatch, *replies):
+    it = iter(replies)
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(it))
+
+
+@pytest.mark.parametrize("bad", ["0", "-1", "abc", "2.5"])
+def test_guideme_limit_refuses_and_asks_again(monkeypatch, capsys, bad):
+    from cli import guide
+
+    _answers(monkeypatch, bad, "5")
+    assert guide._ask_limit() == 5
+    assert "1 or more" in capsys.readouterr().out
+
+
+def test_guideme_limit_enter_means_no_limit(monkeypatch):
+    from cli import guide
+
+    _answers(monkeypatch, "")
+    assert guide._ask_limit() is None
+
+
+def test_guideme_extra_options_never_carry_a_bad_limit(monkeypatch):
+    from cli import guide
+
+    # limit: 0 (refused), then 3; then "No" to every yes/no question after it.
+    _answers(monkeypatch, "0", "3", *(["2"] * 10))
+    opts = guide._step_extra_options("dir")
+    assert opts["limit"] == 3
+
+
+def test_show_sibling_bundle_matches_on_the_original_path(tmp_path, idt_home,
+                                                          monkeypatch, capsys):
+    """An old-style sibling bundle (Photos.idtw beside Photos) holding a.jpg from
+    Photos/2025 must not answer for Photos/2026/a.jpg, a different picture."""
+    from idt_core.workspace import Workspace, WorkspaceDescription
+
+    photos = tmp_path / "Photos"
+    old = _jpeg(photos / "2025" / "a.jpg")
+    new = _jpeg(photos / "2026" / "a.jpg", colour=(5, 5, 5))
+
+    ws = Workspace.create(tmp_path / "Photos")          # Photos.idtw, beside Photos
+    item = ws.add_image(old, subfolder="2025", copy=False)
+    item.add_description(WorkspaceDescription.create(text="The 2025 picture.",
+                                                     provider="ollama", model="fake"))
+    ws.save_item(item)
+
+    assert run_idt(monkeypatch, "show", new) == 1
+    assert "The 2025 picture." not in capsys.readouterr().out
+    assert run_idt(monkeypatch, "show", old) == 0
+    assert "The 2025 picture." in capsys.readouterr().out
