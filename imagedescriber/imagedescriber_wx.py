@@ -8423,6 +8423,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_add_manual_description(self, event):
         """Add manual description (M key)"""
+        if self._refuse_in_viewer():
+            return
         if not self.current_image_item:
             show_warning(self, "No image selected")
             return
@@ -8619,6 +8621,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_followup_question(self, event):
         """Ask followup question (F key)"""
+        if self._refuse_in_viewer():
+            return
         if not self.current_image_item:
             show_warning(self, "No image selected")
             return
@@ -9107,8 +9111,32 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         self.video_desc_worker = None
 
     # Descriptions menu handlers
+    #
+    # Viewer mode has its own list. current_image_item is the image selected in
+    # Editor mode, hidden while the viewer shows, so in Viewer mode the Copy
+    # items read the viewer's selection, and the items that change
+    # descriptions say to switch, rather than act on an image the user can't
+    # see (#480).
+
+    def _viewer_showing(self):
+        return self.current_mode == 'viewer' and self.viewer_panel is not None
+
+    def _viewer_entry(self):
+        """The viewer's selected entry in Viewer mode, else None."""
+        return self.viewer_panel.selected_entry() if self._viewer_showing() else None
+
+    def _refuse_in_viewer(self):
+        """In Viewer mode, say where descriptions are changed; True if so."""
+        if not self._viewer_showing():
+            return False
+        show_info(self, "Descriptions are changed in Editor mode. To switch, "
+                        "choose View, Application Mode, Editor Mode.")
+        return True
+
     def on_edit_description(self, event):
         """Edit selected description"""
+        if self._refuse_in_viewer():
+            return
         if not self.current_image_item or not self.current_image_item.descriptions:
             show_warning(self, "No description to edit")
             return
@@ -9137,6 +9165,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_delete_description(self, event):
         """Delete selected description"""
+        if self._refuse_in_viewer():
+            return
         if not self.current_image_item or not self.current_image_item.descriptions:
             show_warning(self, "No description to delete")
             return
@@ -9150,16 +9180,40 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_copy_description(self, event):
         """Copy description to clipboard"""
-        if not self.current_image_item or not self.current_image_item.descriptions:
+        desc = self._description_to_copy()
+        if desc is None:
             show_warning(self, "No description to copy")
             return
-
-        desc = self.current_image_item.descriptions[-1].text
         if self._copy_text_to_clipboard(desc):
             self.SetStatusText("Description copied to clipboard", 0)
 
+    def _description_to_copy(self):
+        """The description text the Copy items use, or None.
+
+        Viewer mode: the description selected there. Editor mode: the
+        selected image's latest description.
+        """
+        if self._viewer_showing():
+            entry = self._viewer_entry()
+            text = (entry or {}).get('description') or ''
+            return text if text.strip() else None
+        if not self.current_image_item or not self.current_image_item.descriptions:
+            return None
+        return self.current_image_item.descriptions[-1].text
+
     def on_copy_image_path(self, event):
         """Copy image path to clipboard"""
+        if self._viewer_showing():
+            entry = self._viewer_entry()
+            if not entry or not entry.get('file_path'):
+                show_warning(self, "No image selected")
+                return
+            resolved = self.viewer_panel._get_current_image_path()
+            path = str(resolved) if resolved else entry['file_path']
+            if self._copy_text_to_clipboard(path):
+                self.SetStatusText("Image path copied to clipboard", 0)
+            return
+
         if not self.current_image_item:
             show_warning(self, "No image selected")
             return
@@ -9202,7 +9256,10 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         For video items, returns the first extracted frame path.
         For regular images, returns the file_path resolved through the workspace.
         Returns None if no image is selected or path cannot be resolved.
+        In Viewer mode, the image of the description selected there (#480).
         """
+        if self._viewer_showing():
+            return self.viewer_panel._get_current_image_path()
         if not self.current_image_item:
             return None
         if self.current_image_item.item_type == "video":
@@ -9261,14 +9318,14 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         if not path:
             show_warning(self, "No image available to copy")
             return
-        if not self.current_image_item or not self.current_image_item.descriptions:
+        desc = self._description_to_copy()
+        if desc is None:
             show_warning(self, "No description to copy")
             return
         bmp = self._load_bitmap_for_clipboard(path)
         if not bmp:
             show_warning(self, "Could not load image for clipboard")
             return
-        desc = self.current_image_item.descriptions[-1].text
         import sys
         composite = wx.DataObjectComposite()
         composite.Add(wx.BitmapDataObject(bmp))
