@@ -188,15 +188,25 @@ def _step_api_key(provider: str) -> bool:
         print(f"No API key required for {provider}.")
         return True
 
-    if os.environ.get(env_var):
-        val = os.environ[env_var]
-        masked = val[:8] + "..." + val[-4:] if len(val) > 12 else "***"
-        print(f"Found {env_var}: {masked}")
+    # The same lookup `idt describe` uses: the environment, then the key saved
+    # in ImageDescriber's Configure (credential store), then the config and
+    # legacy key files. Checking only the environment told people who'd saved
+    # their key in Configure that it wasn't set (4.9.0 bug bash).
+    from idt_core.keys import key_source, resolve_api_key
+
+    label = "Claude" if provider == "anthropic" else "OpenAI"
+    val = resolve_api_key(provider)
+    if val:
+        # Say where it came from, never any of the key itself (CodeQL
+        # py/clear-text-logging-sensitive-data, #455).
+        source = key_source(provider)
+        print(f"Found your {label} API key" + (f" ({source})." if source else "."))
         return True
 
-    print(f"Warning: {env_var} is not set.")
+    print(f"Warning: no {label} API key found.")
     print()
-    print("Set it before running the command:")
+    print("Save one in ImageDescriber (Tools, Configure, API Keys), or set it before "
+          "running the command:")
     if sys.platform.startswith("win"):
         print(f'  $env:{env_var} = "your-key-here"')
     else:
@@ -512,20 +522,36 @@ def _step_metadata(provider: str = "") -> tuple[bool, bool]:
     return True, geocode
 
 
+def _ask_limit() -> Optional[int]:
+    """Ask for an image limit: a whole number of 1 or more, or Enter for none.
+    Anything else is refused and asked again, with the same check as
+    `idt describe --limit`. A 0 or a negative used to be passed straight on:
+    -1 described all but the last picture and 0 meant no limit."""
+    import argparse
+    from cli.main import _positive_int
+
+    while True:
+        raw = get_input(
+            "Limit to N images (useful for testing; press Enter for all)",
+            allow_empty=True,
+        )
+        if not raw:
+            return None
+        try:
+            return _positive_int(raw)
+        except argparse.ArgumentTypeError as exc:
+            print(f"That limit can't be used ({exc}). Enter a whole number "
+                  "of 1 or more, or press Enter for no limit.")
+
+
 def _step_extra_options(source_type: str) -> dict:
     """Return dict of extra flags: limit, show_descriptions, embed, redescribe."""
     _header("Step 7: Additional Options")
     opts: dict = {}
 
-    limit_str = get_input(
-        "Limit to N images (useful for testing; press Enter for all)",
-        allow_empty=True,
-    )
-    if limit_str:
-        try:
-            opts["limit"] = int(limit_str)
-        except ValueError:
-            print("Invalid number, no limit will be set.")
+    limit = _ask_limit()
+    if limit:
+        opts["limit"] = limit
 
     opts["show_descriptions"] = get_yes_no(
         "Print each description to the screen as it is generated?", default=False
