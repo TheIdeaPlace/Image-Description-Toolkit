@@ -125,8 +125,13 @@ except ImportError:
 # Saves each described image while a batch runs. Module scope: the frame
 # constructs one at startup.
 from idt_core.gui_bridge import BundleCheckpointWriter  # noqa: E402
+# "Prompt: custom" only for a prompt the user wrote: CLI descriptions store the
+# named style's text too (bug bash S7).
+from idt_core.gui_bridge import prompt_label as _prompt_label  # noqa: E402
 # The batch window's cost meter. Module scope: the frame makes one at startup.
 from idt_core.pricing import CostMeter  # noqa: E402
+# Writes video frames; cv2.imwrite fails silently on non-ASCII paths on Windows.
+from idt_core.video import write_frame  # noqa: E402
 
 
 class ExtractionCancelled(Exception):
@@ -1234,7 +1239,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             frame_time = frame_num / fps if fps > 0 else 0.0
             frame_filename = f"{video_path_obj.stem}_{frame_time:.2f}s.jpg"
             frame_path = video_dir / frame_filename
-            cv2.imwrite(str(frame_path), frame)
+            write_frame(frame_path, frame)
             if video_source_metadata and ExifEmbedder is not None:
                 try:
                     ExifEmbedder().embed_metadata(
@@ -1296,7 +1301,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     frame_time = frame_num / fps if fps > 0 else 0.0
                     frame_filename = f"{video_path_obj.stem}_scene_{extract_count:04d}_{frame_time:.2f}s.jpg"
                     frame_path = video_dir / frame_filename
-                    cv2.imwrite(str(frame_path), frame)
+                    write_frame(frame_path, frame)
                     # Embed video GPS/date into frame EXIF if metadata is available
                     if video_source_metadata and ExifEmbedder is not None:
                         try:
@@ -2204,12 +2209,9 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 if desc.model:
                     metadata_lines.append(f"Model: {_display_model(desc.provider, desc.model)}")
                 if desc.prompt_style:
-                    # If custom prompt was used, show 'custom' instead of base style
-                    if desc.custom_prompt:
-                        prompt_display = "custom"
-                    else:
-                        prompt_display = desc.prompt_style
-                    metadata_lines.append(f"Prompt: {prompt_display}")
+                    # 'custom' only for a prompt the user wrote (see prompt_label)
+                    metadata_lines.append(
+                        f"Prompt: {_prompt_label(desc.prompt_style, desc.custom_prompt)}")
                 if desc.created:
                     created_date = desc.created.split('T')[0] if 'T' in desc.created else desc.created
                     metadata_lines.append(f"Created: {created_date}")
@@ -2256,11 +2258,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             if first_desc.model:
                 metadata_lines.append(f"Model: {_display_model(first_desc.provider, first_desc.model)}")
             if first_desc.prompt_style:
-                if first_desc.custom_prompt:
-                    prompt_display = "custom"
-                else:
-                    prompt_display = first_desc.prompt_style
-                metadata_lines.append(f"Prompt: {prompt_display}")
+                metadata_lines.append(
+                    f"Prompt: {_prompt_label(first_desc.prompt_style, first_desc.custom_prompt)}")
             if first_desc.created:
                 created_date = first_desc.created.split('T')[0] if 'T' in first_desc.created else first_desc.created
                 metadata_lines.append(f"Created: {created_date}")
@@ -2353,12 +2352,9 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 if selected_desc.model:
                     metadata_lines.append(f"Model: {_display_model(selected_desc.provider, selected_desc.model)}")
                 if selected_desc.prompt_style:
-                    # If custom prompt was used, show 'custom' instead of base style
-                    if selected_desc.custom_prompt:
-                        prompt_display = "custom"
-                    else:
-                        prompt_display = selected_desc.prompt_style
-                    metadata_lines.append(f"Prompt: {prompt_display}")
+                    # 'custom' only for a prompt the user wrote (see prompt_label)
+                    metadata_lines.append(
+                        f"Prompt: {_prompt_label(selected_desc.prompt_style, selected_desc.custom_prompt)}")
                 if selected_desc.created:
                     created_date = selected_desc.created.split('T')[0] if 'T' in selected_desc.created else selected_desc.created
                     metadata_lines.append(f"Created: {created_date}")

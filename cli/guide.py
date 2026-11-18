@@ -522,20 +522,36 @@ def _step_metadata(provider: str = "") -> tuple[bool, bool]:
     return True, geocode
 
 
+def _ask_limit() -> Optional[int]:
+    """Ask for an image limit: a whole number of 1 or more, or Enter for none.
+    Anything else is refused and asked again, with the same check as
+    `idt describe --limit`. A 0 or a negative used to be passed straight on:
+    -1 described all but the last picture and 0 meant no limit."""
+    import argparse
+    from cli.main import _positive_int
+
+    while True:
+        raw = get_input(
+            "Limit to N images (useful for testing; press Enter for all)",
+            allow_empty=True,
+        )
+        if not raw:
+            return None
+        try:
+            return _positive_int(raw)
+        except argparse.ArgumentTypeError as exc:
+            print(f"That limit can't be used ({exc}). Enter a whole number "
+                  "of 1 or more, or press Enter for no limit.")
+
+
 def _step_extra_options(source_type: str) -> dict:
     """Return dict of extra flags: limit, show_descriptions, embed, redescribe."""
     _header("Step 7: Additional Options")
     opts: dict = {}
 
-    limit_str = get_input(
-        "Limit to N images (useful for testing; press Enter for all)",
-        allow_empty=True,
-    )
-    if limit_str:
-        try:
-            opts["limit"] = int(limit_str)
-        except ValueError:
-            print("Invalid number, no limit will be set.")
+    limit = _ask_limit()
+    if limit:
+        opts["limit"] = limit
 
     opts["show_descriptions"] = get_yes_no(
         "Print each description to the screen as it is generated?", default=False

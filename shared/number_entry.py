@@ -13,8 +13,9 @@ from typing import Any, Dict
 
 #: One range per setting wherever it's typed: Configure and the video extraction
 #: dialog disagreed (0.5-30 against 0.1-60 seconds; 10-50 against 1-100).
-VIDEO_INTERVAL_RANGE = (0.5, 60.0)
-SCENE_THRESHOLD_RANGE = (1.0, 100.0)
+#: Defined in idt_core.video so `idt video` checks the same ranges without
+#: importing this package (whose __init__ pulls in wx).
+from idt_core.video import VIDEO_INTERVAL_RANGE, SCENE_THRESHOLD_RANGE  # noqa: E402,F401
 
 #: Setting types typed as numbers. Every one is checked on OK (validate_number).
 NUMBER_TYPES = ("float", "int", "int_or_null", "float_or_auto", "int_or_auto")
