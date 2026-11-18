@@ -132,6 +132,9 @@ from idt_core.gui_bridge import prompt_label as _prompt_label  # noqa: E402
 from idt_core.pricing import CostMeter  # noqa: E402
 # Writes video frames; cv2.imwrite fails silently on non-ASCII paths on Windows.
 from idt_core.video import write_frame  # noqa: E402
+# The "[Token Usage: ... | Time: ...]" line stays in ImageDescriber's own views
+# and comes off wherever a description leaves them (copy, export, embed, prompts).
+from idt_core.description_text import strip_usage_line  # noqa: E402
 
 
 class ExtractionCancelled(Exception):
@@ -5934,12 +5937,15 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                         continue
 
                     # Pick which description text to embed
+                    # Each without its usage line, which stays in ImageDescriber
+                    # (embed_image_file would only catch the last one's).
                     if desc_selection == 'all':
                         desc_text = '\n\n---\n\n'.join(
-                            d.text for d in item.descriptions if d.text
+                            t for t in (strip_usage_line(d.text) for d in item.descriptions)
+                            if t
                         )
                     else:  # 'latest'
-                        desc_text = item.descriptions[-1].text
+                        desc_text = strip_usage_line(item.descriptions[-1].text)
 
                     if not desc_text:
                         continue
@@ -6161,7 +6167,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                             f.write(f"Tokens: {total_tokens:,} total ({prompt_tokens:,} prompt + {completion_tokens:,} completion)\n")
 
                     # Description text
-                    f.write(f"Description: {desc.text}\n")
+                    f.write(f"Description: {strip_usage_line(desc.text)}\n")
 
                     # Timestamp
                     f.write(f"Timestamp: {desc.created}\n")
@@ -6301,7 +6307,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 parts.append(f'<div class="{css_class}">')
                 if len(item.descriptions) > 1:
                     parts.append(f'<p class="desc-source">{html_module.escape(source_label)}</p>')
-                desc_html = html_module.escape(desc.text).replace('\n', '<br>\n')
+                desc_html = html_module.escape(strip_usage_line(desc.text)).replace('\n', '<br>\n')
                 parts.append(f'<p>{desc_html}</p>')
                 parts.append('</div>')
 
@@ -9313,16 +9319,19 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         """The description text the Copy items use, or None.
 
         Viewer mode: the description selected there. Editor mode: the
-        description the editor shows (#482).
+        description the editor shows (#482). Either way without the
+        "[Token Usage: ...]" line: that stays in ImageDescriber.
         """
         if self._viewer_showing():
             entry = self._viewer_entry()
             text = (entry or {}).get('description') or ''
-            return text if text.strip() else None
-        index = self._shown_description_index()
-        if index is None:
-            return None
-        return self.current_image_item.descriptions[index].text
+        else:
+            index = self._shown_description_index()
+            if index is None:
+                return None
+            text = self.current_image_item.descriptions[index].text or ''
+        text = strip_usage_line(text)
+        return text if text.strip() else None
 
     def on_copy_image_path(self, event):
         """Copy image path to clipboard"""

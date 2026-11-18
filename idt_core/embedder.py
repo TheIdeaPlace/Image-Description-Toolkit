@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from .description_text import strip_usage_line
 from .image_item import ImageItem
 from .project import Project
 from .scanner import is_heic
@@ -113,7 +114,12 @@ def _embed_by_format(path: Path, description: str) -> None:
     Unknown formats are left alone: the copy still exists, it just carries no
     description. Never guess a format -- running the JPEG segment writer over a
     TIFF corrupts the file, which is exactly what this dispatcher exists to stop.
+
+    Every embed goes through here, so this is where ImageDescriber's trailing
+    usage line ("[Token Usage: ... | Time: ...]") is taken off: it belongs in
+    ImageDescriber's own views, never in the picture's metadata.
     """
+    description = strip_usage_line(description)
     suffix = path.suffix.lower()
     if suffix in (".jpg", ".jpeg"):
         _embed_jpeg(path, description)
