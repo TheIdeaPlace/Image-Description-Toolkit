@@ -33,7 +33,7 @@ Most people never need to open a settings file. ImageDescriber's **Tools → Con
 - The defaults that ship with IDT sit beside the programs, and are only used for anything you haven't changed. On Windows the installer puts them in `C:\idt\scripts`. Don't edit those: every upgrade replaces them.
 - Configure, the Prompt Editor and Import Configuration all save to your settings folder. What you save there is what ImageDescriber and the command line use.
 - API keys saved in Configure go to Windows Credential Manager or the macOS Keychain, not into a file.
-- The command line also has a small settings file of its own, `~/.idt/config.json`, for its default provider, model and prompt and for the workspace folder. `idt config` shows and changes it.
+- The command line follows Configure's default provider, model and prompt style. It also has a small settings file of its own, `~/.idt/config.json`, which holds only the defaults you set with `idt config --set` (those win for the command line), plus the workspace folder and a few other values. `idt config` shows and changes it.
 
 ---
 
@@ -69,7 +69,7 @@ These are read only for settings your own files don't have. They are replaced on
 
 ### The command line's file
 
-`~/.idt/config.json` (on Windows, `%USERPROFILE%\.idt\config.json`) holds the command line's default provider, model and prompt, the workspace folder, and a few other values. See [The command line's own settings](#the-command-lines-own-settings).
+`~/.idt/config.json` (on Windows, `%USERPROFILE%\.idt\config.json`) holds any default provider, model or prompt you set with `idt config --set`, the workspace folder, and a few other values. See [The command line's own settings](#the-command-lines-own-settings).
 
 The same `~/.idt` folder also holds saved `idt chat` conversations (`chats`), the cached model lists (`models`) and the geocoding cache (`geocode_cache.json`).
 
@@ -132,13 +132,13 @@ The Generation tab replaced the old temperature, max tokens, top k, top p and re
 
 ## The command line's own settings
 
-`idt config` shows the command line's settings. `idt config --set KEY=VALUE` changes one. They are saved in `~/.idt/config.json`.
+`idt config` shows the command line's settings. After each of the default provider, model and prompt, it says where the value comes from: "(set with idt config)", "(from Configure)" or "(default)". `idt config --set KEY=VALUE` changes one and saves it in `~/.idt/config.json`.
 
 The keys `idt config --set` accepts:
 
-- `default_provider`: `anthropic`, `apple`, `claude-code`, `ollama`, `openai` or `Windows-AI`.
+- `default_provider`: `anthropic` (or `claude`), `apple`, `claude-code`, `ollama`, `openai` or `Windows-AI`. Any other name is refused.
 - `default_model`: the model to use when you don't give `--model`.
-- `default_prompt_name`: the default prompt style.
+- `default_prompt_name`: the default prompt style for a new workspace. It must be one `idt prompts` lists; case doesn't matter.
 - `workspace_root`: where new workspaces are created. The default is `Documents\idt` in your user folder.
 - `preserve_alt_text`: `true` or `false`. Whether `idt download` saves a web page's alt text as its own description. The default is `true`.
 
@@ -146,12 +146,18 @@ The file can also hold `custom_prompts`, a list of your own prompt styles as nam
 
 ### How these relate to ImageDescriber's settings
 
-The command line and ImageDescriber keep separate default provider, model and prompt settings:
+The command line follows Configure's default provider, model and prompt style, except for any you set with `idt config --set`:
 
-- The command line doesn't use the default provider set in Configure.
-- It uses Configure's default model only until the first `idt config --set`. That command saves every value `idt config` shows, so from then on the saved `default_model` wins.
-- For a new workspace, `idt describe` uses the prompt style `detailed` unless you pass `--prompt`. After that, a workspace keeps the prompt it last used.
-- On an existing workspace, `idt describe` uses the provider and model that workspace last used, unless you pass `--provider` or `--model`. When you pass `--provider`, give `--model` as well.
+- `~/.idt/config.json` holds only the defaults set with `idt config --set`, and names them in a `user_set` list. Those win for the command line. To follow Configure again, delete the setting and its name in `user_set` from the file.
+- Configure's default model is the Ollama model, so the command line uses it only with Ollama. Other providers use their own default model, such as `claude-haiku-5-5` for Claude.
+- If Configure's default provider is one only ImageDescriber runs, such as MLX, the command line says so and uses Ollama.
+- A file from before 4.9 has no `user_set`. If its default provider, model and prompt are all values IDT used to ship, they are treated as left over, and Configure's settings apply. If any of them differs, all three are kept as your choices.
+
+What `idt describe` uses on a run:
+
+- Provider: `--provider`, else the provider the workspace was last described with, else the default provider.
+- Model: `--model`, else the workspace's or the default model when it belongs to that provider, else the provider's own default.
+- Prompt: `--prompt` or `--prompt-text`, else the prompt the workspace last used, else the default prompt style. An unknown `--prompt` name stops the command with the list of prompt names.
 
 These are shared between the two:
 
@@ -206,7 +212,7 @@ ImageDescriber's **Tools** menu has both.
 You can edit the files in your settings folder with any text editor, while ImageDescriber is closed.
 
 - Keep the file valid JSON. IDT accepts a file saved with a byte-order mark, as PowerShell 5 writes one.
-- If a file can't be read, IDT logs a warning and uses the shipped defaults for it, rather than overwriting it.
+- If a file can't be read, IDT logs a warning and uses the shipped defaults for it, rather than overwriting it. Fix the file before you open Configure: Configure shows the defaults in its place, and **OK** or **Apply** would save them over your file.
 - To go back to the defaults for one file, delete it from your settings folder. To go back to the defaults for everything, delete the whole folder. API keys in the credential store are not affected; remove those with **Delete Key** in Configure.
 - Never edit the shipped defaults beside the program. An upgrade replaces them.
 

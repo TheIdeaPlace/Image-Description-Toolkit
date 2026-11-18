@@ -6,10 +6,10 @@ AI-powered batch image description tool supporting multiple vision models: Ollam
 
 ### Installation
 
-Download from the [releases](https://github.com/TheIdeaPlace/Image-Description-Toolkit/releases) page:
+Download from the [latest release](https://github.com/TheIdeaPlace/Image-Description-Toolkit/releases/latest). In these names, `<version>` is the release number, such as 4.9.0:
 
-- **`ImageDescriptionToolkitSetup-4.9.0-windows.exe`**: the installer for Windows 10 and 11, 64-bit.
-- **`IDT-4.9.0-macos-arm64.dmg`**: the disk image for macOS on Apple Silicon.
+- **`ImageDescriptionToolkitSetup-<version>-windows.exe`**: the installer for Windows 10 and 11, 64-bit.
+- **`IDT-<version>-macos-arm64.dmg`**: the disk image for macOS on Apple Silicon.
 
 Either one gives you all the applications:
 - **idt** - Command-line interface for batch processing and automation
@@ -19,8 +19,8 @@ Either one gives you all the applications:
 One install covers them all; you never update them separately.
 
 Standalone builds are also published if you want a single tool without an installer:
-`idt-4.9.0-windows-x64.zip`, `ImageDescriber-4.9.0-windows-x64.zip`,
-`IDTChat-4.9.0-windows-x64.zip`, and `idt-4.9.0-macos-arm64.tar.gz`.
+`idt-<version>-windows-x64.zip`, `ImageDescriber-<version>-windows-x64.zip`,
+`IDTChat-<version>-windows-x64.zip`, and `idt-<version>-macos-arm64.tar.gz`.
 Each Windows zip holds a folder: unzip it and run the exe inside, keeping the
 `-lib` folder beside it.
 `SHA256SUMS.txt` lets you verify any download.
@@ -28,7 +28,7 @@ Each Windows zip holds a folder: unzip it and run the exe inside, keeping the
 No Python required. The Windows installer is signed; the macOS build is signed and
 notarized.
 
-**Latest release: 4.9.0.** See the [release notes](docs/release-notes-v4.9.0.md) for what's new.
+For what's new in 4.9.0, see the [4.9.0 release notes](docs/release-notes-v4.9.0.md).
 
 ### Quick Start
 
@@ -37,9 +37,9 @@ notarized.
 1. **Install** Image Description Toolkit with the installer.
 2. **Launch** ImageDescriber from the Start menu. It is installed in `C:\idt` by default.
 3. **Choose** a folder of images with File → Load Directory.
-4. **Describe** them with Process → Process Undescribed Images (Entire Workspace). Choose your AI provider, model and prompt style in the dialog that opens.
-
-ImageDescriber saves the results in a workspace named after your folder: `Documents\idt\<folder name>.idtw`. Use Tools → Edit Prompts to customize description styles, and View → Application Mode → Viewer Mode to browse results.
+4. **Describe** them with Process → Process Undescribed Images (Entire Workspace).
+5. **Save the workspace** when asked. Before the first batch, ImageDescriber asks where to save a workspace bundle. Choose Yes, and a folder picker opens in `Documents\idt`; press Enter to accept it. Then a box asks for the workspace's name, filled in with your folder's name; press Enter to accept that too. The results go in `Documents\idt\<folder name>.idtw`.
+6. **Confirm** the number of images to process, then choose your AI provider, model and prompt style in the dialog that opens, and start. Use Tools → Edit Prompts to customize description styles, and View → Application Mode → Viewer Mode to browse results.
 
 #### Command Line (For Batch Processing)
 
@@ -74,7 +74,7 @@ idt update
 ## Documentation
 
 ### User Guides
-- **[Release Notes (v4.9.0)](docs/release-notes-v4.9.0.md)** - What IDT is and what's in the current release
+- **[Release Notes (v4.9.0)](docs/release-notes-v4.9.0.md)** - What IDT is and what's in 4.9.0
 - **[User Guide](docs/USER_GUIDE.md)** - Complete usage instructions, including the full CLI reference
 - **[macOS Setup](MACOS_SETUP.md)** - macOS installation and usage
 
@@ -99,7 +99,7 @@ idt update
 ### macOS
 - **Apple Silicon** — the published build is arm64 only. Intel Macs need to build from source.
 - **No Python required** for the pre-built app
-- **Installation**: Download `IDT-4.9.0-macos-arm64.dmg` from releases, open it, and drag ImageDescriber to Applications
+- **Installation**: Download `IDT-<version>-macos-arm64.dmg` from releases, open it, and drag the **IDT** folder to Applications. It holds ImageDescriber, IDT Chat and the `idt` command-line tool
 - **Build from Source**: See [macOS Build Guide](BuildAndRelease/MacBuilds/README_MACOS.md)
 - **AI Providers**: Same as Windows (Ollama, OpenAI, Claude, Claude Code), plus Apple Intelligence on macOS 27 and MLX on Apple Silicon
 

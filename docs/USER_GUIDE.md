@@ -76,9 +76,9 @@ IDT includes three standalone applications that share the same AI provider infra
 2. Run it. Windows asks for administrator permission. It installs `idt`, ImageDescriber and IDT Chat in `C:\idt`, and adds them to the Start menu.
 3. The installer offers some choices:
    - **Add to PATH**, so `idt` runs from any command prompt. Off by default.
-   - A desktop shortcut for each app. Off by default.
+   - **Desktop shortcuts**: one checkbox adds shortcuts for all three apps. Off by default.
    - Installing Ollama and the `minicpm-v4.6` model through winget. Off by default, and offered only when winget is available.
-   - Setting up Windows AI. On by default, and offered only where it can be set up.
+   - **Set up Windows AI**. Offered on Windows 11 24H2 or later (build 26100 and up), and on by default there. On a PC with an NPU it installs IDT's Windows AI helper, first downloading Microsoft's Windows App Runtime (about 100 MB) if the PC doesn't have it. On a PC without an NPU it does nothing. IDT works without it.
 4. Start ImageDescriber or IDT Chat from the Start menu. For `idt`, use the Start menu's **Image Description Toolkit (CLI)**, which opens a command prompt in the install folder, or any command prompt if you added it to PATH.
 
 **Option 2: The standalone zips**
@@ -155,7 +155,7 @@ Claude (through the API) and OpenAI need an API key. Ollama, Claude Code, Apple 
 
 **Saving the key: the easy way**
 
-In ImageDescriber, open **Tools → Configure Settings**, go to the **API Keys** tab and choose **Add Key**. The key is saved in Windows Credential Manager or the macOS Keychain. Both ImageDescriber and `idt` use it, so you only enter it once.
+In ImageDescriber, open **Tools → Configure Settings** (on a Mac, **ImageDescriber → Preferences**), go to the **API Keys** tab and choose **Add Key**. The key is saved in Windows Credential Manager or the macOS Keychain. Both ImageDescriber and `idt` use it, so you only enter it once.
 
 **Other ways to give IDT a key**
 
@@ -205,7 +205,8 @@ When an update is found you get three choices:
   Windows asks for administrator permission, because IDT installs to the root of
   your system drive.
 - **macOS:** Download saves the disk image to your Downloads folder and shows it in
-  Finder. Quit ImageDescriber, then drag the new ImageDescriber to Applications.
+  Finder. Quit ImageDescriber, then drag the disk image's **IDT** folder to
+  Applications, replacing the old one.
 
 **One update covers both tools.** The Windows installer and the macOS disk image each
 contain `idt` *and* ImageDescriber, so updating from either one updates both.
@@ -219,7 +220,7 @@ telemetry, no data sent.
 **Installing an update by hand**
 
 1. Download the latest installer (Windows) or disk image (macOS) from the [releases page](https://github.com/TheIdeaPlace/Image-Description-Toolkit/releases).
-2. Run the installer, or drag the new `ImageDescriber.app` to `/Applications`. If you use the standalone Windows downloads instead, unzip the new one and replace the whole old folder, not just the exe: each app's `.exe` needs the `-lib` folder that comes with it.
+2. Run the installer, or open the disk image and drag its **IDT** folder to Applications, replacing the old one. If you use the standalone Windows downloads instead, unzip the new one and replace the whole old folder, not just the exe: each app's `.exe` needs the `-lib` folder that comes with it.
 3. Your existing `.idtw` workspace bundles, your `~/.idt/config.json` command-line settings and your ImageDescriber settings (in `%APPDATA%\IDT` on Windows, `~/Library/Application Support/IDT` on macOS) are kept — no migration needed.
 
 **From source**
@@ -233,9 +234,12 @@ If you installed via a virtual environment, activate it first (`.winenv\Scripts\
 
 ### Uninstalling IDT
 
-**Pre-built executables**
+**Pre-built programs**
 
-1. Delete `idt.exe` and `ImageDescriber.exe` (or `ImageDescriber.app` on macOS) from your system.
+1. Remove the programs:
+   - Windows installer: open **Settings → Apps → Installed apps**, find **Image Description Toolkit** and choose **Uninstall**. Or use **Uninstall Image Description Toolkit** in the Start menu's Image Description Toolkit folder.
+   - Windows standalone zips: delete the folder you unzipped.
+   - macOS: delete the **IDT** folder from Applications. If you ran `INSTALL_CLI_TO_PATH.sh`, also delete `/usr/local/bin/idt`.
 2. To remove configuration and cache data, delete the `~/.idt/` directory:
    - **Windows:** `rmdir /s %USERPROFILE%\.idt`
    - **macOS/Linux:** `rm -rf ~/.idt`
@@ -306,20 +310,25 @@ idt describe <source> [options]
 
 **Provider and Model Options**
 
-| Option | Default | Description |
-|---|---|---|
-| `--provider NAME` | The workspace's last provider, else `default_provider` from `idt config` | One of `anthropic`, `apple`, `claude-code`, `ollama`, `openai` or `Windows-AI`. Case doesn't matter |
-| `--model NAME` | The workspace's last model, else `default_model` from `idt config` | Model name (e.g., `claude-haiku-5-5`, `gpt-5.2`, `minicpm-v4.6`) |
-| `--ollama-host URL` | `http://127.0.0.1:11434` | Ollama server address |
+- `--provider NAME`: the AI provider. One of `anthropic`, `apple`, `claude-code`, `ollama`, `openai` or `Windows-AI`; `claude` also means `anthropic`, and case doesn't matter.
+- `--model NAME`: the model, for example `claude-haiku-5-5`, `gpt-5.2` or `minicpm-v4.6`.
+- `--ollama-host URL`: the Ollama server address. Default `http://127.0.0.1:11434`.
 
-When you change provider, give `--model` as well. Without it, `idt describe` uses the model saved for the workspace or in `idt config`, which may belong to a different provider.
+Without `--provider`, `idt describe` uses the first of these:
+
+1. The provider the workspace was last described with, once it has descriptions.
+2. A default provider set with `idt config --set default_provider=...`.
+3. The default provider in ImageDescriber's Configure. If that is one only ImageDescriber can run, such as MLX, `idt` says so and uses Ollama.
+4. Ollama.
+
+Without `--model`, `idt describe` uses the workspace's last model or the configured default model, but only when that model belongs to the provider being used. Otherwise it uses the provider's own default: `claude-haiku-5-5` for Claude, `gpt-5.2` for OpenAI. Configure's default model is treated as the Ollama model, so it is used only with Ollama. So `--provider anthropic` on its own is enough to switch to Claude.
 
 **Prompt Options**
 
-| Option | Default | Description |
-|---|---|---|
-| `--prompt NAME` | The workspace's last prompt; `detailed` for a new workspace | Named prompt style (see `idt prompts`) |
-| `--prompt-text TEXT` | — | Custom prompt text; overrides `--prompt` |
+- `--prompt NAME`: a named prompt style; `idt prompts` lists them. Case doesn't matter. An unknown name stops the command before anything is created, with exit code 2 and the list of prompt names.
+- `--prompt-text TEXT`: your own prompt text. It overrides `--prompt`.
+
+Without either, `idt describe` uses the prompt the workspace last used, once it has descriptions. A new workspace uses the default prompt style: the one set with `idt config --set default_prompt_name=...`, else Configure's default prompt style (`narrative` as shipped).
 
 **Generation Settings**
 
@@ -732,7 +741,7 @@ idt chat [--provider NAME] [--model ID] [--system TEXT] [--message TEXT]
 
 | Option | Description |
 |---|---|
-| `--provider` | `ollama`, `claude` (or `anthropic`), `claude-code`, `openai` or `apple`. Default `ollama`, whatever default provider `idt config` names; a resumed conversation keeps its own provider. Windows AI can't chat |
+| `--provider` | Which provider to talk to. See the list below |
 | `--model` | Model id. Defaults to the provider's default |
 | `--system TEXT` | System prompt for the conversation |
 | `--attach PATH` | Attach a file to the first message. Repeat for several. HEIC is converted to JPEG |
@@ -746,6 +755,13 @@ idt chat [--provider NAME] [--model ID] [--system TEXT] [--message TEXT]
 | `--show-thinking` | Print the model's thinking to stderr as it arrives. Only Ollama models send their thinking, so with other providers it prints nothing extra |
 | `--web-search` | Let the model search the web. Ollama only, and needs a free ollama.com API key in `OLLAMA_API_KEY` |
 | `--quiet`, `-q` | Suppress status notes on stderr |
+
+**Providers for `--provider`**
+
+- `ollama`, `claude` (or `anthropic`), `claude-code`, `openai` or `apple`.
+- The default is `ollama`, even when `idt config` names another default provider.
+- A resumed conversation keeps its own provider unless you give `--provider`.
+- Windows AI can't chat.
 
 **Examples**
 
@@ -799,13 +815,13 @@ idt config [--set KEY=VALUE]
 
 | Key | Description |
 |---|---|
-| `default_provider` | AI provider: `anthropic`, `apple`, `claude-code`, `ollama`, `openai` or `Windows-AI` |
+| `default_provider` | AI provider: `anthropic` (or `claude`), `apple`, `claude-code`, `ollama`, `openai` or `Windows-AI`. Any other name is refused |
 | `default_model` | Model name for the provider |
-| `default_prompt_name` | Default prompt style |
+| `default_prompt_name` | Default prompt style. It must be one `idt prompts` lists; case doesn't matter |
 | `workspace_root` | Root folder for workspaces (default: `~/Documents/idt`) |
 | `preserve_alt_text` | Whether `idt download` saves a web page's alt text as its own description: `true` (the default) or `false` |
 
-`idt config` with no options shows every value. There is no `--get`.
+`idt config` with no options shows every value. There is no `--get`. After each of the default provider, model and prompt, it says where the value comes from: "(set with idt config)", "(from Configure)" or "(default)". The default model also says "used with Ollama" when it is Configure's model.
 
 **Examples**
 
@@ -823,10 +839,11 @@ idt config --set workspace_root=~/MyDescriptions
 
 Configuration is stored in `~/.idt/config.json` (on Windows, `%USERPROFILE%\.idt\config.json`).
 
-**How this relates to ImageDescriber's settings.** `idt config` has its own settings file, separate from the one ImageDescriber's **Tools → Configure Settings** saves (see [Configuration Guide](CONFIGURATION_GUIDE.md)).
+**How this relates to ImageDescriber's settings.** `idt config` has its own settings file, separate from the one ImageDescriber's **Tools → Configure Settings** saves (on a Mac, **ImageDescriber → Preferences**). See the [Configuration Guide](CONFIGURATION_GUIDE.md).
 
-- The command line doesn't use Configure's default provider.
-- It uses Configure's default model only until the first `idt config --set`. That command saves every value `idt config` shows, so from then on the saved `default_model` wins.
+- The file holds only the defaults you set with `idt config --set`. Every default you haven't set follows Configure: its default provider, its default prompt style, and its default model (used with Ollama).
+- A default set with `idt config --set` wins over Configure's for the command line. The file lists those defaults under `user_set`. To go back to following Configure, delete the setting and its name in `user_set` from `~/.idt/config.json`.
+- A file from before 4.9 has no `user_set`. If its default provider, model and prompt are all values IDT used to ship, IDT treats them as left over and follows Configure. If any of them differs, all three are kept as your choices.
 - The workspace root is shared: Configure's **Workspace** tab and `idt config --set workspace_root=...` change the same setting.
 - Generation settings (thinking, temperature and so on) and API keys are shared too.
 - Prompt styles saved in ImageDescriber's Prompt Editor reach the command line. Custom prompts added to `~/.idt/config.json` work only in `idt`.
@@ -839,7 +856,7 @@ Configuration is stored in `~/.idt/config.json` (on Windows, `%USERPROFILE%\.idt
 idt version
 ```
 
-Prints the application version, Python version, and executable path. Never touches
+Prints the application version, Python version, and executable path. `idt --version` prints just the version. Neither touches
 the network — use `idt update` to check for a newer release.
 
 #### idt update — Check for a Newer Release
@@ -1075,7 +1092,7 @@ A hierarchical tree showing all items in the workspace:
 | `P` | Being described now |
 | `.` | Waiting its turn in a batch |
 | `!` | In a paused batch |
-| `X` | Describing it failed (Process Undescribed Images (Entire Workspace) tries again) |
+| `X` | Describing it failed. **Process → Process Undescribed Images, Entire Workspace** tries it again |
 | `E12`, … | A video, with that many frames extracted |
 | `[!]` | The file is no longer on disk (its descriptions are kept) |
 
@@ -2071,7 +2088,7 @@ The CLI uses no ANSI color codes in interactive mode (`idt guideme`) and all out
 **No models showing in the GUI**
 
 - Ollama: Open a terminal and run `ollama list`. If nothing appears, open `http://127.0.0.1:11434` in a browser. If that fails, restart Ollama or reinstall it.
-- OpenAI / Claude: Check that a key is saved under **Tools → Configure Settings → API Keys**, or that the `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable is set. See [Setting Up API Keys](#setting-up-api-keys). Run `idt models` to see whether each provider answers.
+- OpenAI / Claude: Check that a key is saved under **Tools → Configure Settings → API Keys** (on a Mac, **ImageDescriber → Preferences → API Keys**), or that the `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable is set. See [Setting Up API Keys](#setting-up-api-keys). Run `idt models` to see whether each provider answers.
 
 **Processing completes but descriptions are blank or very short**
 
@@ -2150,28 +2167,35 @@ This is the command line's own settings file, the one `idt config` shows and cha
 
 **Location:** `~/.idt/config.json`
 
+The file holds only the defaults you set with `idt config --set`, named again under `user_set`. In this example only the provider and model were set, so the default prompt follows Configure:
+
 ```json
 {
-  "default_provider": "ollama",
-  "default_model": "minicpm-v4.6",
-  "default_prompt_name": "narrative",
-  "workspace_root": "/home/yourname/Documents/idt",
+  "default_provider": "anthropic",
+  "default_model": "claude-haiku-5-5",
+  "user_set": ["default_model", "default_provider"],
   "custom_prompts": {
     "my_prompt": "Describe this image for a museum label. 50–75 words.",
     "product_shot": "E-commerce product description: visible features, materials, condition."
-  }
+  },
+  "copy_originals": false,
+  "preserve_alt_text": true,
+  "auto_check_updates": true,
+  "workspace_root": "/home/yourname/Documents/idt"
 }
 ```
 
 | Key | Default | Description |
 |---|---|---|
-| `default_provider` | `ollama` | AI provider used when none is specified |
-| `default_model` | ImageDescriber's default model, `minicpm-v4.6` as shipped | Model used when none is specified |
-| `default_prompt_name` | ImageDescriber's default prompt style, `narrative` as shipped | Saved by `idt config`. `idt describe` on a new workspace uses `detailed` unless you pass `--prompt` |
+| `default_provider` | Configure's default provider (`ollama` as shipped) | AI provider used when none is specified. Present only when set with `idt config` |
+| `default_model` | Configure's default model (`minicpm-v4.6` as shipped), used with Ollama | Model used when none is specified. Present only when set with `idt config` |
+| `default_prompt_name` | Configure's default prompt style (`narrative` as shipped) | Prompt style for a new workspace. Present only when set with `idt config` |
+| `user_set` | `[]` | Which of the three defaults above were set with `idt config` |
 | `workspace_root` | `~/Documents/idt` | Root folder where new workspaces are created |
 | `custom_prompts` | `{}` | Dictionary of name → prompt text for user-defined styles. Edit the file to add them; `idt config --set` can't |
 | `preserve_alt_text` | `true` | Whether `idt download` saves a page's alt text as its own description |
 | `copy_originals` | `false` | Whether new workspaces copy the pictures in. Edit the file to change it, or use `--copy-originals` per run |
+| `auto_check_updates` | `true` | Whether ImageDescriber checks for a newer release at startup. **Help → Automatically Check for Updates** changes it |
 
 ---
 

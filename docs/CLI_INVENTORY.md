@@ -2,7 +2,7 @@
 
 > **This is a historical test report from June 2026 (v4.5).** Much of it is no longer true. For how `idt` works today, read Part 2 of the [User Guide](USER_GUIDE.md) or run `idt <command> --help`. As of 4.9.0 (checked against the code on 11/18/2026):
 >
-> - `idt version` exists. It prints the version, the Python version and, for a built copy, the program's path. `idt update` checks GitHub for a newer release. There is still no `--version` flag.
+> - `idt version` exists. It prints the version, the Python version and, for a built copy, the program's path. `idt --version` prints the version alone. `idt update` checks GitHub for a newer release.
 > - `idt/idt_cli.py` and the old `scripts/workflow.py` engine are gone from the repository. `scripts/` holds only the three default settings files.
 > - The CLI has 17 commands: `describe`, `download`, `video`, `status`, `show`, `embed`, `export`, `combine`, `models`, `chat`, `watch`, `prompts`, `stats`, `config`, `guideme`, `version` and `update`.
 > - `--provider` takes six providers: `anthropic`, `apple`, `claude-code`, `ollama`, `openai` and `Windows-AI`.
