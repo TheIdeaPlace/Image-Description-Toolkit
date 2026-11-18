@@ -313,6 +313,10 @@ Two shapes defeat a naive check, and both had shipped:
 mnemonics at all, so they are Tab-only where their siblings offer Alt jumps.
 That is a gap rather than a conflict, and every letter in each is free.
 
+ImageDescriber's Configure dialog (`imagedescriber/configure_dialog.py`) has
+one: **Test Key** on the API Keys tab is `Alt+T`. Every other letter in that
+dialog is free.
+
 ---
 
 # Adding a shortcut

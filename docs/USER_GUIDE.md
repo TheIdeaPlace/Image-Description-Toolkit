@@ -155,7 +155,11 @@ Claude (through the API) and OpenAI need an API key. Ollama, Claude Code, Apple 
 
 **Saving the key: the easy way**
 
-In ImageDescriber, open **Tools → Configure Settings** (on a Mac, **ImageDescriber → Preferences**), go to the **API Keys** tab and choose **Add Key**. The key is saved in Windows Credential Manager or the macOS Keychain. Both ImageDescriber and `idt` use it, so you only enter it once.
+In ImageDescriber, open **Tools → Configure Settings** (on a Mac, **ImageDescriber → Preferences**) and go to the **API Keys** tab. The list has one row per provider (OpenAI, Claude (Anthropic) and Ollama Web Search), each saying whether a key is set and where it comes from. Arrow to the provider, then choose the button after the list: it reads **Add Key** when that provider has no key and **Replace Key** when it has one. A box for that provider's key opens with the cursor already in it; paste the key and choose OK. The key is saved in Windows Credential Manager or the macOS Keychain. Both ImageDescriber and `idt` use it, so you only enter it once.
+
+**Checking that a key works**
+
+On the same tab, select the provider and choose **Test Key** (Alt+T). It sends one short request with that key and puts the answer in the **Test result** box, which gets the focus: first "Testing your Claude (Anthropic) key...", then, for example, "Your Claude key works. That test cost 0.00038 cents." If something is wrong, the first line says what in a few words (the key wasn't accepted, the account is out of credit, the Claude key isn't in a workspace, too many requests just now, no internet connection) and the lines after it say what to do, followed by the provider's own message. If you replace or delete the key while it is being tested, the box says so and the old key's answer is dropped. For Claude and OpenAI the test is paid for on your account, a small fraction of a cent (it uses each provider's cheapest model). For Ollama Web Search it is one web search, which ollama.com doesn't charge for on its own but counts toward your account's usage limits. Test Key is available only for a provider that has a key.
 
 **Other ways to give IDT a key**
 

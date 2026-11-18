@@ -174,7 +174,9 @@ Claude (through the API) and OpenAI need an API key. Ollama, Claude Code, Apple 
 
 ### Saving a key
 
-The easy way is ImageDescriber's **Configure → API Keys** tab: choose **Add Key**, pick the provider and paste the key. IDT saves it in Windows Credential Manager or the macOS Keychain, under the name "Image Description Toolkit". ImageDescriber, IDT Chat and the command line all use it.
+The easy way is ImageDescriber's **Configure → API Keys** tab: arrow to the provider, choose **Add Key** (it reads **Replace Key** when the provider already has one) and paste the key. IDT saves it in Windows Credential Manager or the macOS Keychain, under the name "Image Description Toolkit". ImageDescriber, IDT Chat and the command line all use it.
+
+**Test Key** on the same tab checks the selected provider's key with one short request and shows the result in the **Test result** box. For Claude and OpenAI that request costs a small fraction of a cent on your account; for Ollama web search it is one web search. It tests the key IDT would actually use, so if an environment variable outranks the saved key, the environment variable's key is the one tested.
 
 On a system with no credential store (Linux), Configure saves the key in the `api_keys` section of `image_describer_config.json` instead.
 
