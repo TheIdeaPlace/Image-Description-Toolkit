@@ -86,6 +86,8 @@ from idt_core.providers.registry import (
 # "claude-code" -> "Claude Code". idt_core imports the same way in dev and
 # frozen builds, so no try/except fallback is needed.
 from idt_core.providers.registry import display_name as _display_provider  # noqa: E402
+# "claude-haiku-5-5" -> "Claude Haiku 5.5": the name is what's spoken.
+from idt_core.providers.catalog import model_display_name as _display_model  # noqa: E402
 
 
 # Picker label -> provider key ("Claude Code" -> "claude-code"). Not
@@ -342,7 +344,7 @@ class ChatWindow(wx.Dialog):
         elif image_item:
             title = f"Chat: {Path(image_item.file_path).name}"
         else:
-            title = f"Chat with AI: {_display_provider(provider)} ({model})"
+            title = f"Chat with AI: {_display_provider(provider)} ({_display_model(provider, model)})"
         
         super().__init__(parent, title=title,
                         size=(800, 700), 
@@ -441,7 +443,7 @@ class ChatWindow(wx.Dialog):
             name = f"Chat: {Path(self.image_item.file_path).name}"
             image_path = str(self.image_item.file_path)
         else:
-            name = f"Chat: {_display_provider(self.provider)} ({self.model})"
+            name = f"Chat: {_display_provider(self.provider)} ({_display_model(self.provider, self.model)})"
             image_path = None
         
         return {
@@ -606,7 +608,8 @@ class ChatWindow(wx.Dialog):
         # Session info
         info_sizer = wx.BoxSizer(wx.VERTICAL)
         
-        provider_text = f"Provider: {self.session['provider']} ({self.session['model']})"
+        provider_text = (f"Provider: {_display_provider(self.session['provider'])} "
+                         f"({_display_model(self.session['provider'], self.session['model'])})")
         self.provider_label = wx.StaticText(parent, label=provider_text)
         info_sizer.Add(self.provider_label, 0, wx.ALL, 2)
         
@@ -1194,7 +1197,8 @@ class ChatWindow(wx.Dialog):
             self.session['model'] = self.model
             
             # Update UI
-            provider_text = f"Provider: {self.provider} ({self.model})"
+            provider_text = (f"Provider: {_display_provider(self.provider)} "
+                             f"({_display_model(self.provider, self.model)})")
             self.provider_label.SetLabel(provider_text)
             
             # Clear pending attachments — they may not be valid for the new provider
@@ -1205,7 +1209,8 @@ class ChatWindow(wx.Dialog):
             # Add system message to history
             timestamp = datetime.now().isoformat()
             time_str = datetime.fromisoformat(timestamp).strftime("%I:%M %p")
-            sys_msg = f"System ({time_str}): Switched to {self.provider} - {self.model}"
+            sys_msg = (f"System ({time_str}): Switched to {_display_provider(self.provider)} - "
+                       f"{_display_model(self.provider, self.model)}")
             self.history_list.Append(sys_msg)
             self.history_list.SetSelection(self.history_list.GetCount() - 1)
             self.workspace.mark_modified()

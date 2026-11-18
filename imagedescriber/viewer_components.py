@@ -16,6 +16,9 @@ from typing import List, Dict, Optional, Any
 import wx
 import wx.lib.newevent
 
+# "claude-haiku-5-5" -> "Claude Haiku 5.5" for what's shown; entries keep the ID.
+from idt_core.providers.catalog import model_display_name as _display_model
+
 # Custom events for live updates
 LiveUpdateEvent, EVT_LIVE_UPDATE = wx.lib.newevent.NewEvent()
 
@@ -382,7 +385,8 @@ class ViewerPanel(wx.Panel):
             truncated = (full_text[:100] + "...") if len(full_text) > 100 else full_text
             
             # Format metadata for accessibility
-            meta_str = f"Model: {entry.get('model','')}, Prompt: {entry.get('prompt_style','')}"
+            meta_str = (f"Model: {_display_model(entry.get('provider', ''), entry.get('model', ''))}, "
+                        f"Prompt: {entry.get('prompt_style','')}")
             
             display_data.append({
                 'description': full_text, # Screen reader reads this
@@ -422,7 +426,7 @@ class ViewerPanel(wx.Panel):
         if entry.get('photo_date'):
             metadata_parts.append(f"Photo Date: {entry['photo_date']}")
         if entry.get('model'):
-            metadata_parts.append(f"Model: {entry['model']}")
+            metadata_parts.append(f"Model: {_display_model(entry.get('provider', ''), entry['model'])}")
         if entry.get('prompt_style'):
             metadata_parts.append(f"Prompt Style: {entry['prompt_style']}")
         
@@ -436,7 +440,7 @@ class ViewerPanel(wx.Panel):
         
         # Header metadata (filename and model info)
         fname = Path(entry.get('file_path', '')).name
-        model = entry.get('model', 'Unknown')
+        model = _display_model(entry.get('provider', ''), entry.get('model', '')) or 'Unknown'
         prompt = entry.get('prompt_style', 'Unknown')
         self.metadata_label.SetLabel(f"{fname}\nModel: {model} | Prompt: {prompt}")
         
