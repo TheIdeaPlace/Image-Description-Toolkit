@@ -27,6 +27,7 @@ from typing import List, Set, Tuple
 
 import wx
 
+from idt_core.description_text import strip_usage_line
 from idt_core.providers.catalog import model_display_name as _display_model
 from idt_core.providers.registry import display_name as _display_provider
 
@@ -60,12 +61,12 @@ def _strip_metadata_affixes(text: str) -> str:
     """Remove the two machine-generated affixes that workers_wx bakes into d.text.
 
     1. Location byline prefix  – "City, State - " (from _add_location_byline)
-    2. Token/time suffix block – everything from "\\n\\n[Token Usage: …]"
+    2. Token/time suffix line – "\\n\\n[Token Usage: …]", "[Time: …]" or both
        (from _add_token_usage_info)
     """
-    # Strip token-usage/time block from the end first
-    # Pattern: \n\n[ ... ] at end of string
-    text = re.sub(r'\n\n\[Token Usage:[^\]]*\]\s*$', '', text, flags=re.DOTALL).strip()
+    # Strip the usage line from the end first (the shared helper also catches
+    # the Time-only form, which the old regex here missed).
+    text = strip_usage_line(text).strip()
 
     # Strip location byline from the beginning
     # Format is "Some Location Text - " where the dash is not inside a sentence

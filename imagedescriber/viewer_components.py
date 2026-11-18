@@ -18,6 +18,7 @@ import wx.lib.newevent
 
 # "claude-haiku-5-5" -> "Claude Haiku 5.5" for what's shown; entries keep the ID.
 from idt_core.providers.catalog import model_display_name as _display_model
+from idt_core.description_text import strip_usage_line
 
 # Custom events for live updates
 LiveUpdateEvent, EVT_LIVE_UPDATE = wx.lib.newevent.NewEvent()
@@ -420,12 +421,9 @@ class ViewerPanel(wx.Panel):
             entry = self.entries[sel]
             self.show_details(entry)
 
-    def show_details(self, entry):
-        """Display details for an entry"""
-        # Reconstruct full description with metadata like original format
-        description = entry.get('description', '')
-        
-        # Build metadata footer
+    @staticmethod
+    def _details_text(entry, description):
+        """*description* followed by the entry's details footer, as shown."""
         metadata_parts = []
         if entry.get('camera'):
             metadata_parts.append(f"Camera: {entry['camera']}")
@@ -435,15 +433,15 @@ class ViewerPanel(wx.Panel):
             metadata_parts.append(f"Model: {_display_model(entry.get('provider', ''), entry['model'])}")
         if entry.get('prompt_style'):
             metadata_parts.append(f"Prompt Style: {entry['prompt_style']}")
-        
-        # Add metadata footer if available
         if metadata_parts:
-            full_text = description + "\n\n" + " | ".join(metadata_parts)
-        else:
-            full_text = description
-        
-        self.desc_text.SetValue(full_text)
-        
+            return description + "\n\n" + " | ".join(metadata_parts)
+        return description
+
+    def show_details(self, entry):
+        """Display details for an entry"""
+        # The description as stored, usage line and all: this is a reading view.
+        self.desc_text.SetValue(self._details_text(entry, entry.get('description', '')))
+
         # Header metadata (filename and model info)
         fname = Path(entry.get('file_path', '')).name
         model = _display_model(entry.get('provider', ''), entry.get('model', '')) or 'Unknown'
@@ -633,9 +631,17 @@ class ViewerPanel(wx.Panel):
         self.image_preview_bitmap = None
         self.image_preview_panel.Refresh()
     
+    def _text_to_copy(self):
+        """What Copy Text puts on the clipboard: what the box shows, without
+        the "[Token Usage: ...]" line, which stays in ImageDescriber."""
+        entry = self.selected_entry()
+        if entry is None:
+            return self.desc_text.GetValue()
+        return self._details_text(entry, strip_usage_line(entry.get('description', '')))
+
     def on_copy_text(self, event):
         """Copy description to clipboard"""
-        text = self.desc_text.GetValue()
+        text = self._text_to_copy()
         if text:
             import sys
             if sys.platform == 'darwin':

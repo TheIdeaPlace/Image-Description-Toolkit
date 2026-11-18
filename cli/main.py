@@ -1911,13 +1911,18 @@ def _desc_when(desc) -> str:
 
 
 def _print_item(item, args):
+    from idt_core.description_text import strip_usage_line
+
     desc = item.active_description
+    # ImageDescriber appends a "[Token Usage: ... | Time: ...]" line to the
+    # text it stores; it stays in ImageDescriber, not in what idt shows.
+    text = strip_usage_line(desc.text) if desc else None
     if args.json_out:
         out = {
             "file": item.display_name,
             "source": str(item.source_path),
             "described": item.described,
-            "description": desc.text if desc else None,
+            "description": text,
             "model": desc.model if desc else None,
             "provider": desc.provider if desc else None,
             "timestamp": _desc_when(desc) if desc else None,
@@ -1948,7 +1953,7 @@ def _print_item(item, args):
     if desc.output_tokens:
         print(f"Tokens:    {desc.output_tokens} out")
     print()
-    print(desc.text)
+    print(text)
 
 
 # ------------------------------------------------------------------ #
@@ -2089,6 +2094,7 @@ def cmd_combine(args):
     idt combine ~/Pictures/ --format tsv | sort -k3 > sorted.tsv
     """
     import csv
+    from idt_core.description_text import strip_usage_line
     from idt_core.project import Project
     from idt_core.workspace import Workspace
 
@@ -2104,7 +2110,7 @@ def cmd_combine(args):
             "file": item.display_name,
             "source_path": str(item.source_path),
             "workspace": str(container),
-            "description": desc.text,
+            "description": strip_usage_line(desc.text),
             "model": desc.model,
             "provider": desc.provider,
             "prompt_name": desc.prompt_name,

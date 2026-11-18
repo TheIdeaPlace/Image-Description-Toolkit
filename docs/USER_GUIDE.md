@@ -1048,6 +1048,8 @@ The application has two modes:
 | Copy Image + Description | Copy both image and description text |
 | Show All Descriptions... | List all descriptions in a dialog |
 
+**The usage line.** Each description ImageDescriber writes ends with a line such as `[Token Usage: 4,196 total (3,000 prompt + 1,196 completion) | Time: 8.12s]`, or just `[Time: 8.12s]` when the provider reports no token counts. It's saved with the description, and you read it wherever ImageDescriber shows a description in full: the description list, the editor and Viewer mode. It's left out everywhere the description goes outside ImageDescriber: the copy commands, every export and report, the HTML gallery, descriptions embedded into images, and `idt show`, `idt export` and `idt combine`. A location at the start of a description, such as "Madison, Wisconsin - ", is part of the description and is kept everywhere.
+
 #### View Menu
 
 | Item | Description |

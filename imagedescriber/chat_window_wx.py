@@ -65,6 +65,7 @@ from idt_core.chat import (
     ChatUsage,
 )
 from idt_core.chat.attachments import prepare_attachments
+from idt_core.description_text import strip_usage_line
 from idt_core.chat.messages import Attachment as ChatAttachment
 from idt_core.chat.providers import create_chat_provider
 from idt_core.keys import resolve_api_key
@@ -433,7 +434,11 @@ class ChatWindow(wx.Dialog):
             elif desc.prompt_style == 'ai_response':
                 messages.append({
                     'role': 'assistant',
-                    'content': desc.text,
+                    # A guard only: chat replies are stored as the model wrote
+                    # them and never get the usage line (only image
+                    # descriptions do, in workers_wx). If that ever changes,
+                    # the line still doesn't go back to the model.
+                    'content': strip_usage_line(desc.text),
                     'timestamp': desc.created,
                     'metadata': desc.metadata
                 })

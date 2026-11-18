@@ -94,6 +94,8 @@ a = Analysis(
         'idt_core.config_loader',
         'idt_core.updater',
         'idt_core.gallery_exporter',
+        # Takes ImageDescriber's usage line off text leaving the app.
+        'idt_core.description_text',
         'idt_core.keys',
         'idt_core.generation',
 
