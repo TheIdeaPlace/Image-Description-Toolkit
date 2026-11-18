@@ -375,8 +375,10 @@ def _choose_provider_and_model(args, ws, user_cfg) -> tuple:
     cfg_model = user_cfg.default_model
     if "default_model" not in user_cfg.user_set:
         cfg_owner = "ollama"
-    elif provider_set_here and cfg_provider:
-        cfg_owner = cfg_provider
+    elif getattr(user_cfg, "default_model_provider", None):
+        # Recorded when the model was set, so a later provider change doesn't
+        # carry it to the wrong provider (#455 re-review).
+        cfg_owner = _cli_provider(user_cfg.default_model_provider) or _model_owner(cfg_model)
     else:
         cfg_owner = _model_owner(cfg_model)
 
@@ -2885,6 +2887,13 @@ def cmd_config(args):
             cfg.set_default("default_provider", value)
         elif key == "default_model":
             cfg.set_default("default_model", value)
+            # Record whose model this is, so a later change of default provider
+            # doesn't send it to the wrong one (#455 re-review): the provider IDT
+            # knows it as one of, else the default provider in effect now.
+            owner = _model_owner(value)
+            if owner == "ollama":
+                owner = _cli_provider(cfg.default_provider) or "ollama"
+            cfg.default_model_provider = owner
         elif key in ("default_prompt_name", "default_prompt"):
             known = cfg.list_prompts()
             name = _match_prompt_name(value, known)

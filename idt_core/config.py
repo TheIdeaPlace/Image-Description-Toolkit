@@ -149,6 +149,9 @@ class UserConfig:
     last_update_check: Optional[str] = None
     # Which of _DEFAULT_KEYS the user set; only those are saved.
     user_set: set = field(default_factory=set)
+    # The provider a user-set default_model was set for (CLI key), so changing
+    # the default provider later doesn't send it to the wrong one (#455 review).
+    default_model_provider: Optional[str] = None
 
     def set_default(self, key: str, value: str) -> None:
         """Set one of the default provider/model/prompt as the user's choice."""
@@ -176,13 +179,19 @@ class UserConfig:
             if key in data:
                 setattr(obj, key, data[key])
         marked = data.get("user_set")
+        model_provider = data.get("default_model_provider")
         if marked is None:   # a file from before 4.9
             frozen = all(data.get(k) in _FROZEN_OLD_DEFAULTS[k] for k in _DEFAULT_KEYS)
             marked = [] if frozen else [k for k in _DEFAULT_KEYS if data.get(k)]
+            # Old files saved the provider and model together: they go together.
+            if "default_model" in marked and data.get("default_provider"):
+                model_provider = data["default_provider"]
         for key in _DEFAULT_KEYS:
             if data.get(key) and key in marked:
                 setattr(obj, key, data[key])
                 obj.user_set.add(key)
+        if "default_model" in obj.user_set and model_provider:
+            obj.default_model_provider = model_provider
         obj.custom_prompts = data.get("custom_prompts", {})
         obj.copy_originals = bool(data.get("copy_originals", False))
         obj.preserve_alt_text = bool(data.get("preserve_alt_text", True))
@@ -193,6 +202,8 @@ class UserConfig:
         _CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
         data = {key: getattr(self, key) for key in _DEFAULT_KEYS if key in self.user_set}
         data["user_set"] = sorted(k for k in self.user_set if k in _DEFAULT_KEYS)
+        if "default_model" in self.user_set and self.default_model_provider:
+            data["default_model_provider"] = self.default_model_provider
         data.update({
             "custom_prompts": self.custom_prompts,
             "copy_originals": self.copy_originals,

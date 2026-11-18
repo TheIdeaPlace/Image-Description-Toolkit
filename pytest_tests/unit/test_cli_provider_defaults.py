@@ -155,6 +155,20 @@ def test_a_model_set_alone_with_idt_config_goes_with_its_own_provider():
     assert model == "llava:13b"
 
 
+def test_a_model_set_with_idt_config_stays_with_its_provider_after_a_switch(config_file):
+    """Set ollama + llava:13b, then switch the default to Claude: llava must
+    not follow to Claude (#455 re-review)."""
+    for setting in ("default_provider=ollama", "default_model=llava:13b",
+                    "default_provider=anthropic"):
+        cli_main.cmd_config(SimpleNamespace(set_value=setting))
+    cfg = cfg_mod.UserConfig.load()
+    assert cfg.default_model_provider == "ollama"
+    assert cli_main._choose_provider_and_model(_args(), _ws(described=False), cfg) == \
+        ("anthropic", "claude-haiku-5-5")
+    assert cli_main._choose_provider_and_model(
+        _args(provider="ollama"), _ws(described=False), cfg) == ("ollama", "llava:13b")
+
+
 def test_a_provider_and_model_set_together_stay_together():
     cfg = _cfg(provider="anthropic", model="claude-opus-5-5")
     cfg.user_set.update({"default_provider", "default_model"})
