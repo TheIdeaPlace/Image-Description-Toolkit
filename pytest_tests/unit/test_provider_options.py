@@ -154,6 +154,8 @@ from idt_core.providers import openai_provider as oai  # noqa: E402
 
 @pytest.mark.parametrize("model, reasoning", [
     ("gpt-5.2", True), ("gpt-5-nano", True), ("gpt-6-sol", True), ("gpt-5.4-mini", True),
+    ("gpt-6-luna", True), ("gpt-6.1-terra", True), ("gpt-6.2-astra", True), ("gpt-5.6-luna", True),
+    ("gpt-5.5", True),
     ("o3", True), ("o4-mini", True), ("o1", True),
     ("gpt-4o", False), ("gpt-4o-mini", False), ("gpt-4.1-nano", False), ("omni-moderation", False),
 ])
@@ -227,6 +229,12 @@ class TestOpenAIParams:
     @pytest.mark.parametrize("model, sent", [
         ("gpt-5", "minimal"), ("gpt-5-mini", "minimal"), ("gpt-5-nano-2025-08-07", "minimal"),
         ("gpt-5.2", "none"), ("o3", "low"), ("gpt-6-sol", "none"),
+        # These reject "none" (OpenAI's reasoning guide; checked with real
+        # requests 11/18/2026), so their least is "low" with no failed call.
+        ("gpt-6-astra", "low"), ("gpt-6.1-sol", "low"), ("gpt-6.2-sol", "low"),
+        ("gpt-6.2-astra", "low"),
+        ("gpt-6-luna", "none"), ("gpt-6.1-terra", "none"), ("gpt-5.6-sol", "none"),
+        ("gpt-5.5", "none"), ("gpt-5.4-nano", "none"),
     ])
     def test_minimal_effort_is_the_least_each_family_takes(self, model, sent):
         opts = GenerationOptions(effort="minimal")

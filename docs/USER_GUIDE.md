@@ -311,7 +311,7 @@ idt describe <source> [options]
 **Provider and Model Options**
 
 - `--provider NAME`: the AI provider. One of `anthropic`, `apple`, `claude-code`, `ollama`, `openai` or `Windows-AI`; `claude` also means `anthropic`, and case doesn't matter.
-- `--model NAME`: the model, for example `claude-haiku-5-5`, `gpt-5.2` or `minicpm-v4.6`.
+- `--model NAME`: the model, for example `claude-haiku-5-5`, `gpt-6-luna` or `minicpm-v4.6`.
 - `--ollama-host URL`: the Ollama server address. Default `http://127.0.0.1:11434`.
 
 Without `--provider`, `idt describe` uses the first of these:
@@ -321,7 +321,7 @@ Without `--provider`, `idt describe` uses the first of these:
 3. The default provider in ImageDescriber's Configure. If that is one only ImageDescriber can run, such as MLX, `idt` says so and uses Ollama.
 4. Ollama.
 
-Without `--model`, `idt describe` uses the workspace's last model or the configured default model, but only when that model belongs to the provider being used. Otherwise it uses the provider's own default: `claude-haiku-5-5` for Claude, `gpt-5.2` for OpenAI. Configure's default model is treated as the Ollama model, so it is used only with Ollama. So `--provider anthropic` on its own is enough to switch to Claude.
+Without `--model`, `idt describe` uses the workspace's last model or the configured default model, but only when that model belongs to the provider being used. Otherwise it uses the provider's own default: `claude-haiku-5-5` for Claude, `gpt-6-luna` for OpenAI. Configure's default model is treated as the Ollama model, so it is used only with Ollama. So `--provider anthropic` on its own is enough to switch to Claude.
 
 **Prompt Options**
 
@@ -1416,18 +1416,19 @@ As with Claude, IDT asks OpenAI what your account can use. Run `idt models --pro
 
 | Model | Characteristics |
 |---|---|
-| `gpt-5.2` | Best available; highest quality vision and reasoning |
-| `gpt-5-mini` | Faster, efficient GPT-5 |
-| `gpt-5-nano` | Fastest and most affordable GPT-5 |
-| `o4-mini` | Fast cost-efficient reasoning |
-| `o3` | Powerful reasoning for complex tasks |
+| `gpt-6-luna` | The default. Fastest and cheapest ($0.10 per million input tokens, $0.50 per million output), and detailed enough for most pictures |
+| `gpt-6.1-terra` | OpenAI's model for visual reasoning; more thorough, ten times the price of Luna |
+| `gpt-6.2-sol` | OpenAI's everyday flagship ($2 in, $10 out per million tokens) |
+| `gpt-6.2-astra` | OpenAI's most capable model; slowest and most expensive ($8 in, $40 out per million tokens) |
+
+Prices are OpenAI's standard rates as of November 2026. Older models such as `gpt-5.2`, `gpt-5-mini`, `gpt-4o` and `o3` are still offered while OpenAI keeps them running; OpenAI has shut down `o1`, `o4-mini` and `gpt-4.1-nano`, so IDT no longer offers them, though workspaces described with them still show their names.
 
 OpenAI's account list also contains speech, image-generation, embedding and moderation models, which cannot describe pictures or hold a conversation. IDT hides those so the picker stays usable with a keyboard and screen reader. If something you need is missing, `idt models --provider openai --all` shows the unfiltered list.
 
 **CLI example**
 
 ```bash
-idt describe ~/Photos --provider openai --model gpt-5.2
+idt describe ~/Photos --provider openai --model gpt-6-luna
 ```
 
 ---
@@ -2128,7 +2129,7 @@ The CLI uses no ANSI color codes in interactive mode (`idt guideme`) and all out
 **Processing completes but descriptions are blank or very short**
 
 - Some models (especially small Ollama models on CPU) time out if the image is very large. Try resizing images to under 2048 × 2048 pixels before describing.
-- Switch to a higher-quality model: `claude-opus-5-5` or `gpt-5.2`.
+- Switch to a higher-quality model: `claude-opus-5-5` or `gpt-6.2-sol`.
 
 **Video extraction fails**
 

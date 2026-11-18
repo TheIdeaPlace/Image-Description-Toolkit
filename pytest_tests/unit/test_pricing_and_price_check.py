@@ -256,6 +256,21 @@ def test_every_claude_price_matches_the_real_page():
     assert [f for f in checker.compare("claude", page, list(CLAUDE_MODELS))] == []
 
 
+def test_every_openai_price_matches_the_real_page():
+    """Issue #453: fourteen models on the page had no price in IDT, and three
+    offered models (shut down) had none on the page."""
+    page = checker.parse_openai((_FIXTURES / "openai-pricing-2026-11-18.md")
+                                .read_text(encoding="utf-8"))
+    from idt_core.providers.openai_provider import OPENAI_MODELS
+    assert [f for f in checker.compare("openai", page, list(OPENAI_MODELS))] == []
+
+
+def test_every_offered_openai_model_has_a_price():
+    from idt_core.providers.openai_provider import OPENAI_MODELS
+    for model in OPENAI_MODELS:
+        assert model in pricing.PRICES["openai"], model
+
+
 def test_kept_for_old_workspaces_are_not_reported_gone():
     page = checker.parse_anthropic(ANTHROPIC_PAGE)
     found = checker.compare("claude", page, [])

@@ -283,7 +283,10 @@ class ChatDialog(wx.Dialog):
                 self.model_combo.Append('llava:latest', 'llava:latest')
                 self.model_combo.SetSelection(0)
             elif provider == 'openai':
-                self.model_combo.Append('gpt-4o', 'gpt-4o')
+                # The provider's default, not a hard-coded id: 'gpt-4o' here
+                # outlived its model's place at the top of OpenAI's list.
+                from idt_core.providers.openai_provider import DEFAULT_MODEL as _OPENAI_DEFAULT
+                self.model_combo.Append(_display_model('openai', _OPENAI_DEFAULT), _OPENAI_DEFAULT)
                 self.model_combo.SetSelection(0)
             elif provider == 'claude':
                 # Use first model from the curated list with its friendly name.

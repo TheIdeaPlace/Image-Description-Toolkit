@@ -133,7 +133,7 @@ def _step_provider() -> str:
     print("Choose the AI provider to generate descriptions.")
     print("  ollama    - Local models on your machine (no API key)")
     print("  anthropic - Claude (requires ANTHROPIC_API_KEY)")
-    print("  openai    - GPT-4o (requires OPENAI_API_KEY)")
+    print("  openai    - GPT (requires OPENAI_API_KEY)")
     print("  claude-code - Claude on your Claude subscription, through the")
     print("                Claude Code app (no API key; run 'claude auth login')")
     providers = ["ollama", "anthropic", "openai", "claude-code"]
