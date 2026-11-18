@@ -35,4 +35,5 @@ def test_a_sideways_tagged_photo_comes_out_upright():
     img.save(buf, format="JPEG", exif=exif.tobytes())
     worker = workers_wx.ProcessingWorker.__new__(workers_wx.ProcessingWorker)
     out = worker._resize_image_data(buf.getvalue(), max_size=10)   # forces the re-save
-    assert Image.open(io.BytesIO(out)).size == (300, 400)
+    size = Image.open(io.BytesIO(out)).size
+    assert size == (300, 400)
