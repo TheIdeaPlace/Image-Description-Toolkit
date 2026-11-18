@@ -1406,6 +1406,25 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self.editor_container.Show()
 
         self.main_content_panel.Layout()
+        self.SetStatusText("Viewer mode" if mode == 'viewer' else "Editor mode", 0)
+        # Move focus into the view now showing (#419). Hiding the other view
+        # left focus on a hidden control, so a screen reader said nothing and
+        # the switch sounded as if it hadn't happened (it took effect at once;
+        # Kelly heard nothing for over 30 seconds, 11/18/2026). After the menu
+        # closes, or focus returns to where the menu was opened from.
+        wx.CallAfter(self._focus_current_mode)
+
+    def _focus_current_mode(self):
+        """Put keyboard focus on the main list of the mode that's showing."""
+        if self.current_mode == 'viewer':
+            target = getattr(self.viewer_panel, 'desc_list', None)
+        else:
+            target = getattr(self, 'image_list', None)
+        try:
+            if target is not None and target.IsShownOnScreen():
+                target.SetFocus()
+        except RuntimeError:
+            pass  # window already destroyed (closing)
 
     def create_image_list_panel(self, parent):
         """Create the left panel with image list"""

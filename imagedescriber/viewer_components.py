@@ -238,8 +238,11 @@ class ViewerPanel(wx.Panel):
         left_sizer.Add(desc_list_label, 0, wx.ALL, 5)
         
         # Description ListBox (Accessible)
-        self.desc_list = DescriptionListBox(left_panel, name="Descriptions",
+        self.desc_list = DescriptionListBox(left_panel, name="Viewer, all descriptions",
                                             style=wx.LB_SINGLE)
+        # What a screen reader says when switching to Viewer mode lands here
+        # (#419): it has to make clear the view changed.
+        self.desc_list.accessible_name = "Viewer, all descriptions"
         left_sizer.Add(self.desc_list, 1, wx.EXPAND | wx.ALL, 5)
         
         left_panel.SetSizer(left_sizer)
