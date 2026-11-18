@@ -70,24 +70,34 @@ def _load_shared_config() -> tuple[dict[str, str], str, str]:
 BUILT_IN_PROMPTS, DEFAULT_PROMPT_NAME, DEFAULT_OLLAMA_MODEL = _load_shared_config()
 
 
-def _shared_default_provider() -> str:
-    """Configure's default provider (ImageDescriber's key, e.g. "claude"), or
-    "ollama". The command line translates the name (cli.main._cli_provider)."""
+def _shared_default_provider() -> tuple:
+    """(Configure's default provider, whether the user saved settings).
+
+    The provider is ImageDescriber's key ("claude", "mlx"...) or "ollama"; the
+    command line translates it (cli.main._cli_provider). The flag says whether
+    the shared config came from the user config dir -- Configure -- rather
+    than only the shipped defaults, so `idt config` can say which.
+    """
     try:
-        from idt_core.config_loader import load_json_config
+        from idt_core.config_loader import get_user_config_dir, load_json_config
     except ImportError:
         try:
-            from config_loader import load_json_config          # frozen mode
+            from config_loader import get_user_config_dir, load_json_config  # frozen mode
         except ImportError:
-            return "ollama"
+            return "ollama", False
     try:
-        config, _path, _src = load_json_config('image_describer_config.json')
+        config, path, _src = load_json_config('image_describer_config.json')
+        from_configure = bool(path) and Path(path).resolve().parent == get_user_config_dir().resolve()
     except Exception:
-        return "ollama"
-    return ((config or {}).get("default_provider") or "ollama").strip() or "ollama"
+        return "ollama", False
+    provider = ((config or {}).get("default_provider") or "ollama").strip() or "ollama"
+    return provider, from_configure
 
 
-DEFAULT_PROVIDER = _shared_default_provider()
+#: Configure's default provider. Configure's default_model is a different
+#: thing: "the default Ollama model, used when the provider is Ollama"
+#: (configure_dialog.py), so it is never paired with another provider.
+DEFAULT_PROVIDER, DEFAULTS_FROM_CONFIGURE = _shared_default_provider()
 
 _CONFIG_FILE = Path.home() / ".idt" / "config.json"
 
@@ -98,9 +108,11 @@ _CONFIG_FILE = Path.home() / ".idt" / "config.json"
 #: the ones a user set (`idt config --set`) are saved, listed under "user_set".
 _DEFAULT_KEYS = ("default_provider", "default_model", "default_prompt_name")
 
-#: In a file from before 4.9 (no "user_set"), these values were almost
-#: certainly frozen-in defaults rather than choices, so they're ignored and
-#: Configure's settings apply. Anything else there is kept as the user's.
+#: A file from before 4.9 (no "user_set") whose three defaults ALL match
+#: these was frozen in, not chosen, so it's ignored and Configure's settings
+#: apply. If any one differs, the file is a user's choices and all its
+#: defaults are kept together -- judging each key alone could keep a model
+#: and drop the provider it went with (#455 review).
 _FROZEN_OLD_DEFAULTS = {
     "default_provider": {"ollama"},
     "default_model": {"minicpm-v4.6", "moondream", "moondream:1.8b",
@@ -164,14 +176,11 @@ class UserConfig:
             if key in data:
                 setattr(obj, key, data[key])
         marked = data.get("user_set")
+        if marked is None:   # a file from before 4.9
+            frozen = all(data.get(k) in _FROZEN_OLD_DEFAULTS[k] for k in _DEFAULT_KEYS)
+            marked = [] if frozen else [k for k in _DEFAULT_KEYS if data.get(k)]
         for key in _DEFAULT_KEYS:
-            if not data.get(key):
-                continue
-            if marked is not None:
-                chosen = key in marked
-            else:   # a file from before 4.9: skip the frozen-in defaults
-                chosen = data[key] not in _FROZEN_OLD_DEFAULTS[key]
-            if chosen:
+            if data.get(key) and key in marked:
                 setattr(obj, key, data[key])
                 obj.user_set.add(key)
         obj.custom_prompts = data.get("custom_prompts", {})

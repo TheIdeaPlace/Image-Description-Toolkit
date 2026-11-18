@@ -324,6 +324,14 @@ def _model_belongs_to(provider: str, model: Optional[str]) -> bool:
         return False
 
 
+def _model_owner(model: Optional[str]) -> str:
+    """The provider IDT knows ``model`` as one of; "ollama" when none claims it."""
+    for provider in ("anthropic", "openai", "claude-code", "apple", "windows-ai"):
+        if _model_belongs_to(provider, model):
+            return provider
+    return "ollama"
+
+
 def _choose_provider_and_model(args, ws, user_cfg) -> tuple:
     """(provider key, model or None) for a describing run.
 
@@ -338,22 +346,43 @@ def _choose_provider_and_model(args, ws, user_cfg) -> tuple:
     ws_model = ws.defaults.model if ws.has_any_descriptions else ""
     ws_provider = _cli_provider(ws_raw)
     cfg_provider = _cli_provider(user_cfg.default_provider)
+    provider_set_here = "default_provider" in user_cfg.user_set
+    shown = ", ".join(_PROVIDER_CHOICES_SHOWN)
     if ws_raw and ws_provider is None and not args.provider:
-        print(f"Error: this workspace was described with {ws_raw!r}, which this version "
-              f"doesn't know. Choose one with --provider "
-              f"({', '.join(_PROVIDER_CHOICES_SHOWN)}).", file=sys.stderr)
-        sys.exit(2)
+        print(f"Error: this workspace was described with {ws_raw!r}, which the command line "
+              f"can't use. Choose one with --provider ({shown}).", file=sys.stderr)
+        sys.exit(1)   # a run that can't start; 2 is kept for usage errors
     if user_cfg.default_provider and cfg_provider is None and not (args.provider or ws_provider):
-        print(f"Error: the default provider {user_cfg.default_provider!r} isn't one this "
-              f"version knows. Set another with `idt config --set default_provider=...` "
-              f"({', '.join(_PROVIDER_CHOICES_SHOWN)}), or choose with --provider.",
+        if provider_set_here:
+            print(f"Error: the default provider {user_cfg.default_provider!r} isn't one the "
+                  f"command line can use. Set another with `idt config --set "
+                  f"default_provider=...` ({shown}), or choose with --provider.", file=sys.stderr)
+            sys.exit(1)
+        # Configure's default can be one only ImageDescriber runs (MLX): the
+        # command line carries on with Ollama rather than refuse every run
+        # (#455 review).
+        print(f"Note: Configure's default provider, {user_cfg.default_provider!r}, works only "
+              f"in ImageDescriber; using Ollama. Choose another with --provider.",
               file=sys.stderr)
-        sys.exit(2)
     provider = args.provider or ws_provider or cfg_provider or "ollama"
+
+    # Whose model is the configured one? Configure's default_model is the
+    # Ollama model ("used when default_provider is ollama"), never another
+    # provider's: pairing it with Configure's Claude default sent an Ollama
+    # name to Anthropic (#455 review). A model set with `idt config` goes with
+    # the provider set there too, else with whichever provider IDT knows it
+    # as one of; failing that, it's an Ollama model (Ollama's are open-ended).
+    cfg_model = user_cfg.default_model
+    if "default_model" not in user_cfg.user_set:
+        cfg_owner = "ollama"
+    elif provider_set_here and cfg_provider:
+        cfg_owner = cfg_provider
+    else:
+        cfg_owner = _model_owner(cfg_model)
 
     model = args.model
     if not model:
-        for candidate, owner in ((ws_model, ws_provider), (user_cfg.default_model, cfg_provider)):
+        for candidate, owner in ((ws_model, ws_provider), (cfg_model, cfg_owner)):
             if candidate and (owner == provider or _model_belongs_to(provider, candidate)):
                 model = candidate
                 break
@@ -700,7 +729,7 @@ def cmd_describe(args):
     # a completely-failed run that already saved its provider would override the
     # user's default on every subsequent run — even after changing the default.
     provider_name, model = _choose_provider_and_model(args, ws, user_cfg)
-    prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
+    prompt_name, prompt_text = _resolve_prompt(args, ws.defaults if ws.has_any_descriptions else None, provider_name)
 
     # Resolve the effective copy setting: explicit --copy-originals/--no-copy-originals
     # flag for this run overrides the workspace's stored preference.
@@ -1181,7 +1210,7 @@ def _cmd_describe_stdin(args):
     user_cfg = UserConfig.load()
 
     provider_name, model = _choose_provider_and_model(args, ws, user_cfg)
-    prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
+    prompt_name, prompt_text = _resolve_prompt(args, ws.defaults if ws.has_any_descriptions else None, provider_name)
     provider = _make_provider(provider_name, model, args.ollama_host,
                               options=_generation_options(args, provider_name))
 
@@ -1340,7 +1369,7 @@ def cmd_download(args):
         # Only inherit provider/model from the workspace once it has a real
         # description history (same guard cmd_describe uses).
         provider_name, model = _choose_provider_and_model(args, ws, cfg)
-        prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
+        prompt_name, prompt_text = _resolve_prompt(args, ws.defaults if ws.has_any_descriptions else None, provider_name)
         provider = _make_provider(provider_name, model, args.ollama_host,
                               options=_generation_options(args, provider_name))
 
@@ -1476,7 +1505,7 @@ def cmd_video(args):
 
         user_cfg = UserConfig.load()
         provider_name, model = _choose_provider_and_model(args, ws, user_cfg)
-        prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
+        prompt_name, prompt_text = _resolve_prompt(args, ws.defaults if ws.has_any_descriptions else None, provider_name)
         provider = _make_provider(provider_name, model, args.ollama_host,
                               options=_generation_options(args, provider_name))
 
@@ -2474,7 +2503,7 @@ def cmd_watch(args):
     user_cfg = UserConfig.load()
 
     provider_name, model = _choose_provider_and_model(args, ws, user_cfg)
-    prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
+    prompt_name, prompt_text = _resolve_prompt(args, ws.defaults if ws.has_any_descriptions else None, provider_name)
     provider = _make_provider(provider_name, model, args.ollama_host,
                               options=_generation_options(args, provider_name))
 
@@ -2878,14 +2907,21 @@ def cmd_config(args):
         print(f"Set {key} = {value}")
         return
 
+    from idt_core.config import DEFAULTS_FROM_CONFIGURE
+
     def _source(k):
-        # Unless set here, these come from Configure, so say which.
-        return "  (set with idt config)" if k in cfg.user_set else "  (from Configure)"
+        # Set here, from Configure's saved settings, or IDT's shipped default.
+        if k in cfg.user_set:
+            return "  (set with idt config)"
+        return "  (from Configure)" if DEFAULTS_FROM_CONFIGURE else "  (default)"
 
     print(f"Config file:      {Path.home() / '.idt' / 'config.json'}")
     print(f"default_provider: {_cli_provider(cfg.default_provider) or cfg.default_provider}"
           f"{_source('default_provider')}")
-    print(f"default_model:    {cfg.default_model}{_source('default_model')}")
+    # Unless set here, the default model is Configure's Ollama model, which is
+    # used only with Ollama; other providers use their own default.
+    model_note = "" if "default_model" in cfg.user_set else ", used with Ollama"
+    print(f"default_model:    {cfg.default_model}{_source('default_model')[:-1]}{model_note})")
     print(f"default_prompt:   {cfg.default_prompt_name}{_source('default_prompt_name')}")
     print(f"workspace_root:   {cfg.workspace_root_path()}")
     print(f"preserve_alt_text: {cfg.preserve_alt_text}")
@@ -3426,6 +3462,18 @@ def main():
     _show_provider_warnings()
     parser = build_parser()
     args = parser.parse_args()
+    # A mistyped --prompt is refused before anything is created: checked later,
+    # it left a new, empty workspace behind (#455 review).
+    if getattr(args, "prompt", None) and not getattr(args, "prompt_text", None):
+        from idt_core.config import UserConfig
+
+        known = UserConfig.load().list_prompts()
+        if _match_prompt_name(args.prompt, known) is None:
+            from idt_core.providers.windows_ai import PROMPT_NAME as _WIN_PROMPT
+
+            if args.prompt != _WIN_PROMPT:
+                parser.error(f"there's no prompt called {args.prompt!r}. The prompts are: "
+                             f"{', '.join(sorted(known))}. `idt prompts` shows them.")
     _cmd_titles = {
         "describe": "IDT - Describing Images",
         "download": "IDT - Downloading Images",

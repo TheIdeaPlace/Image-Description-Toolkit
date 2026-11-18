@@ -77,14 +77,27 @@ def test_a_workspace_imagedescriber_described_with_claude_continues():
 def test_a_workspace_with_an_unknown_provider_stops_with_a_clear_error(capsys):
     with pytest.raises(SystemExit) as exc:
         cli_main._choose_provider_and_model(_args(), _ws("gemini", "x"), _cfg())
-    assert exc.value.code == 2
+    assert exc.value.code == 1           # a run that can't start; 2 is for usage errors
     assert "--provider" in capsys.readouterr().err
 
 
-def test_an_unknown_saved_default_provider_stops_with_a_clear_error(capsys):
-    with pytest.raises(SystemExit):
-        cli_main._choose_provider_and_model(_args(), _ws(described=False), _cfg(provider="gemini"))
+def test_an_unknown_default_provider_set_with_idt_config_stops(capsys):
+    cfg = _cfg(provider="gemini")
+    cfg.user_set.add("default_provider")
+    with pytest.raises(SystemExit) as exc:
+        cli_main._choose_provider_and_model(_args(), _ws(described=False), cfg)
+    assert exc.value.code == 1
     assert "idt config" in capsys.readouterr().err
+
+
+def test_configures_mlx_default_falls_back_to_ollama_with_a_note(capsys):
+    """MLX runs only in ImageDescriber; the CLI carries on rather than refuse
+    every run (#455 review)."""
+    provider, model = cli_main._choose_provider_and_model(
+        _args(), _ws(described=False), _cfg(provider="mlx"))
+    assert provider == "ollama"
+    assert model == "minicpm-v4.6"        # Configure's Ollama model
+    assert "only in ImageDescriber" in capsys.readouterr().err
 
 
 # --- B2: models stay with their provider ---------------------------------------
@@ -112,6 +125,41 @@ def test_an_explicit_model_always_wins():
     _, model = cli_main._choose_provider_and_model(
         _args(provider="anthropic", model="claude-sonnet-5-5"), _ws("ollama", "moondream"), _cfg())
     assert model == "claude-sonnet-5-5"
+
+
+def test_configures_claude_default_never_gets_configures_ollama_model():
+    """Configure's default_model is its Ollama model. Paired with Configure's
+    Claude default it sent "minicpm-v4.6" to Anthropic (#455 review, blocker)."""
+    provider, model = cli_main._choose_provider_and_model(
+        _args(), _ws(described=False), _cfg(provider="claude", model="minicpm-v4.6"))
+    assert (provider, model) == ("anthropic", "claude-haiku-5-5")
+
+
+@pytest.mark.parametrize("provider_key, expected", [
+    ("openai", "gpt-5.2"), ("claude-code", "haiku")])
+def test_configures_other_defaults_get_their_own_model(provider_key, expected):
+    from importlib import import_module
+    mod = {"openai": "openai_provider", "claude-code": "claude_code"}[provider_key]
+    expected = import_module(f"idt_core.providers.{mod}").DEFAULT_MODEL
+    _, model = cli_main._choose_provider_and_model(
+        _args(), _ws(described=False), _cfg(provider=provider_key, model="minicpm-v4.6"))
+    assert model == expected
+
+
+def test_a_model_set_alone_with_idt_config_goes_with_its_own_provider():
+    cfg = _cfg(provider="claude", model="llava:13b")      # provider from Configure
+    cfg.user_set.add("default_model")
+    _, model = cli_main._choose_provider_and_model(_args(), _ws(described=False), cfg)
+    assert model == "claude-haiku-5-5"                     # llava is an Ollama model
+    _, model = cli_main._choose_provider_and_model(_args(provider="ollama"), _ws(described=False), cfg)
+    assert model == "llava:13b"
+
+
+def test_a_provider_and_model_set_together_stay_together():
+    cfg = _cfg(provider="anthropic", model="claude-opus-5-5")
+    cfg.user_set.update({"default_provider", "default_model"})
+    assert cli_main._choose_provider_and_model(_args(), _ws(described=False), cfg) == \
+        ("anthropic", "claude-opus-5-5")
 
 
 # --- S5: prompt names ----------------------------------------------------------
@@ -194,7 +242,43 @@ def test_configures_default_provider_is_read(tmp_path, monkeypatch):
     (user_dir / "image_describer_config.json").write_text(
         json.dumps({"default_provider": "claude"}), encoding="utf-8")
     monkeypatch.setenv("IDT_USER_CONFIG_DIR", str(user_dir))
-    assert cfg_mod._shared_default_provider() == "claude"
+    assert cfg_mod._shared_default_provider() == ("claude", True)
+
+
+def test_an_old_file_is_judged_as_a_whole(config_file):
+    """Only a file whose three defaults are ALL the old shipped ones is
+    leftovers; one real choice keeps the provider and model together
+    (#455 review: keeping llava:13b but dropping "ollama" sent llava to Claude)."""
+    config_file.parent.mkdir(parents=True)
+    config_file.write_text(json.dumps({"default_provider": "ollama", "default_model": "llava:13b",
+                                       "default_prompt_name": "narrative"}), encoding="utf-8")
+    c = cfg_mod.UserConfig.load()
+    assert (c.default_provider, c.default_model) == ("ollama", "llava:13b")
+    assert c.user_set == {"default_provider", "default_model", "default_prompt_name"}
+
+
+def test_a_new_workspace_uses_the_default_prompt_not_detailed(config_file, monkeypatch):
+    """A workspace's prompt is used only once it has descriptions; a new one
+    used to say "detailed" whatever Configure said (#431, #455 review)."""
+    c = cfg_mod.UserConfig.load()
+    c.set_default("default_prompt_name", "simple")
+    c.save()
+    ws = SimpleNamespace(has_any_descriptions=False,
+                         defaults=SimpleNamespace(prompt_name="detailed"))
+    name, _ = cli_main._resolve_prompt(
+        _args(), ws.defaults if ws.has_any_descriptions else None, "anthropic")
+    assert name == "simple"
+
+
+def test_a_mistyped_prompt_is_refused_before_a_workspace_is_made(tmp_path, monkeypatch, config_file):
+    pics = tmp_path / "pics"
+    pics.mkdir()
+    monkeypatch.setattr(sys, "argv", ["idt", "describe", str(pics), "--prompt", "Simpel",
+                                      "--workspace", str(tmp_path / "w.idtw")])
+    with pytest.raises(SystemExit) as exc:
+        cli_main.main()
+    assert exc.value.code == 2
+    assert not (tmp_path / "w.idtw").exists()
 
 
 # --- idt config --set ------------------------------------------------------------
@@ -217,13 +301,21 @@ def test_config_set_refuses_an_unknown_prompt_and_fixes_case(config_file):
     assert cfg_mod.UserConfig.load().default_prompt_name == "simple"
 
 
-def test_config_says_where_each_default_comes_from(config_file, capsys):
+@pytest.mark.parametrize("from_configure, label", [(True, "(from Configure)"), (False, "(default)")])
+def test_config_says_where_each_default_comes_from(config_file, capsys, monkeypatch,
+                                                   from_configure, label):
+    monkeypatch.setattr(cfg_mod, "DEFAULTS_FROM_CONFIGURE", from_configure)
     cli_main.cmd_config(SimpleNamespace(set_value="default_model=claude-opus-5-5"))
     capsys.readouterr()
     cli_main.cmd_config(SimpleNamespace(set_value=None))
     out = capsys.readouterr().out
     assert "default_model:    claude-opus-5-5  (set with idt config)" in out
-    assert "(from Configure)" in out
+    assert f"default_prompt:   {cfg_mod.DEFAULT_PROMPT_NAME}  {label}" in out
+
+
+def test_config_says_configures_model_is_the_ollama_model(config_file, capsys):
+    cli_main.cmd_config(SimpleNamespace(set_value=None))
+    assert ", used with Ollama)" in capsys.readouterr().out
 
 
 # --- idt guideme's key check ---------------------------------------------------
