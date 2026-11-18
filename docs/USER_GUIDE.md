@@ -1770,7 +1770,7 @@ Where this photo was taken, from the file's metadata: Paris, France
 This comes from the file, not the picture, so the picture needn't show it. Use it where it helps, such as to name the place, and don't comment on it or say whether the picture confirms it.
 ```
 
-The date and camera are not sent to the AI. See [Metadata and Geocoding](#metadata-and-geocoding).
+ImageDescriber leaves out "such as to name the place", because it starts each description with the place itself ("Paris, France - …"); asked to name it, the model would say it twice. The date and camera are not sent to the AI. See [Metadata and Geocoding](#metadata-and-geocoding).
 
 Geocoding results are cached in `~/.idt/geocode_cache.json` so each unique location is only looked up once.
 

@@ -958,13 +958,46 @@ class TestPromptMetadataLabel:
         """And that the model shouldn't comment on it: "(not visible in the
         image)" alone made Haiku 5.5 say so in 30% of a 4,386-photo run."""
         from idt_core.pipeline import metadata_preamble
-        text = metadata_preamble("Madison, Wisconsin  Sep 12, 2025")
+        text = metadata_preamble("Madison, Wisconsin")   # only the place is ever sent
         low = text.lower()
         assert "metadata" in low
         assert "not the picture" in low
         assert "don't comment on it" in low
-        assert "Madison, Wisconsin  Sep 12, 2025" in text
+        assert "Madison, Wisconsin" in text
         assert text.endswith("\n\n")   # the prompt follows after a blank line
+        # ImageDescriber shows the place itself, so it doesn't ask for it
+        assert "name the place" in low
+        assert "name the place" not in metadata_preamble("Madison, Wisconsin", name_place=False)
+
+    def test_the_provider_gets_the_preamble_and_the_saved_prompt_does_not(self):
+        """What's sent is preamble + prompt; what's kept is the bare prompt, so
+        the 'custom' vs named-style decision never sees the preamble."""
+        from pathlib import Path
+
+        from idt_core.pipeline import _extract_and_build_prompt, metadata_preamble
+
+        class Meta:
+            def prompt_context(self):
+                return "Madison, Wisconsin"
+
+        class Extractor:
+            def extract(self, path):
+                return Meta()
+
+        prompt = "Describe this image."
+        _meta, context, sent = _extract_and_build_prompt(Extractor(), None, Path("x.jpg"), prompt)
+        assert context == "Madison, Wisconsin"
+        assert sent == metadata_preamble("Madison, Wisconsin") + prompt
+        assert prompt == "Describe this image."   # the caller's prompt is untouched
+
+        class NoPlace:
+            def extract(self, path):
+                class M:
+                    def prompt_context(self):
+                        return ""
+                return M()
+
+        assert _extract_and_build_prompt(NoPlace(), None, Path("x.jpg"), prompt)[2] == prompt
 
     def test_gui_and_cli_share_one_prefix(self):
         """Both describe paths build the prompt from the same constant.
@@ -983,5 +1016,5 @@ class TestPromptMetadataLabel:
         assert 'f"Context: {' not in gui
         assert 'f"Context: {' not in pipe
         # Both build the prompt from metadata_preamble
-        assert "metadata_preamble(ctx)" in gui
+        assert "metadata_preamble(ctx" in gui
         assert pipe.count("metadata_preamble(") >= 3   # definition + both call sites

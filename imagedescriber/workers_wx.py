@@ -113,6 +113,7 @@ RUN_FATAL_KINDS = frozenset({ErrorKind.AUTH, ErrorKind.UNAVAILABLE})
 from idt_core.pipeline import (  # noqa: E402
     REFUSAL_STREAK, SAME_FAILURE_STREAK, FailureStreak, frame_video,
     is_per_image_failure as _is_per_image_failure,
+    metadata_preamble,
     normalise_failure_text as _normalise_failure_text,
 )
 from idt_core.providers.registry import display_name as _display_provider  # noqa: E402
@@ -1019,11 +1020,9 @@ class ProcessingWorker(threading.Thread):
             ctx = meta.prompt_context()
             if ctx:
                 logging.info(f"EXIF context injected into prompt: {ctx}")
-                try:
-                    from idt_core.pipeline import metadata_preamble
-                except ImportError:
-                    from pipeline import metadata_preamble  # frozen mode
-                return metadata_preamble(ctx) + prompt_text, ctx
+                # name_place=False: _add_location_byline starts the
+                # description with the place already.
+                return metadata_preamble(ctx, name_place=False) + prompt_text, ctx
 
         except Exception as exc:
             logging.warning(f"EXIF context injection failed for {self.file_path}: {exc}")
