@@ -386,7 +386,11 @@ class ApiKeyEditDialog(wx.Dialog):
         
         # Bind OK to validation
         ok_btn.Bind(wx.EVT_BUTTON, self.on_ok)
-        
+        # Enter in the key box presses OK: paste, Enter, done (#478). It did
+        # nothing, because no button was the default.
+        ok_btn.SetDefault()
+        self.ok_btn = ok_btn
+
         # Focus where the typing goes: the key box when the provider is known,
         # the provider list otherwise.
         self.first_focus = self.provider_choice or self.key_text
