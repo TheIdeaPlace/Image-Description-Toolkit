@@ -124,7 +124,8 @@ or "covered by your Ollama plan" or "your Claude plan".
 
 - **One button adds or replaces the selected provider's key.** It says **Add Key** when
   that provider has no key and **Replace Key** when it has one, and the box it opens is
-  for that provider only, with no provider list to choose from first.
+  for that provider only, with no provider list to choose from first. Paste the key and
+  press Enter: Enter now presses OK, where before it did nothing.
 - **New: Test Key (Alt+T).** It checks that the selected provider's key works by sending
   one tiny request: for Claude and OpenAI, a one-word question to the provider's
   cheapest model, which costs a small fraction of a cent on your account; for the Ollama
