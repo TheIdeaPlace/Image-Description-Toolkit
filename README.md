@@ -1,6 +1,6 @@
 # Image Description Toolkit
 
-AI-powered batch image description tool supporting multiple vision models (Ollama, OpenAI GPT-4o, Claude — through the API or through your Claude subscription).
+AI-powered batch image description tool supporting multiple vision models: Ollama, OpenAI, Claude (through the API or through your Claude subscription), Apple Intelligence on a Mac and Windows AI on a Copilot+ PC.
 
 ## Quick Start
 
@@ -8,10 +8,8 @@ AI-powered batch image description tool supporting multiple vision models (Ollam
 
 Download from the [releases](https://github.com/TheIdeaPlace/Image-Description-Toolkit/releases) page:
 
-| File | Platform |
-|---|---|
-| **`ImageDescriptionToolkitSetup-4.8.0-windows.exe`** | Windows 10/11, 64-bit |
-| **`IDT-4.8.0-macos-arm64.dmg`** | macOS, Apple Silicon |
+- **`ImageDescriptionToolkitSetup-4.9.0-windows.exe`**: the installer for Windows 10 and 11, 64-bit.
+- **`IDT-4.9.0-macos-arm64.dmg`**: the disk image for macOS on Apple Silicon.
 
 Either one gives you all the applications:
 - **idt** - Command-line interface for batch processing and automation
@@ -21,8 +19,8 @@ Either one gives you all the applications:
 One install covers them all; you never update them separately.
 
 Standalone builds are also published if you want a single tool without an installer:
-`idt-<version>-windows-x64.zip`, `ImageDescriber-<version>-windows-x64.zip`,
-`IDTChat-<version>-windows-x64.zip`, and `idt-<version>-macos-arm64.tar.gz`.
+`idt-4.9.0-windows-x64.zip`, `ImageDescriber-4.9.0-windows-x64.zip`,
+`IDTChat-4.9.0-windows-x64.zip`, and `idt-4.9.0-macos-arm64.tar.gz`.
 Each Windows zip holds a folder: unzip it and run the exe inside, keeping the
 `-lib` folder beside it.
 `SHA256SUMS.txt` lets you verify any download.
@@ -30,28 +28,26 @@ Each Windows zip holds a folder: unzip it and run the exe inside, keeping the
 No Python required. The Windows installer is signed; the macOS build is signed and
 notarized.
 
-**Latest Release (v4.8.0):** Windows AI, a new provider that describes images on a Copilot+ PC with Windows' own model: on the PC itself, with no API key, account or cost.
+**Latest release: 4.9.0.** See the [release notes](docs/release-notes-v4.9.0.md) for what's new.
 
 ### Quick Start
 
 #### GUI (Easiest for Most Users)
 
-1. **Install** Image Description Toolkit from the installer
-2. **Launch** `imagedescriber.exe` from the install folder (default: `C:\IDT\`)
-3. **Choose** a directory of images (File → Load Directory)
-4. **Select** your AI provider, model, and prompt style in the interface
-5. **Process** all images (Processing → Process All Undescribed)
+1. **Install** Image Description Toolkit with the installer.
+2. **Launch** ImageDescriber from the Start menu. It is installed in `C:\idt` by default.
+3. **Choose** a folder of images with File → Load Directory.
+4. **Describe** them with Process → Process Undescribed Images (Entire Workspace). Choose your AI provider, model and prompt style in the dialog that opens.
 
-Your images will be described automatically! Use Tools → Edit Prompts to customize description styles, or File → Switch to Viewer to browse results.
+ImageDescriber saves the results in a workspace named after your folder: `Documents\idt\<folder name>.idtw`. Use Tools → Edit Prompts to customize description styles, and View → Application Mode → Viewer Mode to browse results.
 
 #### Command Line (For Batch Processing)
 
-1. **Open** a command prompt
-2. **Change** to the install directory: `cd C:\IDT`
-3. **Run** the interactive guide: `idt guideme`
-4. **Answer** the prompts to configure and run your workflow
+1. **Open** "Image Description Toolkit (CLI)" from the Start menu. It opens a command prompt in the install folder. If you chose "Add to PATH" when installing, any command prompt works.
+2. **Run** the interactive guide: `idt guideme`
+3. **Answer** the prompts to choose a provider, model and folder, and to run the job.
 
-Results are saved in the `Descriptions/` folder with an HTML viewer.
+Results are saved in a workspace bundle, `Documents\idt\<folder name>.idtw`, with an HTML report in its `reports` folder. You can open the same workspace in ImageDescriber.
 
 ### Advanced Usage
 
@@ -65,25 +61,25 @@ idt update
 
 ## Features
 
-- **Two Powerful Applications**: GUI for visual workflow, CLI for automation
+- **Three Applications**: ImageDescriber for a visual workflow, `idt` for automation, and IDT Chat for conversation
 - **Multiple AI Providers**: Ollama (local), OpenAI, Claude (API key), Claude Code (your Claude Pro/Max subscription, no API key), Apple Intelligence (on-device on macOS 27, no API key), Windows AI (on-device on Copilot+ PCs, no API key)
 - **Batch Processing**: Process directories of images automatically
 - **Video Frame Extraction**: Extract and describe frames from videos
-- **Integrated Viewer**: Browse and monitor workflows in real-time (built into GUI)
-- **Integrated Tools**: Prompt editor and configuration manager built into GUI
-- **Workflow Management**: Organized results with metadata tracking
-- **Re-describe Feature**: Test different models/prompts on same images
-- **Analysis Tools**: Compare models, review content, export to CSV/Excel
+- **Integrated Viewer**: Browse and monitor results in real time (built into ImageDescriber)
+- **Integrated Tools**: Prompt editor and configuration manager built into ImageDescriber
+- **Shared Workspaces**: The command line and ImageDescriber read and write the same `.idtw` workspaces
+- **Re-describe Feature**: Test different models and prompts on the same images
+- **Reports and Costs**: Export to HTML, CSV or text, embed descriptions into image copies, and see token use and estimated cost with `idt stats`
 
 ## Documentation
 
 ### User Guides
-- **[Release Notes (v4.8.0)](docs/release-notes-v4.8.0.md)** - What IDT is and what's in the current release
+- **[Release Notes (v4.9.0)](docs/release-notes-v4.9.0.md)** - What IDT is and what's in the current release
 - **[User Guide](docs/USER_GUIDE.md)** - Complete usage instructions, including the full CLI reference
 - **[macOS Setup](MACOS_SETUP.md)** - macOS installation and usage
 
 ### Configuration & Setup
-- **[Configuration Guide](docs/CONFIGURATION_GUIDE.md)** - Setup and customization
+- **[Configuration Guide](docs/CONFIGURATION_GUIDE.md)** - Where settings are kept, the Configure dialog, and API keys
 
 ### Developer Documentation
 - **[Build Guide (Windows)](BuildAndRelease/README.md)** - Windows build instructions
@@ -94,13 +90,16 @@ idt update
 - **Pre-built Executable**: No Python required - download installer from releases
 - **AI Provider** (choose one or more):
   - [Ollama](https://ollama.com) (free, runs locally) - **Recommended for most users**
-  - [OpenAI API](https://platform.openai.com/api-keys) (GPT-4o, paid)
+  - [OpenAI API](https://platform.openai.com/api-keys) (paid)
   - [Claude API](https://console.anthropic.com) (paid)
+  - Claude Code, with a Claude Pro or Max subscription
+  - Windows AI, on a Copilot+ PC
+  - Apple Intelligence, on a Mac with macOS 27
 
 ### macOS
 - **Apple Silicon** — the published build is arm64 only. Intel Macs need to build from source.
 - **No Python required** for the pre-built app
-- **Installation**: Download `IDT-{version}-macos-arm64.dmg` from releases, open it, and drag ImageDescriber to Applications
+- **Installation**: Download `IDT-4.9.0-macos-arm64.dmg` from releases, open it, and drag ImageDescriber to Applications
 - **Build from Source**: See [macOS Build Guide](BuildAndRelease/MacBuilds/README_MACOS.md)
 - **AI Providers**: Same as Windows (Ollama, OpenAI, Claude, Claude Code), plus Apple Intelligence on macOS 27 and MLX on Apple Silicon
 

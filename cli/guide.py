@@ -492,10 +492,10 @@ def _step_metadata(provider: str = "") -> tuple[bool, bool]:
         print()
     else:
         print("IDT can read EXIF data from your images (date taken, camera, GPS)")
-        print("and inject it into the AI prompt as context.")
+        print("and keep it with each description.")
         print()
-        print('Example: "Context: Munich, Germany  Sep 12, 2025  iPhone 14 Pro"')
-        print("This significantly improves description quality for photos with EXIF.")
+        print("Only the place a photo was taken is added to the AI prompt, and only")
+        print("with geocoding, the next question. The date and camera are never sent.")
         print()
 
     extract = get_yes_no("Enable EXIF metadata extraction?", default=True)

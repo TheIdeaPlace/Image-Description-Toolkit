@@ -357,11 +357,14 @@ def _metadata_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--no-metadata", dest="extract_metadata", action="store_false",
         default=True,
-        help="Disable EXIF metadata extraction (don't inject date/location context into prompt)",
+        help="Don't read EXIF data (date, camera, GPS) from the images; --geocode then "
+             "has nothing to work with",
     )
     p.add_argument(
         "--geocode", action="store_true",
-        help="Reverse-geocode GPS coordinates to city/state (requires internet; adds 1s/photo delay)",
+        help="Turn GPS coordinates into a place name and add it to the prompt (requires "
+             "internet; about 1s per new location). Without it, nothing from EXIF is "
+             "added to the prompt",
     )
 
 
@@ -2868,7 +2871,7 @@ Examples:
   idt guideme                                            # start here — interactive wizard
   idt describe ~/Pictures/Vacation/
   idt describe ~/Pictures/Vacation/ --provider anthropic --model claude-opus-5-5
-  idt describe ~/Pictures/Vacation/ --provider ollama --model llava
+  idt describe ~/Pictures/Vacation/ --provider ollama --model minicpm-v4.6
   idt describe ~/Pictures/Vacation/ --prompt concise --limit 10 --embed
   idt describe ~/Pictures/Vacation/ --geocode            # add city/state to prompt context
   idt describe ~/Pictures/Web/ --prompt aialttext --quiet
@@ -2883,7 +2886,7 @@ Examples:
   idt export ~/Pictures/Vacation/
   idt export ~/Pictures/Vacation/ --format csv
   idt combine ~/Pictures/ --output all_descriptions.csv
-  idt combine ~/Pictures/ --sort date --format tsv > by_date.tsv
+  idt combine ~/Pictures/ --sort file --format tsv > by_file.tsv
   idt video ~/Movies/concert.mp4 --interval 5 --describe
   idt video ~/Movies/ --scene 30 --describe --prompt detailed
   idt watch ~/Downloads/ --interval 60 --prompt aialttext
@@ -2898,8 +2901,8 @@ Examples:
   idt update                                            # is a newer release out?
 
 Supported providers:
-  anthropic  Claude (requires ANTHROPIC_API_KEY)
-  openai     GPT-4o (requires OPENAI_API_KEY)
+  anthropic  Claude (API key saved in ImageDescriber's Configure, or ANTHROPIC_API_KEY)
+  openai     OpenAI GPT models (API key saved in Configure, or OPENAI_API_KEY)
   ollama     Local models via Ollama (no API key)
   apple      Apple Intelligence on this Mac (macOS 27, no API key)
   claude-code  Claude on your Claude subscription, via the claude CLI
@@ -2964,7 +2967,8 @@ Supported providers:
     p_desc.add_argument("--show-descriptions", action="store_true", dest="show_descriptions",
                         help="Print each description to the screen as it is generated")
     p_desc.add_argument("--quiet", "-q", action="store_true",
-                        help="Minimal output; in stdin mode, prints filename TAB description")
+                        help="Minimal output; in stdin mode, prints each image's full path, "
+                             "a tab, then its description")
     p_desc.set_defaults(func=cmd_describe)
 
     # ---------------------------------------------------------------- #
@@ -3068,7 +3072,9 @@ Supported providers:
     p_show.add_argument("target", help="Image file or source directory")
     p_show.add_argument("--json", dest="json_out", action="store_true",
                         help="Output as JSON (one object per line)")
-    p_show.add_argument("--quiet", "-q", action="store_true")
+    p_show.add_argument("--quiet", "-q", action="store_true",
+                        help="Leave out the 'No description found' messages; descriptions "
+                             "print as usual, with their File, Model and Date lines")
     p_show.set_defaults(func=cmd_show)
 
     # ---------------------------------------------------------------- #
@@ -3079,8 +3085,10 @@ Supported providers:
         help="Write descriptions into image metadata copies",
         description=(
             "Copy described images to <bundle>.idtw/embedded/ and write the description "
-            "into EXIF ImageDescription and XMP dc:description. Source files are "
-            "never modified. HEIC files are converted to JPEG in the copy."
+            "into the copy's metadata: for JPEG, EXIF UserComment and XMP dc:description; "
+            "for PNG, a Description text chunk and XMP; for WebP, EXIF UserComment; for "
+            "TIFF, the ImageDescription and XPComment tags. Source files are never "
+            "modified. HEIC files are converted to JPEG in the copy."
         ),
     )
     p_embed.add_argument("source", help="Source directory")
@@ -3097,7 +3105,8 @@ Supported providers:
     p_export = sub.add_parser(
         "export",
         help="Export descriptions to HTML, CSV, or plain text",
-        description="Generate a report from described images. Output goes to .idt/reports/.",
+        description=("Generate a report from described images. Output goes to "
+                     "<bundle>.idtw/reports/."),
     )
     p_export.add_argument("source", help="Source directory")
     p_export.add_argument("--format", choices=["html", "csv", "txt"], default="html",
@@ -3113,9 +3122,9 @@ Supported providers:
         "combine",
         help="Merge descriptions from multiple projects into one CSV",
         description=(
-            "Walk a directory tree, find all .idt/ project mirrors, and merge "
-            "every described image into a single CSV or TSV file. "
-            "Useful for analysis across a whole photo library."
+            "Walk a directory tree, find every .idtw workspace (and any older .idt/ "
+            "project), and merge every described image, with its active description, "
+            "into a single CSV or TSV file. Useful for analysis across a whole photo library."
         ),
     )
     p_combine.add_argument("directory", help="Root directory to search for IDT projects")
@@ -3125,7 +3134,9 @@ Supported providers:
                            help="Output format (default: csv)")
     p_combine.add_argument("--sort", choices=["date", "file", "timestamp"],
                            default="timestamp",
-                           help="Sort order (default: timestamp)")
+                           help="Sort order (default: timestamp, when each description was "
+                                "made). 'date' sorts by the place name from --geocode, not "
+                                "by when the photo was taken")
     p_combine.set_defaults(func=cmd_combine)
 
     # ---------------------------------------------------------------- #
@@ -3189,12 +3200,14 @@ Supported providers:
                               "OLLAMA_API_KEY)"))
     p_chat.add_argument("--think", dest="thinking", action="store_const",
                         const=True, default=None,
-                        help="Turn thinking on, for models that can think (Ollama)")
+                        help="Turn thinking on, for models that can think")
     p_chat.add_argument("--no-think", dest="thinking", action="store_const",
                         const=False,
-                        help="Force thinking off for faster answers (Ollama)")
+                        help="Turn thinking off for faster answers. Claude and OpenAI, "
+                             "which can't switch it off, use the least effort they take")
     p_chat.add_argument("--show-thinking", action="store_true",
-                        help="Stream the model's thinking to stderr")
+                        help="Stream the model's thinking to stderr (only Ollama models "
+                             "send it)")
     p_chat.add_argument("--quiet", "-q", action="store_true",
                         help="Suppress status notes on stderr")
     p_chat.set_defaults(func=cmd_chat)
@@ -3256,7 +3269,9 @@ Supported providers:
     # ---------------------------------------------------------------- #
     p_config = sub.add_parser("config", help="View or set default configuration")
     p_config.add_argument("--set", dest="set_value", metavar="KEY=VALUE",
-                          help="Set a config value")
+                          help="Set a config value. Keys: default_provider, default_model, "
+                               "default_prompt_name, workspace_root, preserve_alt_text. "
+                               "With no options, shows every value")
     p_config.set_defaults(func=cmd_config)
 
     # ---------------------------------------------------------------- #
@@ -3269,7 +3284,9 @@ Supported providers:
             "Step-by-step wizard that asks you to choose a provider, model, image "
             "source, prompt style, and metadata options, then shows you the exact "
             "command and optionally runs it. Screen-reader friendly — no ANSI, no "
-            "spinners, numbered choices throughout."
+            "spinners, numbered choices throughout. Takes no options: it uses your "
+            "saved Generation settings. To override them for one run, use 'idt "
+            "describe' with --think, --no-think, --temperature or --max-tokens."
         ),
     )
     p_guideme.set_defaults(func=cmd_guideme)
