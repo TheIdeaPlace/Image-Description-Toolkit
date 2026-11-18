@@ -109,9 +109,10 @@ or "covered by your Ollama plan" or "your Claude plan".
   - Claude and Claude Code: thinking, effort, output limit.
   - Apple Intelligence and MLX: shown only on a Mac (Apple Intelligence: temperature,
     output limit; MLX: output limit).
-- **The command line uses the same saved settings.** `idt describe`, `idt guideme` and
-  the other describing commands take `--think`, `--no-think`, `--temperature` and
-  `--max-tokens`, which override the saved settings for that run:
+- **The command line uses the same saved settings.** `idt describe`, `idt download`,
+  `idt video` and `idt watch` take `--think`, `--no-think`, `--temperature` and
+  `--max-tokens`, which override the saved settings for that run. `idt guideme` uses the
+  saved settings and takes no options:
 
 ```
 idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-tokens 800
@@ -286,8 +287,8 @@ ImageDescriber too; the rest is the command-line tool.
   the 10. Once 3 frames of a video in a row fail the same way, the rest of that video
   is skipped, and the batch carries on with the next picture. The skipped frames stay
   undescribed. The command-line tool counts them at the end of the run and says how to
-  try them again. ImageDescriber marks them as failed, and **Describe All Undescribed**
-  tries them again. If the batch stopped because the provider stopped working,
+  try them again. ImageDescriber marks them as failed, and **Process → Process
+  Undescribed Images (Entire Workspace)** tries them again. If the batch stopped because the provider stopped working,
   resuming it tries those frames as well.
 - **Declined pictures aren't asked about again.** When Windows AI declines a picture
   ("too much text", or its content filter), asking the same way again gets the same
