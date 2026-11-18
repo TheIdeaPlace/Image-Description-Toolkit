@@ -91,10 +91,39 @@ def test_estimate_prices_tokens():
 
 @pytest.mark.parametrize("amount, text", [
     (0.36, "$0.36"), (12.5, "$12.50"), (1234.5, "$1,234.50"),
-    (0.00096, "$0.00096"), (0, "$0.00"),
+    (0, "$0.00"),
+    # Under a cent, in cents: reads better aloud, never rounds to zero.
+    (0.00096, "0.096 cents"), (0.000005, "0.0005 cents"), (0.004999, "0.5 cents"),
+    (0.009996, "$0.01"),        # rounds to a cent: dollars, not "1 cents"
 ])
 def test_format_dollars(amount, text):
     assert pricing.format_dollars(amount) == text
+
+
+def test_cost_meter_prices_each_picture_once_and_canonicalizes(monkeypatch):
+    calls = []
+    real = pricing.estimate
+    monkeypatch.setattr(pricing, "estimate", lambda *a: calls.append(a) or real(*a))
+    meter = pricing.CostMeter()
+    for _ in range(3):
+        meter.add("anthropic", "claude-haiku-5-5", 3925, 932)   # CLI's name for Claude
+    reading = meter.reading()
+    reading2 = meter.reading()            # reading again prices nothing
+    assert len(calls) == 3
+    assert calls[0][0] == "claude"
+    assert reading == reading2
+    assert reading["cost"] == pytest.approx(3 * (3925 * 0.10 + 932 * 0.50) / 1e6)
+
+
+def test_cost_meter_is_fast_for_a_big_batch():
+    import time
+    meter = pricing.CostMeter()
+    for _ in range(7000):
+        meter.add("claude", "claude-haiku-5-5", 3925, 932)
+    start = time.perf_counter()
+    for _ in range(100):
+        meter.reading()
+    assert time.perf_counter() - start < 0.05      # constant work per update
 
 
 # --- The meter ---------------------------------------------------------------
@@ -114,15 +143,16 @@ def test_running_cost_for_a_free_model_says_why():
     assert meter == {"cost": None, "avg": None, "note": "no charge"}
 
 
-def test_cost_rows_read_like_a_taxi_meter():
-    sys.path.insert(0, str(_ROOT / "imagedescriber"))
+def test_cost_rows_read_like_a_taxi_meter(monkeypatch):
+    monkeypatch.syspath_prepend(str(_ROOT / "imagedescriber"))
     pytest.importorskip("wx")
     from batch_progress_dialog import cost_rows
 
     stats = {"cost": 0.0365, "avg_cost": 0.00096, "cost_note": ""}
-    rows = cost_rows(stats, total=6083)
+    rows = cost_rows(stats, total=6083, current=38)
+    # Projected: the 38 done, exactly, plus the average for the 6,045 to go.
     assert rows == ["  Estimated Cost So Far:    $0.04",
-                    "  Average Cost per Image:   $0.00096",
+                    "  Average Cost per Image:   0.096 cents",
                     "  Projected Batch Cost:     about $5.84"]
     # No projection while videos are still extracting (the total is still growing).
     assert len(cost_rows(stats, total=6083, extracting=True)) == 2
@@ -184,10 +214,46 @@ def test_a_page_that_cant_be_read_is_reported_not_ignored(tmp_path):
     empty = tmp_path / "empty.md"
     empty.write_text("# nothing here", encoding="utf-8")
     out = tmp_path / "report.md"
-    checker.main(["--anthropic", str(empty), "--openai", str(empty), "--report", str(out)])
+    code = checker.main(["--anthropic", str(empty), "--openai", str(empty), "--report", str(out)])
     text = out.read_text(encoding="utf-8")
-    assert text.startswith("DIFFERS")
+    # ERROR, not DIFFERS, and a failing exit: the workflow fails the run and
+    # leaves an open issue's real findings alone.
+    assert code == 1
+    assert text.startswith("ERROR")
     assert "Couldn't check" in text and "layout" in text
+
+
+# --- The real pages, as of 11/18/2026 ----------------------------------------
+# Copies in pytest_tests/fixtures/pricing/, so a parser change that breaks on
+# the real layout fails here, not only on a Monday.
+
+_FIXTURES = _ROOT / "pytest_tests" / "fixtures" / "pricing"
+
+
+def test_the_real_anthropic_page_parses():
+    page = checker.parse_anthropic((_FIXTURES / "anthropic-pricing-2026-11-18.md")
+                                   .read_text(encoding="utf-8"))
+    assert page["Claude Haiku 5.5"][:2] == (0.10, 0.50)        # the up-to-100K row
+    assert page["Claude Opus 5.5"][:2] == (4.0, 20.0)
+    assert page["Claude Sonnet 5"][:2] == (2.0, 10.0)          # footnote marker
+    assert page["Claude Opus 4.1"][2] is True                  # retired
+    assert len(page) >= 15
+
+
+def test_the_real_openai_page_parses():
+    page = checker.parse_openai((_FIXTURES / "openai-pricing-2026-11-18.md")
+                                .read_text(encoding="utf-8"))
+    assert page["gpt-5.2"][:2] == (1.75, 14.0)                  # standard, not batch
+    assert page["gpt-5-nano"][:2] == (0.05, 0.40)
+    assert page["gpt-5.5"][:2] == (5.0, 30.0)                   # long-context table, short rate
+    assert page["gpt-6-luna"][:2] == (0.10, 0.50)
+
+
+def test_every_claude_price_matches_the_real_page():
+    page = checker.parse_anthropic((_FIXTURES / "anthropic-pricing-2026-11-18.md")
+                                   .read_text(encoding="utf-8"))
+    from idt_core.providers.claude import CLAUDE_MODELS
+    assert [f for f in checker.compare("claude", page, list(CLAUDE_MODELS))] == []
 
 
 def test_kept_for_old_workspaces_are_not_reported_gone():

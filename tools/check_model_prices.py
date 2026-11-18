@@ -11,8 +11,8 @@ Markdown versions), and reports:
   model list probably lacks too).
 
 Run weekly by .github/workflows/model-prices.yml, which files or updates an
-issue when there's anything to report. Exit code 0 always; the report says
-whether anything differs (first line "OK" or "DIFFERS").
+issue when there's anything to report. The report says
+whether anything differs (first line "OK" or "DIFFERS"); a page that can't be read gives "ERROR" and exit code 1.
 
     python tools/check_model_prices.py [--report out.md] [--anthropic file] [--openai file]
 """
@@ -145,7 +145,11 @@ def compare(provider: str, page: dict, offered: list) -> list:
 
 def report(results: dict, errors: list) -> str:
     any_finding = errors or any(results.values())
-    lines = ["DIFFERS" if any_finding else "OK", ""]
+    # A page that couldn't be read is ERROR, not DIFFERS: the workflow fails
+    # the run (GitHub sends its own notice) and leaves any open issue alone,
+    # so a download hiccup never replaces the real findings.
+    status = "ERROR" if errors else ("DIFFERS" if any_finding else "OK")
+    lines = [status, ""]
     if not any_finding:
         lines.append("Every price in `idt_core/pricing.py` matches the providers' pricing pages.")
         return "\n".join(lines) + "\n"
@@ -202,7 +206,7 @@ def main(argv=None) -> int:
     print(text)
     if args.report:
         Path(args.report).write_text(text, encoding="utf-8")
-    return 0
+    return 1 if errors else 0
 
 
 if __name__ == "__main__":

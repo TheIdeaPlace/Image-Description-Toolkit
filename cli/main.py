@@ -2509,6 +2509,8 @@ def cmd_prompts(args):
 #: and checked weekly against the providers' pricing pages.
 from idt_core import pricing as _pricing  # noqa: E402
 
+#: Read-only view of idt_core.pricing for tests and scripts; `idt stats`
+#: prices through _pricing.rates_for, so changing this changes nothing.
 STATS_COST_TABLE = _pricing.flat_prices()
 
 #: Descriptions that aren't AI output and cost nothing: a web page's alt text,

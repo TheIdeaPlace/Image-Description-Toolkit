@@ -34,6 +34,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # Exits 1 (failing the run, so GitHub sends its own notice) when a page
+      # can't be read; the issue step then doesn't run, so a download hiccup
+      # never replaces the real findings in an open issue.
       - name: Compare prices with the pricing pages
         run: python tools/check_model_prices.py --report price-report.md
 
@@ -47,13 +50,24 @@ jobs:
             --description "Weekly model price check" 2>/dev/null || true
           open=$(gh issue list --label "$label" --state open --json number --jq '.[0].number')
           status=$(head -n 1 price-report.md)
-          tail -n +3 price-report.md > body.md
+          tail -n +3 price-report.md > findings.md
+          cp findings.md body.md
           printf '\n_Checked by the [Model prices workflow](%s/%s/actions/runs/%s)._\n' \
             "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> body.md
           if [ "$status" = "DIFFERS" ]; then
             if [ -n "$open" ]; then
+              # Compare without the run-link line, which changes every week.
+              gh issue view "$open" --json body --jq .body | grep -v '^_Checked by the ' \
+                | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > previous.md || true
+              sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' findings.md > current.md
               gh issue edit "$open" --body-file body.md
-              echo "Updated issue #$open"
+              if ! diff -q previous.md current.md >/dev/null; then
+                # Body edits notify nobody; a comment does.
+                gh issue comment "$open" --body-file body.md
+                echo "Updated issue #$open and commented: the findings changed"
+              else
+                echo "Issue #$open unchanged"
+              fi
             else
               gh issue create --title "$TITLE" --label "$label" --body-file body.md
             fi

@@ -11,9 +11,6 @@ Each entry also records the model's name as the pricing page writes it, which
 is how the weekly check finds the row. Standard (not batch, priority or
 cached) rates; Haiku 5.5's is the rate for prompts up to 100K tokens, which
 every image description is.
-
-Standard library only: the weekly check imports this without IDT's
-dependencies installed.
 """
 from __future__ import annotations
 
@@ -79,10 +76,16 @@ NO_PER_TOKEN_CHARGE = {
 _DATED_SNAPSHOT = re.compile(r"-(\d{4}-\d{2}-\d{2}|\d{8})$")
 
 
+_FLAT: Optional[dict] = None
+
+
 def flat_prices() -> dict:
-    """{model_id: (input, output)} across every provider."""
-    return {model: (p.input, p.output)
-            for table in PRICES.values() for model, p in table.items()}
+    """{model_id: (input, output)} across every provider. Built once."""
+    global _FLAT
+    if _FLAT is None:
+        _FLAT = {model: (p.input, p.output)
+                 for table in PRICES.values() for model, p in table.items()}
+    return _FLAT
 
 
 def rates_for(model: str) -> Optional[tuple]:
@@ -94,52 +97,67 @@ def rates_for(model: str) -> Optional[tuple]:
     return prices.get(_DATED_SNAPSHOT.sub("", model or ""))
 
 
-def _is_ollama_cloud(model: str) -> bool:
-    # Same rule as providers.ollama.is_cloud_model, kept here so this module
-    # stays standard-library only.
-    return ":cloud" in model or model.endswith("-cloud")
-
-
 def no_charge_note(provider: str, model: str) -> str:
     """Why a provider/model has no per-token price, or "" if it should have one.
     ``provider`` is the canonical name (registry's capabilities_for(...).provider)."""
+    from .providers.ollama import is_cloud_model
+
     note = NO_PER_TOKEN_CHARGE.get(provider, "")
-    if provider in ("ollama", "ollama cloud") and _is_ollama_cloud(model or ""):
+    if provider in ("ollama", "ollama cloud") and is_cloud_model(model or ""):
         note = "Ollama plan"
     return note
 
 
-def running_cost(records) -> dict:
-    """The meter for a batch in progress: what the described pictures cost so
-    far, the average per picture, and what the whole batch will come to.
+class CostMeter:
+    """A batch's running cost, like a taxi meter: add each described picture
+    as it finishes, read the total any time.
 
-    ``records`` are dicts with provider (canonical name), model, input and
-    output. Returns {"cost": float or None, "avg": float or None,
-    "note": str}. When no record has a price, cost is None and note says why
-    (the first record's: a batch uses one provider and model).
+    Each picture is priced once, when it's added. Re-pricing every picture on
+    every progress update grew with the square of the batch, about 0.2 s of
+    blocked UI per picture late in a 7,000-picture batch (#451 review).
+    Provider names are made canonical, so "anthropic" and "claude" price alike.
     """
-    cost = 0.0
-    priced = 0
-    note = ""
-    for r in records:
-        c, n = estimate(r.get("provider", ""), r.get("model", ""),
-                        r.get("input", 0), r.get("output", 0))
+
+    def __init__(self):
+        self.cost = 0.0
+        self.priced = 0
+        self.note = ""          # why nothing could be priced, if so
+
+    def add(self, provider: str, model: str, input_tokens: int, output_tokens: int) -> None:
+        from .providers.registry import capabilities_for
+
+        canonical = capabilities_for(provider or "").provider
+        c, n = estimate(canonical, model or "", input_tokens, output_tokens)
         if c is None:
-            note = note or n
-            continue
-        cost += c
-        priced += 1
-    if not priced:
-        return {"cost": None, "avg": None, "note": note}
-    return {"cost": cost, "avg": cost / priced, "note": ""}
+            self.note = self.note or n
+            return
+        self.cost += c
+        self.priced += 1
+
+    def reading(self) -> dict:
+        """{"cost", "avg", "note"}: cost and avg are None when nothing was
+        priced, and note then says why."""
+        if not self.priced:
+            return {"cost": None, "avg": None, "note": self.note}
+        return {"cost": self.cost, "avg": self.cost / self.priced, "note": ""}
+
+
+def running_cost(records) -> dict:
+    """The meter's reading for a list of records (dicts with provider, model,
+    input, output). For a batch in progress use CostMeter, which keeps the
+    total as it goes."""
+    meter = CostMeter()
+    for r in records:
+        meter.add(r.get("provider", ""), r.get("model", ""), r.get("input", 0), r.get("output", 0))
+    return meter.reading()
 
 
 def format_dollars(amount: float) -> str:
-    """$0.36, $12.50, or $0.00096 for a fraction of a cent, so a cheap
-    model's per-picture cost doesn't read as $0.00."""
-    if amount >= 0.01 or amount == 0:
+    """"$0.36", "$12.50"; under a cent, in cents ("0.096 cents"), which reads
+    better aloud than "$0.00096" and never rounds a real cost to zero."""
+    if amount >= 0.00995 or amount == 0:   # anything that rounds to a cent or more
         return f"${amount:,.2f}"
-    return f"${amount:.5f}"
+    return f"{amount * 100:.2g} cents"
 
 
 def estimate(provider: str, model: str, input_tokens: int, output_tokens: int):

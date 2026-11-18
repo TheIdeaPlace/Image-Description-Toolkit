@@ -56,10 +56,12 @@ _COST_NOTE_WORDS = {
 }
 
 
-def cost_rows(token_stats: dict, total: int, extracting: bool = False) -> list:
+def cost_rows(token_stats: dict, total: int, extracting: bool = False,
+              current: int = 0) -> list:
     """The batch's cost meter, as rows for the progress list: what the
     pictures described so far cost, the average per picture, and what the
-    whole batch should come to. List prices, so they're estimates."""
+    whole batch should come to: the cost so far, exactly, plus the average
+    for each item still to go. List prices, so they're estimates."""
     cost = token_stats.get("cost")
     if cost is None:
         note = token_stats.get("cost_note")
@@ -73,7 +75,8 @@ def cost_rows(token_stats: dict, total: int, extracting: bool = False) -> list:
         # Not while videos are still extracting: the total leaves out frames
         # still to come, as with the time estimate.
         if total > 0 and not extracting:
-            rows.append(f"  Projected Batch Cost:     about {_dollars(avg * total)}")
+            projected = cost + avg * max(total - current, 0)
+            rows.append(f"  Projected Batch Cost:     about {_dollars(projected)}")
     return rows
 
 
@@ -459,7 +462,8 @@ class BatchProgressDialog(wx.Dialog):
             self.stats_list.Append("─" * 44)
             self.separator_indices.add(self.stats_list.GetCount() - 1)
             self.stats_list.Append("Token Usage")
-            for row in cost_rows(token_stats, total, extracting=self._extraction is not None):
+            for row in cost_rows(token_stats, total, extracting=self._extraction is not None,
+                                 current=current):
                 self.stats_list.Append(row)
             self.stats_list.Append(f"  Average Input Tokens:     {token_stats['avg_input']:,}")
             self.stats_list.Append(f"  Average Output Tokens:    {token_stats['avg_output']:,}")
