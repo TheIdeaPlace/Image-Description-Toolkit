@@ -11,7 +11,7 @@ Image Description Toolkit (IDT) is an AI-powered batch image/video description t
 
 Also the repo's one non-Python project: **`windows_ai_helper/`**, a small packaged C# app that describes pictures with Windows' on-device model on Copilot+ PCs. Windows only lets a packaged app use that model, so IDT runs this helper rather than calling the API from Python. Its README covers the protocol, building, and what the package must declare. Built and tested by `.github/workflows/windows-ai-helper.yml`; its protocol tests run with `dotnet test windows_ai_helper/IdtWindowsAI.Tests`.
 
-Supported AI providers: Ollama (local/cloud), OpenAI GPT-4o, Claude (Anthropic API), Claude Code (Claude on the user's subscription via the `claude` CLI, provider key `claude-code`), Apple Intelligence (on-device on macOS 27+, provider key `apple`), and MLX (macOS Apple Silicon, GUI only).
+Supported AI providers: Ollama (local/cloud), OpenAI (GPT), Claude (Anthropic API), Claude Code (Claude on the user's subscription via the `claude` CLI, provider key `claude-code`), Apple Intelligence (on-device on macOS 27+, provider key `apple`), and MLX (macOS Apple Silicon, GUI only).
 
 ## Commands
 

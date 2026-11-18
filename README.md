@@ -1,6 +1,6 @@
 # Image Description Toolkit
 
-AI-powered batch image description tool supporting multiple vision models (Ollama, OpenAI GPT-4o, Claude — through the API or through your Claude subscription).
+AI-powered batch image description tool supporting multiple vision models (Ollama, OpenAI GPT, Claude — through the API or through your Claude subscription).
 
 ## Quick Start
 
@@ -94,7 +94,7 @@ idt update
 - **Pre-built Executable**: No Python required - download installer from releases
 - **AI Provider** (choose one or more):
   - [Ollama](https://ollama.com) (free, runs locally) - **Recommended for most users**
-  - [OpenAI API](https://platform.openai.com/api-keys) (GPT-4o, paid)
+  - [OpenAI API](https://platform.openai.com/api-keys) (GPT models, paid)
   - [Claude API](https://console.anthropic.com) (paid)
 
 ### macOS

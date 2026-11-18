@@ -58,6 +58,9 @@ PRICES: dict = {
         "gpt-6-astra":   Price("gpt-6-astra", 10.0, 50.0),
         "gpt-6-sol":     Price("gpt-6-sol", 2.0, 10.0),
         "gpt-6-luna":    Price("gpt-6-luna", 0.10, 0.50),
+        # A promotional price "available until November 30, 2026" (pricing
+        # page and model page); the list price is $5 / $30. Kept at what
+        # OpenAI charges today; the weekly price check flags the change.
         "gpt-5.6-sol":   Price("gpt-5.6-sol", 4.0, 20.0),
         "gpt-5.6-terra": Price("gpt-5.6-terra", 2.0, 12.0),
         "gpt-5.6-luna":  Price("gpt-5.6-luna", 0.20, 1.20),
