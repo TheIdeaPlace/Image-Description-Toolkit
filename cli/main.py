@@ -2504,53 +2504,14 @@ def cmd_prompts(args):
 # config                                                               #
 # ------------------------------------------------------------------ #
 
-#: Rough cost table for `idt stats` (USD per 1M tokens, input/output): list
-#: prices as of November 2026, Anthropic's and OpenAI's (developers.openai.com
-#: pricing page, Standard tier, checked 11/17/2026). Haiku 5.5's is the price
-#: for prompts up to 100K tokens, which every image description is. A test
-#: checks every model in the built-in Claude list has an entry. OpenAI's page
-#: lists no price for o4-mini, gpt-4.1-nano or o1, so they have none here.
-STATS_COST_TABLE = {
-    "gpt-5.2":                     (1.75,  14.0),
-    "gpt-5.1":                     (1.25,  10.0),
-    "gpt-5":                       (1.25,  10.0),
-    "gpt-5-mini":                  (0.25,  2.0),
-    "gpt-5-nano":                  (0.05,  0.40),
-    "o3":                          (2.0,   8.0),
-    "gpt-4.1":                     (2.0,   8.0),
-    "gpt-4.1-mini":                (0.40,  1.60),
-    "claude-fable-5-2":            (8.0,   40.0),
-    "claude-fable-5-1":            (10.0,  50.0),
-    "claude-fable-5":              (10.0,  50.0),
-    "claude-opus-5-5":             (4.0,   20.0),
-    "claude-opus-5":               (5.0,   25.0),
-    "claude-opus-4-8":             (5.0,   25.0),
-    "claude-opus-4-7":             (5.0,   25.0),
-    "claude-opus-4-6":             (5.0,   25.0),
-    "claude-opus-4-5-20251101":    (5.0,   25.0),
-    "claude-opus-4-1-20250805":    (15.0,  75.0),
-    "claude-sonnet-5-5":           (2.0,   10.0),
-    "claude-sonnet-5":             (2.0,   10.0),
-    "claude-sonnet-4-6":           (3.0,   15.0),
-    "claude-sonnet-4-5-20250929":  (3.0,   15.0),
-    "claude-haiku-5-5":            (0.10,  0.50),
-    "claude-haiku-4-5-20251001":   (1.0,   5.0),
-    "claude-haiku-3-5-20241022":   (0.8,   4.0),
-    "gpt-4o":                      (2.5,   10.0),
-    "gpt-4o-mini":                 (0.15,  0.6),
-}
+#: Prices for `idt stats`, {model: (input, output)} in USD per million tokens.
+#: The table itself lives in idt_core/pricing.py, shared with ImageDescriber
+#: and checked weekly against the providers' pricing pages.
+from idt_core import pricing as _pricing  # noqa: E402
 
-#: Providers that don't bill per token, and what `idt stats` says instead of a
-#: price. Ollama's cloud models (is_cloud_model: ":cloud" or "-cloud" tags, or
-#: the old "ollama cloud" provider) are on Ollama's plan.
-_STATS_NO_PER_TOKEN_CHARGE = {
-    "ollama": "no charge",
-    "ollama cloud": "Ollama plan",
-    "windows-ai": "no charge",
-    "apple": "no charge",
-    "mlx": "no charge",
-    "claude-code": "your plan",
-}
+#: Read-only view of idt_core.pricing for tests and scripts; `idt stats`
+#: prices through _pricing.rates_for, so changing this changes nothing.
+STATS_COST_TABLE = _pricing.flat_prices()
 
 #: Descriptions that aren't AI output and cost nothing: a web page's alt text,
 #: saved as a description by `idt download` and ImageDescriber's download.
@@ -2560,16 +2521,10 @@ _STATS_NOT_AI_PROVIDERS = {"website"}
 #: isn't missing anything.
 _STATS_NO_TOKEN_PROVIDERS = {"windows-ai"}
 
-_DATED_SNAPSHOT = re.compile(r"-(\d{4}-\d{2}-\d{2}|\d{8})$")
-
-
 def _stats_rates(model: str):
-    """List price for a model, trying it without a dated snapshot suffix
-    ("gpt-5-mini-2025-08-07" is priced as "gpt-5-mini")."""
-    rates = STATS_COST_TABLE.get(model)
-    if rates is None:
-        rates = STATS_COST_TABLE.get(_DATED_SNAPSHOT.sub("", model))
-    return rates
+    """List price for a model; a dated snapshot ("gpt-5-mini-2025-08-07") is
+    priced as its model."""
+    return _pricing.rates_for(model)
 
 
 def stats_token_rows(items) -> list:
@@ -2592,7 +2547,6 @@ def stats_token_rows(items) -> list:
     token counts, so the cost is a floor) and cost_note (why there's no cost
     or why it's partial, else "").
     """
-    from idt_core.providers.ollama import is_cloud_model
     from idt_core.providers.registry import capabilities_for, display_name
 
     rows: dict = {}
@@ -2623,9 +2577,7 @@ def stats_token_rows(items) -> list:
 
     out = []
     for (provider, model), row in sorted(rows.items()):
-        note = _STATS_NO_PER_TOKEN_CHARGE.get(provider, "")
-        if provider in ("ollama", "ollama cloud") and is_cloud_model(model):
-            note = "Ollama plan"
+        note = _pricing.no_charge_note(provider, model)
         cost = None
         partial = False
         if not note:

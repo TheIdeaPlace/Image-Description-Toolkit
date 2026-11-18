@@ -125,6 +125,8 @@ a = Analysis(
         # for model_display_name, module-level ones in the windows; listed so
         # the function-level paths are collected either way.
         'idt_core.providers.catalog',
+        # Price table for the batch window's cost meter.
+        'idt_core.pricing',
         'idt_core.providers.model_cache',
         # Chat engine — chat_window_wx runs on this now that
         # ChatProcessingWorker is gone. Enumerated one by one to match this
