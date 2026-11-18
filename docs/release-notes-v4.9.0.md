@@ -40,6 +40,19 @@ You can leave all of it alone. Every setting starts on **Automatic**, which mean
 own choice for the provider and model you picked. The changes below fix problems that came
 from IDT not doing this consistently, and add controls for people who want them.
 
+### A cost meter while you describe
+
+ImageDescriber's batch window now shows what a run is costing as it goes, like a taxi
+meter. Three new rows sit at the top of the Token Usage section:
+
+- **Estimated Cost So Far.**
+- **Average Cost per Image.** An amount under a cent is given in cents, such as "0.096 cents".
+- **Projected Batch Cost,** an estimate of what the whole run will come to.
+
+These use the providers' list prices, the same ones `idt stats` uses. For a model that
+doesn't charge per token, the row says so instead: "no charge (runs on your computer)",
+or "covered by your Ollama plan" or "your Claude plan".
+
 ### Claude's newest models, and Haiku 5.5 as the default
 
 - **Claude Haiku 5.5, Sonnet 5.5, Opus 5.5 and Fable 5.2 are in the model lists,** even
@@ -215,6 +228,11 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 
 ### For screen reader users
 
+- **Switching between Editor and Viewer mode is heard straight away.** The switch always
+  happened at once, but focus stayed on the view that had just been hidden, so JAWS and
+  NVDA said nothing, and it seemed as if the switch hadn't happened. Focus now moves into
+  the view you switched to. The Viewer's list says "Viewer, all descriptions". When a
+  batch ends, stops or hits an error while you're in the Viewer, focus stays there too.
 - **Models are read by name.** ImageDescriber now says "Model: Claude Haiku 5.5" rather
   than the model's ID, `claude-haiku-5-5`, which screen readers read with its dashes. This
   covers:
