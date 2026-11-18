@@ -90,7 +90,7 @@ To unlock **AI-powered image descriptions**, you need to set up at least ONE AI 
 
 3. **Verify Setup**
    - Provider: **OpenAI**
-   - Model: **gpt-4o** (recommended) or **gpt-4o-mini** (cheaper, faster)
+   - Model: **GPT-6 Luna** (the default; fast and cheap) or **GPT-6.1 Terra** (more thorough)
 
 **Notes**:
 - Requires internet connection

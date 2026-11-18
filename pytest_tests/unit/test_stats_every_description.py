@@ -70,7 +70,7 @@ def test_a_picture_described_twice_by_one_model_counts_one_picture_two_descripti
     ("apple", "system", "no charge"),
     ("mlx", "some-mlx-model", "no charge"),
     ("claude-code", "haiku", "your plan"),
-    ("openai", "o1", "no price"),            # OpenAI lists no price for it
+    ("openai", "gpt-future-9", "no price"),  # a model IDT has no price for
     ("claude", "claude-future-9", "no price"),
 ])
 def test_providers_without_a_per_token_price_say_why(provider, model, note):
@@ -80,8 +80,10 @@ def test_providers_without_a_per_token_price_say_why(provider, model, note):
     assert rows[0]["input_tokens"] == 500          # tokens still counted
 
 
-@pytest.mark.parametrize("model", ["gpt-5.2", "gpt-5.1", "gpt-5", "gpt-5-mini", "gpt-5-nano",
-                                   "o3", "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"])
+@pytest.mark.parametrize("model", ["gpt-6-luna", "gpt-6.1-terra", "gpt-6.2-sol", "gpt-6.2-astra",
+                                   "gpt-5.2", "gpt-5.1", "gpt-5", "gpt-5-mini", "gpt-5-nano",
+                                   "o3", "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini",
+                                   "o1", "o4-mini", "gpt-4.1-nano"])  # last 3: shut down, old workspaces
 def test_openai_models_are_priced(model):
     rows = cli_main.stats_token_rows([_item(_desc("openai", model, 1_000_000, 0))])
     assert rows[0]["cost"] == pytest.approx(cli_main.STATS_COST_TABLE[model][0])

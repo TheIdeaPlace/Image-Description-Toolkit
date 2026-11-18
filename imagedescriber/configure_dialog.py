@@ -155,7 +155,8 @@ def _generation_entry(provider: str, label: str, setting: str) -> Dict[str, Any]
             description=(f"How hard {label} reasons before answering. Lower is faster "
                          "and cheaper; descriptions rarely need high. Overrides Thinking."
                          + (" Minimal means the least the model takes: none on GPT-5.1 "
-                            "and later, low on the o-series." if provider == "openai" else "")))
+                            "and later, low on the o-series and on the GPT-6 Sol and "
+                            "Astra models that require some reasoning." if provider == "openai" else "")))
     elif setting == "temperature":
         entry.update(
             type="float_or_auto", range=[0.0, 2.0],

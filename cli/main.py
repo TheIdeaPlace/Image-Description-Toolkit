@@ -2899,7 +2899,7 @@ Examples:
 
 Supported providers:
   anthropic  Claude (requires ANTHROPIC_API_KEY)
-  openai     GPT-4o (requires OPENAI_API_KEY)
+  openai     GPT (requires OPENAI_API_KEY)
   ollama     Local models via Ollama (no API key)
   apple      Apple Intelligence on this Mac (macOS 27, no API key)
   claude-code  Claude on your Claude subscription, via the claude CLI

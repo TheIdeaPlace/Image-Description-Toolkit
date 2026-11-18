@@ -45,7 +45,26 @@ PRICES: dict = {
         "claude-haiku-4-5-20251001":  Price("Claude Haiku 4.5", 1.0, 5.0),
         "claude-haiku-3-5-20241022":  Price("Claude Haiku 3.5", 0.8, 4.0),
     },
+    # OpenAI: the "Standard pricing data" table of
+    # https://developers.openai.com/api/docs/pricing.md (saved as
+    # pytest_tests/fixtures/pricing/openai-pricing-2026-11-18.md). For the
+    # models with a long-context price, the short-context rate (prompts under
+    # 272K tokens), which every image description is.
     "openai": {
+        "gpt-6.2-astra": Price("gpt-6.2-astra", 8.0, 40.0),
+        "gpt-6.2-sol":   Price("gpt-6.2-sol", 2.0, 10.0),
+        "gpt-6.1-sol":   Price("gpt-6.1-sol", 2.0, 10.0),
+        "gpt-6.1-terra": Price("gpt-6.1-terra", 1.0, 5.0),
+        "gpt-6-astra":   Price("gpt-6-astra", 10.0, 50.0),
+        "gpt-6-sol":     Price("gpt-6-sol", 2.0, 10.0),
+        "gpt-6-luna":    Price("gpt-6-luna", 0.10, 0.50),
+        "gpt-5.6-sol":   Price("gpt-5.6-sol", 4.0, 20.0),
+        "gpt-5.6-terra": Price("gpt-5.6-terra", 2.0, 12.0),
+        "gpt-5.6-luna":  Price("gpt-5.6-luna", 0.20, 1.20),
+        "gpt-5.5":       Price("gpt-5.5", 5.0, 30.0),
+        "gpt-5.4":       Price("gpt-5.4", 2.5, 15.0),
+        "gpt-5.4-mini":  Price("gpt-5.4-mini", 0.75, 4.50),
+        "gpt-5.4-nano":  Price("gpt-5.4-nano", 0.20, 1.25),
         "gpt-5.2":      Price("gpt-5.2", 1.75, 14.0),
         "gpt-5.1":      Price("gpt-5.1", 1.25, 10.0),
         "gpt-5":        Price("gpt-5", 1.25, 10.0),
@@ -56,12 +75,17 @@ PRICES: dict = {
         "gpt-4.1-mini": Price("gpt-4.1-mini", 0.40, 1.60),
         "gpt-4o":       Price("gpt-4o", 2.5, 10.0),
         "gpt-4o-mini":  Price("gpt-4o-mini", 0.15, 0.60),
+        # Shut down; no longer on the pricing page. Their last prices, from
+        # each model's own page (docs/models/<id>.md, "Text tokens"), 11/18/2026.
+        "o4-mini":      Price("o4-mini", 1.10, 4.40),
+        "o1":           Price("o1", 15.0, 60.0),
+        "gpt-4.1-nano": Price("gpt-4.1-nano", 0.10, 0.40),
     },
 }
 
 #: Priced only so old workspaces described with them can still be costed;
 #: their providers no longer list them, so the weekly check doesn't expect them.
-KEPT_FOR_OLD_WORKSPACES = {"claude-haiku-3-5-20241022"}
+KEPT_FOR_OLD_WORKSPACES = {"claude-haiku-3-5-20241022", "o4-mini", "o1", "gpt-4.1-nano"}
 
 #: Providers that don't bill per token, and what's shown instead of a price.
 NO_PER_TOKEN_CHARGE = {

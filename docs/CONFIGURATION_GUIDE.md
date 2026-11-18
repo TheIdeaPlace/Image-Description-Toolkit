@@ -552,7 +552,7 @@ c:\projects\
 ├── family\
 │   └── family_config.json      # Model: moondream, Style: narrative
 └── work\
-    └── work_config.json        # Model: gpt-4o-mini, Style: technical
+    └── work_config.json        # Model: gpt-6-luna, Style: technical
 
 # Use them
 cd c:\projects\nature
@@ -596,7 +596,7 @@ idt extract-frames longvideo.mp4 --config-video sparse_video.json
 **highquality.json:**
 ```json
 {
-  "default_model": "gpt-4o-mini",
+  "default_model": "gpt-6-luna",
   "default_provider": "openai",
   "default_prompt_style": "detailed",
   "image_processing": {
@@ -661,7 +661,7 @@ idt workflow photos\ --config-image-describer gemma_config.json --name gemma_tes
 **accessible.json:**
 ```json
 {
-  "default_model": "gpt-4o-mini",
+  "default_model": "gpt-6-luna",
   "default_provider": "openai",
   "default_prompt_style": "accessible",
   "output_settings": {
