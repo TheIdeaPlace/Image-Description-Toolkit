@@ -136,7 +136,7 @@ def test_a_followup_to_a_windows_ai_description_uses_another_provider(frame):
         assert values["model"] != "accessible"
         # It still says what the description was made with.
         labels = [w.GetLabel() for w in dlg.GetChildren() if isinstance(w, wx.StaticText)]
-        assert "Original: Windows AI - accessible" in labels
+        assert "Original: Windows AI - Accessible" in labels
     finally:
         dlg.Destroy()
 
