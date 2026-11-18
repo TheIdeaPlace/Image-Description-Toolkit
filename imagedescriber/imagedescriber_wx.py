@@ -3625,6 +3625,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_process_single(self, event):
         """Process single selected image or extract video frames"""
+        if self._refuse_in_viewer("Processing an image"):
+            return
         logger.info("on_process_single CALLED")
         try:
             self._on_process_single_impl(event)
@@ -8393,6 +8395,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_rename_item(self, event):
         """Rename selected item (R key or F2)"""
+        if self._refuse_in_viewer("Renaming"):
+            return
         if not self.current_image_item:
             show_warning(self, "No image selected")
             return
@@ -8423,7 +8427,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_add_manual_description(self, event):
         """Add manual description (M key)"""
-        if self._refuse_in_viewer():
+        if self._refuse_in_viewer("Adding a description"):
             return
         if not self.current_image_item:
             show_warning(self, "No image selected")
@@ -8560,6 +8564,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_play_video(self, event):
         """Hand the selected video to the operating system's default player."""
+        if self._refuse_in_viewer("Playing a video"):
+            return
         item = self.current_image_item
         if item is None or item.item_type != "video":
             show_warning(self, "Select a video in the image list first.")
@@ -8621,7 +8627,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_followup_question(self, event):
         """Ask followup question (F key)"""
-        if self._refuse_in_viewer():
+        if self._refuse_in_viewer("Asking a follow-up question"):
             return
         if not self.current_image_item:
             show_warning(self, "No image selected")
@@ -8708,6 +8714,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_auto_rename(self, event):
         """Auto-rename using AI (Z key)"""
+        if self._refuse_in_viewer("Renaming"):
+            return
         if not self.current_image_item:
             show_warning(self, "No image selected")
             return
@@ -9125,17 +9133,32 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         """The viewer's selected entry in Viewer mode, else None."""
         return self.viewer_panel.selected_entry() if self._viewer_showing() else None
 
-    def _refuse_in_viewer(self):
-        """In Viewer mode, say where descriptions are changed; True if so."""
+    def _refuse_in_viewer(self, action="Changing descriptions"):
+        """In Viewer mode, say where ``action`` is done instead; True if so.
+
+        A viewer showing a workflow folder isn't the workspace, so Editor
+        mode wouldn't have the description being read: that case points to
+        importing the folder. Otherwise it names the image to select, since
+        Editor mode keeps its own selection (#481 review).
+        """
         if not self._viewer_showing():
             return False
-        show_info(self, "Descriptions are changed in Editor mode. To switch, "
-                        "choose View, Application Mode, Editor Mode.")
+        if getattr(self.viewer_panel, 'current_dir', None):
+            show_info(self, "Viewer mode is showing a workflow folder, which it "
+                            "can only read. To change its descriptions, import it "
+                            "with File, Import Workflow (to Workspace).")
+            return True
+        entry = self._viewer_entry() or {}
+        raw = entry.get('file_path') or ''
+        name = '' if raw.startswith('chat:') else Path(raw).name
+        select = f", then select {name}" if name else ""
+        show_info(self, f"{action} is done in Editor mode. To switch, choose View, "
+                        f"Application Mode, Editor Mode{select}.")
         return True
 
     def on_edit_description(self, event):
         """Edit selected description"""
-        if self._refuse_in_viewer():
+        if self._refuse_in_viewer("Editing a description"):
             return
         if not self.current_image_item or not self.current_image_item.descriptions:
             show_warning(self, "No description to edit")
@@ -9165,7 +9188,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_delete_description(self, event):
         """Delete selected description"""
-        if self._refuse_in_viewer():
+        if self._refuse_in_viewer("Deleting a description"):
             return
         if not self.current_image_item or not self.current_image_item.descriptions:
             show_warning(self, "No description to delete")
@@ -9205,11 +9228,15 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         """Copy image path to clipboard"""
         if self._viewer_showing():
             entry = self._viewer_entry()
-            if not entry or not entry.get('file_path'):
-                show_warning(self, "No image selected")
+            if not entry:
+                show_warning(self, "No description selected")
+                return
+            raw = entry.get('file_path') or entry.get('relative_path') or ''
+            if not raw or raw.startswith('chat:'):
+                show_warning(self, "This description has no image path")
                 return
             resolved = self.viewer_panel._get_current_image_path()
-            path = str(resolved) if resolved else entry['file_path']
+            path = str(resolved) if resolved else raw
             if self._copy_text_to_clipboard(path):
                 self.SetStatusText("Image path copied to clipboard", 0)
             return
@@ -9258,17 +9285,27 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         Returns None if no image is selected or path cannot be resolved.
         In Viewer mode, the image of the description selected there (#480).
         """
+        item = self.current_image_item
         if self._viewer_showing():
-            return self.viewer_panel._get_current_image_path()
-        if not self.current_image_item:
+            entry = self._viewer_entry()
+            if not entry or (entry.get('file_path') or '').startswith('chat:'):
+                return None
+            # A workspace entry goes through its item, so a video gives its
+            # frame, as in Editor mode. A workflow folder's entry has no item.
+            item = None
+            if not getattr(self.viewer_panel, 'current_dir', None) and self.workspace:
+                item = self.workspace.items.get(entry.get('file_path'))
+            if item is None:
+                return self.viewer_panel._get_current_image_path()
+        if not item:
             return None
-        if self.current_image_item.item_type == "video":
-            frame_path = self._get_video_preview_frame(self.current_image_item)
+        if item.item_type == "video":
+            frame_path = self._get_video_preview_frame(item)
             if not frame_path:
                 return None
             resolved = self.resolve_image_path(frame_path)
         else:
-            resolved = self.resolve_image_path(self.current_image_item.file_path)
+            resolved = self.resolve_image_path(item.file_path)
         from pathlib import Path as _Path
         resolved = _Path(str(resolved))
         return resolved if resolved.exists() else None

@@ -65,8 +65,14 @@ def setup(frame, monkeypatch, tmp_path):
                         lambda parent, msg, *a, **k: infos.append(msg))
     monkeypatch.setattr(imagedescriber_wx, "ask_yes_no",
                         lambda *a, **k: pytest.fail("asked to delete in Viewer mode"))
-    yield {"frame": frame, "a": a, "b": b, "copied": copied,
+    # A guard that stops working must fail the test, not open a modal dialog
+    # and hang the run.
+    for name in ("TextEntryDialog", "Dialog", "MessageDialog"):
+        monkeypatch.setattr(getattr(wx, name), "ShowModal",
+                            lambda self, *a: pytest.fail("a dialog opened in Viewer mode"))
+    yield {"frame": frame, "a": a, "b": b, "copied": copied, "tmp": tmp_path, "ws": ws,
            "warnings": warnings, "infos": infos, "described": described}
+    frame.viewer_panel.current_dir = None
     frame.switch_mode("editor")
     frame.current_mode = "editor"
 
@@ -108,8 +114,12 @@ def test_copyable_image_path_is_the_viewed_image(setup):
     assert Path(str(f._get_copyable_image_path())).name == "b_described.jpg"
 
 
-@pytest.mark.parametrize("handler", ["on_edit_description", "on_delete_description",
-                                     "on_add_manual_description", "on_followup_question"])
+GUARDED = ["on_edit_description", "on_delete_description", "on_add_manual_description",
+           "on_followup_question", "on_process_single", "on_rename_item",
+           "on_auto_rename", "on_play_video"]
+
+
+@pytest.mark.parametrize("handler", GUARDED)
 def test_changing_items_point_to_editor_mode_and_leave_the_hidden_image_alone(setup, handler):
     f = setup["frame"]
     _show_viewer(f, "A red square.")
@@ -117,6 +127,7 @@ def test_changing_items_point_to_editor_mode_and_leave_the_hidden_image_alone(se
     before_b = [d.text for d in setup["b"].descriptions]
     getattr(f, handler)(None)
     assert setup["infos"] and "Editor mode" in setup["infos"][-1]
+    assert "select b_described.jpg" in setup["infos"][-1]   # Editor mode keeps its own
     assert setup["a"].descriptions == before_a
     assert [d.text for d in setup["b"].descriptions] == before_b
 
@@ -135,6 +146,90 @@ def test_editor_mode_still_uses_the_editor_selection(setup):
 def test_viewer_with_nothing_selected_says_so(setup, monkeypatch):
     f = setup["frame"]
     f.switch_mode("viewer", f.workspace)
-    monkeypatch.setattr(f.viewer_panel, "selected_entry", lambda: None)
+    monkeypatch.setattr(f.viewer_panel, "entries", [])   # real selected_entry(): None
+    assert f.viewer_panel.selected_entry() is None
     f.on_copy_description(None)
     assert setup["copied"] == [] and setup["warnings"] == ["No description to copy"]
+
+
+class _Key:
+    """Enough of a wx.KeyEvent for on_key_press."""
+
+    def __init__(self, code):
+        self.code, self.skipped = code, False
+
+    def GetKeyCode(self):
+        return self.code
+
+    def GetModifiers(self):
+        return wx.MOD_NONE
+
+    def Skip(self, *a):
+        self.skipped = True
+
+
+@pytest.mark.parametrize("key", [ord("M"), ord("F"), ord("P"), ord("R"), ord("Z"), wx.WXK_F2])
+def test_single_key_shortcuts_in_viewer_mode_leave_the_hidden_image_alone(setup, key):
+    """The keys go through the frame's EVT_CHAR_HOOK handler, the path a
+    keyboard user takes, before any list sees them."""
+    f = setup["frame"]
+    _show_viewer(f, "A red square.")
+    before = [d.text for d in setup["b"].descriptions]
+    f.on_key_press(_Key(key))
+    assert setup["infos"] and "Editor mode" in setup["infos"][-1]
+    assert setup["a"].descriptions == [] and [d.text for d in setup["b"].descriptions] == before
+
+
+def test_workflow_folder_points_to_import_not_editor_mode(setup):
+    """Editor mode shows the workspace, which doesn't have a workflow
+    folder's descriptions, so switching wouldn't help."""
+    f = setup["frame"]
+    _show_viewer(f, "A red square.")
+    f.viewer_panel.current_dir = setup["tmp"]
+    f.on_edit_description(None)
+    assert "Import Workflow" in setup["infos"][-1]
+    assert "Editor Mode" not in setup["infos"][-1]
+
+
+def test_copy_image_of_a_video_description_is_its_frame(setup):
+    """As in Editor mode: a video's picture is its first extracted frame."""
+    from data_models import ImageDescription, ImageItem
+    from PIL import Image
+
+    f = setup["frame"]
+    video = setup["tmp"] / "clip.mp4"
+    video.write_bytes(b"not really a video")
+    frame_png = setup["tmp"] / "clip_frame_0001.png"
+    Image.new("RGB", (8, 8), "blue").save(frame_png)
+    item = ImageItem(str(video), item_type="video")
+    item.extracted_frames = [str(frame_png)]
+    item.add_description(ImageDescription("A short clip.", "claude-haiku-5-5", "narrative"))
+    setup["ws"].add_item(item)
+    _show_viewer(f, "A short clip.")
+    assert Path(str(f._get_copyable_image_path())).name == "clip_frame_0001.png"
+
+
+def test_copy_image_and_description_uses_the_viewer_selection(setup, monkeypatch):
+    f = setup["frame"]
+    _show_viewer(f, "An older description.")
+    seen = {}
+    monkeypatch.setattr(f, "_load_bitmap_for_clipboard",
+                        lambda path: seen.setdefault("path", path) and None)
+    f.on_copy_image_and_description(None)
+    assert Path(str(seen["path"])).name == "b_described.jpg"
+    # It got past the description check (the old bug) to loading the image.
+    assert setup["warnings"] == ["Could not load image for clipboard"]
+
+
+def test_chat_entry_has_no_image_path(setup):
+    from data_models import ImageDescription, ImageItem
+
+    f = setup["frame"]
+    chat = ImageItem("chat:chat_1", item_type="chat")
+    chat.add_description(ImageDescription("Hello from chat.", "claude-haiku-5-5", "chat"))
+    setup["ws"].add_item(chat)
+    _show_viewer(f, "Hello from chat.")
+    f.on_copy_image_path(None)
+    assert setup["copied"] == []
+    assert setup["warnings"] == ["This description has no image path"]
+    assert f._get_copyable_image_path() is None
