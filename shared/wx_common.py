@@ -938,8 +938,10 @@ class AccessibleDescriptionListBox(wx.Accessible):
     def GetName(self, childId):
         """Return full description text for screen readers"""
         if childId == wx.ACC_SELF:
-            return wx.ACC_OK, "Descriptions"
-        
+            # A list can say what it is ("Viewer, all descriptions"); the
+            # editor's keeps the name it has always had.
+            return wx.ACC_OK, getattr(self.listbox, "accessible_name", None) or "Descriptions"
+
         # childId is 1-based for list items
         if childId > 0 and childId <= len(self.descriptions_data):
             idx = childId - 1
