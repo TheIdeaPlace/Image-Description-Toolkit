@@ -103,7 +103,8 @@ def test_enter_on_an_image_does_not_play_anything(frame, tmp_path):
 
 
 def test_enter_on_a_folder_does_not_replay_the_last_video(frame, tmp_path):
-    """Selecting a folder node leaves current_image_item on the last file."""
+    """Enter on a folder while the last video is still current (activation
+    before the selection change) must not play it."""
     video = tmp_path / "clip.mov"
     video.write_bytes(b"not really a video")
     frame.current_image_item = ImageItem(str(video), "video")

@@ -306,6 +306,44 @@ def test_selecting_an_image_gives_no_folder_scope(frame, cli_style_bundle):
     assert frame._selected_folder_scope() is None
 
 
+def test_a_selected_folder_leaves_no_picture_current(
+        frame, cli_style_bundle, monkeypatch):
+    """#497: arrow from a picture onto a folder, press R, and the picture
+    left behind was renamed. A folder must leave nothing current, so the
+    single-picture commands say so instead of acting on what isn't shown."""
+    bundle_path, source = cli_style_bundle
+    frame.load_workspace(str(bundle_path))
+
+    tree = frame.image_list
+    folder = next(n for n in _top_level_nodes(tree)
+                  if tree.GetItemText(n) == source.name)
+    leaf = _leaf_nodes(tree, folder)[0]
+
+    tree.SelectItem(leaf)
+    frame.on_image_selected(None)
+    assert frame.current_image_item is not None
+
+    tree.SelectItem(folder)
+    frame.on_image_selected(None)
+    assert frame.current_image_item is None
+    assert frame.description_text.GetValue() == ""
+    assert frame.desc_list.GetCount() == 0
+    assert frame.image_info_label.GetLabel() == f"Folder: {source.name}, 3 items"
+    assert not frame.save_desc_btn.IsEnabled()
+
+    warned = []
+    monkeypatch.setattr(imagedescriber_wx, "show_warning",
+                        lambda parent, msg, *a, **k: warned.append(msg))
+    for handler in (frame.on_rename_item, frame.on_add_manual_description,
+                    frame.on_followup_question, frame.on_auto_rename):
+        handler(None)
+    assert warned == ["No image selected"] * 4
+
+    # P on the folder still covers its pictures.
+    paths, _label = frame._selected_folder_scope()
+    assert len(paths) == 3
+
+
 def test_folder_nodes_render_before_loose_root_items(frame, tmp_path):
     """Folders first, the way every file browser orders them.
 

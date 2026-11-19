@@ -2043,12 +2043,13 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         item = self.image_list.GetSelection()
         if item.IsOk():
             file_path = self.image_list.GetItemData(item)
-            # file_path is None for folder nodes — clicking a folder just focuses it,
-            # it does not change the current image or load a preview.
+            # file_path is None for folder nodes: a folder is not a picture,
+            # so no picture stays current (#497).
             if file_path is None:
                 # Enable Refresh Folder menu item when a folder node is selected
                 if hasattr(self, 'rescan_folder_item'):
                     self.rescan_folder_item.Enable(True)
+                self._show_folder(item)
                 return
             # Enable Refresh Folder only for folder nodes; disable for file nodes
             if hasattr(self, 'rescan_folder_item'):
@@ -2072,6 +2073,26 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self.image_preview_panel.Refresh()
             self.process_btn.Enable(False)
             self.save_desc_btn.Enable(False)
+
+    def _show_folder(self, node):
+        """A folder node is selected: it is not a picture, so nothing is current.
+
+        The last picture used to stay current, still shown in the editor, so
+        R, F2, M, F, Z and Enter acted on a picture the user had moved away
+        from (#497). Process (P) on a folder still describes the pictures in
+        it; it reads the selected node, not the current item.
+        """
+        self.current_image_item = None
+        count = len(self._get_file_paths_under_node(node))
+        name = self.image_list.GetItemText(node)
+        self.image_info_label.SetLabel(
+            f"Folder: {name}, {count} item{'s' if count != 1 else ''}")
+        self.desc_list.Clear()
+        self.description_text.SetValue("")
+        self._note_editor_shows(None, None, "")
+        self.show_preview_message("Folder")
+        self.process_btn.Enable(count > 0)
+        self.save_desc_btn.Enable(False)
 
     # Explicit tab order: image_list -> desc_list -> description_text
     def on_image_list_key(self, event):
@@ -8750,9 +8771,9 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         elif (self.current_image_item is not None
                 and self.current_image_item.item_type == "video"
                 and self._activated_item_path(event) == self.current_image_item.file_path):
-            # Compare against the activated node: on_image_selected leaves
-            # current_image_item unchanged on a folder node, so Enter on a
-            # folder would otherwise replay the last video selected.
+            # Compare against the activated node as well: a folder clears
+            # current_image_item (#497), but the activation can arrive before
+            # the selection change does.
             self.on_play_video(event)
         else:
             event.Skip()
