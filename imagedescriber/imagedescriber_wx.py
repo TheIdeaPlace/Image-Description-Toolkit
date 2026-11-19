@@ -777,9 +777,6 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         self.preview_placeholder_text = ""  # Message shown when no preview image is available
         self.processing_items = {}  # Track items being processed: {file_path: {provider, model}}
         self.batch_progress = None  # Track batch processing: {current: N, total: M, file_path: "..."}
-        # Throttle list redraws during batch processing - only refresh every N seconds.
-        # Tune LIST_REFRESH_INTERVAL_SECS in on_worker_progress if you want faster/slower feedback.
-        self._last_list_refresh = 0.0
         # Suppress main-frame list rebuilds while a batch is running; do one full
         # rebuild when the batch ends (natural completion or user stop). This keeps
         # the UI fully responsive on large collections (1000+ images).
@@ -3229,6 +3226,105 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             'cost_note': meter['note'],
         }
 
+    def _tree_label(self, file_path, item):
+        """Return the label shown in the tree for a single item."""
+        # Chat items use their display_name directly — file_path is not a real filesystem path
+        if item.item_type == "chat":
+            return item.display_name or file_path
+        base_name = Path(file_path).name
+        prefix_parts = []
+
+        # 0. Missing file indicator (highest priority — shows before desc count)
+        if getattr(item, 'is_missing', False):
+            prefix_parts.append("[!]")
+
+        # 1. Description count
+        desc_count = len(item.descriptions)
+        if desc_count > 0:
+            prefix_parts.append(f"d{desc_count}")
+
+        # 2. Processing indicator (P)
+        if file_path in self.processing_items:
+            prefix_parts.append("P")
+        # Phase 6: Batch processing state indicators
+        elif hasattr(item, 'processing_state') and item.processing_state:
+            if item.processing_state == "paused":
+                prefix_parts.append("!")  # Paused
+            elif item.processing_state == "failed":
+                prefix_parts.append("X")  # Failed
+            elif item.processing_state == "pending":
+                prefix_parts.append(".")  # Pending
+
+        # 3. Video extraction status
+        if item.item_type == "video" and hasattr(item, 'extracted_frames') and item.extracted_frames:
+            frame_count = len(item.extracted_frames)
+            prefix_parts.append(f"E{frame_count}")
+
+        if prefix_parts:
+            return "".join(prefix_parts) + " " + base_name
+        return base_name
+
+    def refresh_image_label(self, file_path):
+        """Update one item's label in the image list, without a rebuild.
+
+        refresh_image_list rebuilds the whole tree: 10 seconds for a
+        12,906-item workspace, on the UI thread, so every P on one picture
+        froze the window ("Not Responding") as the Process dialog closed and
+        again when the description came back (Kelly, 11/18/2026). A change to
+        one item (its description count, the P while it's processing, failed)
+        only needs that item's label. The rebuild is kept for a change in
+        whether the item shows: under Undescribed Only, a picture that has
+        just been described has to leave the list; a picture that should show
+        and isn't in the tree has to arrive.
+        """
+        if not self.workspace or file_path not in self.workspace.items:
+            self.refresh_image_list()
+            return
+        item = self.workspace.items[file_path]
+        node = getattr(self, '_tree_nodes', {}).get(file_path)
+        should_show = self._passes_list_filters(item)
+        if not should_show and node is None:
+            return          # hidden before and after: nothing to update
+        if not (should_show and node is not None):
+            self.refresh_image_list()   # it appears or disappears
+            return
+        try:
+            label = self._tree_label(file_path, item)
+            if self.image_list.GetItemText(node) != label:
+                self.image_list.SetItemText(node, label)
+        except Exception:
+            # wx reports a bad item id with wx.wxAssertionError, an
+            # AssertionError; whatever went wrong, a rebuild is correct.
+            self.refresh_image_list()
+
+    def _passes_list_filters(self, item) -> bool:
+        """Whether the image list shows ``item`` under the View filter and
+        search, by the same rules refresh_image_list applies."""
+        if item.item_type == "chat":
+            shown = self.current_filter in ("all", "chats")
+        elif self.current_filter == "chats":
+            shown = False
+        elif self.current_filter == "described":
+            shown = bool(item.descriptions)
+        elif self.current_filter == "undescribed":
+            shown = not item.descriptions
+        elif self.current_filter == "videos":
+            shown = item.item_type in ("video", "extracted_frame")
+        else:
+            shown = True
+        if shown and self.search_filter_text:
+            shown = self._matches_search(item, self.search_filter_text)
+        return shown
+
+    def _tree_lacks_any(self, paths) -> bool:
+        """True if the tree may be missing one of ``paths`` (a rebuild is
+        needed to show it). An active search always counts: what it shows
+        depends on more than the paths."""
+        if self.search_filter_text:
+            return True
+        shown = getattr(self, '_tree_nodes', {})
+        return any(fp not in shown for fp in paths)
+
     def refresh_image_list(self):
         """Refresh the image list display with videos and extracted frames grouped"""
         # PERFORMANCE DIAGNOSTIC: Track how long this takes
@@ -3246,6 +3342,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # Guard against no workspace
         if not self.workspace or not self.workspace.items:
             self.image_list.DeleteAllItems()
+            self._tree_nodes = {}   # node ids die with DeleteAllItems
             _get_or_create_root()
             return
 
@@ -3278,6 +3375,10 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # Rebuild tree from scratch
         self.image_list.DeleteAllItems()
         root = _get_or_create_root()
+        # file path -> its tree node, so refresh_image_label can relabel one
+        # item without rebuilding the tree. Node ids die with DeleteAllItems,
+        # so the map is rebuilt here every time.
+        self._tree_nodes = {}
 
         new_selection_item = None
 
@@ -3359,43 +3460,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # When filter is "chats", skip the entire mixed_items/subfolder section
         _show_mixed = (self.current_filter != "chats")
 
-        def _build_display_name(file_path, item):
-            """Return the label shown in the tree for a single item."""
-            # Chat items use their display_name directly — file_path is not a real filesystem path
-            if item.item_type == "chat":
-                return item.display_name or file_path
-            base_name = Path(file_path).name
-            prefix_parts = []
-
-            # 0. Missing file indicator (highest priority — shows before desc count)
-            if getattr(item, 'is_missing', False):
-                prefix_parts.append("[!]")
-
-            # 1. Description count
-            desc_count = len(item.descriptions)
-            if desc_count > 0:
-                prefix_parts.append(f"d{desc_count}")
-
-            # 2. Processing indicator (P)
-            if file_path in self.processing_items:
-                prefix_parts.append("P")
-            # Phase 6: Batch processing state indicators
-            elif hasattr(item, 'processing_state') and item.processing_state:
-                if item.processing_state == "paused":
-                    prefix_parts.append("!")  # Paused
-                elif item.processing_state == "failed":
-                    prefix_parts.append("X")  # Failed
-                elif item.processing_state == "pending":
-                    prefix_parts.append(".")  # Pending
-
-            # 3. Video extraction status
-            if item.item_type == "video" and hasattr(item, 'extracted_frames') and item.extracted_frames:
-                frame_count = len(item.extracted_frames)
-                prefix_parts.append(f"E{frame_count}")
-
-            if prefix_parts:
-                return "".join(prefix_parts) + " " + base_name
-            return base_name
+        _build_display_name = self._tree_label
 
         def _extract_timestamp(frame_path):
             """Extract numeric timestamp from a frame filename like 'video_10.00s.jpg'."""
@@ -3527,6 +3592,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 else:
                     tree_item = _append_leaf(parent_node, display_name)
                 self.image_list.SetItemData(tree_item, file_path)
+                self._tree_nodes[file_path] = tree_item
                 displayed_count += 1
 
                 if current_file_path and file_path == current_file_path:
@@ -3562,6 +3628,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                                                 self.image_list.AppendItem)
                         frame_node = _append_frame(tree_item, frame_display)
                         self.image_list.SetItemData(frame_node, frame_path)
+                        self._tree_nodes[frame_path] = frame_node
                         displayed_count += 1
                         frames_added += 1
 
@@ -3590,6 +3657,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 display_name = _build_display_name(file_path, item)
                 chat_node = _append_leaf_fn(chats_node, display_name)
                 self.image_list.SetItemData(chat_node, file_path)
+                self._tree_nodes[file_path] = chat_node
                 displayed_count += 1
                 type_filter_count += 1
                 if current_file_path and file_path == current_file_path:
@@ -3802,7 +3870,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             'model': options['model'],
             'embed_after_process': options.get('embed_after_process', False),
         }
-        self.refresh_image_list()
+        self.refresh_image_label(image_item.file_path)
 
         # Update window title to show processing status
         self.update_window_title("ImageDescriber", Path(self.workspace_file).name if self.workspace_file else "Untitled")
@@ -4979,7 +5047,12 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # below, off the main thread with every other item. Writing them here
         # first, on the main thread, took seconds on a large library and froze
         # the window.
-        self.refresh_image_list()
+        #
+        # The rebuild is only to show frames just extracted. When every image
+        # in the batch is in the tree already it changed nothing and cost 10
+        # seconds on Kelly's 12,906-item workspace as the dialog closed.
+        if self._tree_lacks_any(to_process):
+            self.refresh_image_list()
         self.mark_modified()
 
         # A new batch's failure count (not in _ensure_progress_dialog: that
@@ -5226,6 +5299,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
         # Clear UI
         self.image_list.DeleteAllItems()
+        self._tree_nodes = {}   # node ids die with DeleteAllItems
         self._image_tree_root = self.image_list.AddRoot("Images")
         self.description_text.SetValue("")
         self.image_info_label.SetLabel("No image selected")
@@ -6442,15 +6516,11 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             existing = self.processing_items.get(event.file_path, {})
             self.processing_items[event.file_path] = {**existing, 'provider': '', 'model': ''}
 
-            # Throttle list redraws: rebuilding a large list on every event causes
-            # visible lag at scale. We refresh immediately on the first image (gives
-            # instant feedback), then at most every LIST_REFRESH_INTERVAL_SECS.
-            # To experiment with this value, search for LIST_REFRESH_INTERVAL_SECS.
-            LIST_REFRESH_INTERVAL_SECS = 5.0
-            _now = time.time()
-            if not self._batch_active and _now - self._last_list_refresh >= LIST_REFRESH_INTERVAL_SECS:
-                self.refresh_image_list()
-                self._last_list_refresh = _now
+            # Show the P on this image's entry. A relabel touches one entry, so
+            # there's no throttle: the 5-second one was for full rebuilds. In a
+            # batch the list isn't updated per image at all (_batch_active).
+            if not self._batch_active:
+                self.refresh_image_label(event.file_path)
 
             # Phase 3: Track processing time for this image
             if self.batch_start_time:
@@ -6568,7 +6638,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self._checkpoint_item(event.file_path)
             self.mark_modified()
             if not self._batch_active:
-                self.refresh_image_list()
+                self.refresh_image_label(event.file_path)
 
             # Update window title to reflect processing status (removes "Processing" when done)
             self.update_window_title("ImageDescriber", Path(self.workspace_file).name if self.workspace_file else "Untitled")
@@ -6672,7 +6742,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self.mark_modified()
 
         if not self._batch_active:
-            self.refresh_image_list()
+            self.refresh_image_label(event.file_path)
 
         # Update window title to reflect processing status (removes "Processing" when failed)
         self.update_window_title("ImageDescriber", Path(self.workspace_file).name if self.workspace_file else "Untitled")
@@ -8531,9 +8601,16 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     model="manual",
                     prompt_style="manual"
                 )
-                self.current_image_item.add_description(desc)
+                item = self.current_image_item
+                item.add_description(desc)
                 self.mark_modified()
-                self.display_image_info(self.current_image_item)
+                # The list's "d" count changes too (#429: it didn't). Under
+                # Undescribed Only the picture leaves the list, and the rebuild
+                # may select another; the details stay on the one just
+                # described (#490 review).
+                self.refresh_image_label(item.file_path)
+                self.current_image_item = item
+                self.display_image_info(item)
                 self.SetStatusText("Manual description added", 0)
 
         dlg.Destroy()
@@ -9160,7 +9237,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             video_item.add_description(desc)
 
             self.mark_modified()
-            self.refresh_image_list()
+            self.refresh_image_label(video_item.file_path)
 
             # Update display if this is current item
             if self.current_image_item == video_item:
@@ -9288,7 +9365,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         if ask_yes_no(self, f"Delete {which}?\n\nIt begins: {start}"):
             descriptions.pop(index)
             self.mark_modified()
-            self.refresh_image_list()  # Update "d" indicator in image list
+            self.refresh_image_label(self.current_image_item.file_path)  # the "d" indicator
             self.display_image_info(self.current_image_item)
             self._show_description(min(index, len(descriptions) - 1))
             self.SetStatusText("Description deleted", 0)
