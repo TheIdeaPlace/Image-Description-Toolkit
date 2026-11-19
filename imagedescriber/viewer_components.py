@@ -43,6 +43,23 @@ except ImportError:
     def apply_accessible_names(root):
         return 0
 
+
+def _created_sort_key(created) -> float:
+    """Seconds since the epoch for a description's ``created`` ISO timestamp,
+    for sorting; 0 (first) when missing or unreadable. Parsed rather than
+    compared as text: a timestamp with a time zone ("…Z", "+00:00") and one
+    without don't sort correctly as strings."""
+    from datetime import datetime
+
+    if not created:
+        return 0.0
+    try:
+        stamp = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
+        return stamp.timestamp()   # naive is taken as local time
+    except (ValueError, OverflowError, OSError):
+        return 0.0
+
+
 class WorkflowMonitor(threading.Thread):
     """Background thread for monitoring workflow progress"""
     
@@ -376,9 +393,13 @@ class ViewerPanel(wx.Panel):
                 }
                 self.entries.append(entry)
         
-        # Sort by creation time if possible, or filename
-        # Workspace is usually unsorted dict, so sorting helps consistency
-        self.entries.sort(key=lambda x: x.get('file_path', ''))
+        # Oldest description first, newest last, so End is always the latest
+        # description: during a run, End says what just came in. Sorted by
+        # file path before, so Home and End never moved however many
+        # descriptions arrived (Kelly chose this order, 11/19/2026). Ties,
+        # and undated descriptions (first), keep path order.
+        self.entries.sort(key=lambda x: (_created_sort_key(x.get('created')),
+                                         x.get('file_path', '')))
         
         self.refresh_list()
         
