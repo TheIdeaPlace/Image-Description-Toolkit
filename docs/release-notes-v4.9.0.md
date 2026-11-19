@@ -190,6 +190,13 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 
 ### Fixed
 
+- **No more "Not Responding" after the Process dialog in a large workspace.** Pressing P
+  on one picture rebuilt the whole image list when the dialog closed and again when the
+  description arrived. In a workspace of 12,906 pictures each rebuild froze ImageDescriber
+  for about 10 seconds. Now only that picture's entry is updated, and the list is rebuilt
+  only when a picture has to appear or disappear under the View filter or a search.
+  Adding a manual description now updates the picture's count in the list, which it
+  didn't before.
 - **Descriptions no longer remark that they can't confirm the location.** With geocoding
   on, IDT tells the model where a photo was taken. Claude Haiku 5.5 often answered with
   a sentence like "You've provided the location as Madison, Wisconsin, but nothing in
