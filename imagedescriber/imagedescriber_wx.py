@@ -5638,7 +5638,9 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     # Unchanged chat: write it anyway when its file is missing
                     # (saves before #403 never wrote chats to an existing bundle).
                     chat_id = str(file_path).split("chat:", 1)[1]
-                    if not (ws.chats_dir / f"{chat_id}.json").exists():
+                    # No id (a hand-made file): save_chat would invent one on
+                    # every save and write a new copy each time.
+                    if chat_id and not (ws.chats_dir / f"{chat_id}.json").exists():
                         gui_items[file_path] = gui_item
                     continue
                 if f"{Path(file_path).name}.json" not in index:
@@ -5657,7 +5659,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     # Chats live in the bundle's chats/ store, written the same
                     # way Save As writes them (#403: they used to be skipped, so
                     # a chat started in a saved workspace was lost on reopen).
-                    _gui_chat_item_to_bundle(ws, file_path, gui_item)
+                    if str(file_path).split("chat:", 1)[1]:
+                        _gui_chat_item_to_bundle(ws, file_path, gui_item)
                     if progress:
                         progress(done, total_items,
                                  gui_item.get("display_name") or "Chat")
@@ -6277,17 +6280,17 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             # Write header
             f.write("Image Descriptions - Exported from ImageDescriber\n")
             f.write(f"Export Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            # Pictures only: videos and chats are items too, and counting them
-            # gave a total above the entries listed (#479).
-            picture_count = sum(
-                1 for item in self.workspace.items.values()
-                if item.item_type not in ("video", "chat")
-                and not str(item.file_path).startswith("chat:"))
-            f.write(f"Total Images: {picture_count}\n")
+            # The pictures listed below, and only those: counting every item
+            # put videos, chats and undescribed pictures in the total, so it
+            # was higher than the entries that followed (#479). Chats are not
+            # image descriptions and are left out of this export.
+            sorted_items = sorted(
+                ((fp, item) for fp, item in self.workspace.items.items()
+                 if item.descriptions and item.item_type != "chat"
+                 and not str(fp).startswith("chat:")),
+                key=lambda x: Path(x[0]).name)
+            f.write(f"Total Images: {len(sorted_items)}\n")
             f.write("=" * 80 + "\n\n")
-
-            # Sort images by filename for consistent output
-            sorted_items = sorted(self.workspace.items.items(), key=lambda x: Path(x[0]).name)
 
             for file_path, item in sorted_items:
                 path = Path(file_path)

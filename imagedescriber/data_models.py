@@ -21,6 +21,7 @@ WORKSPACE_VERSION = "3.0"
 # "claude-code" -> "Claude Code". idt_core imports the same way in dev and
 # frozen builds, so no try/except fallback is needed.
 from idt_core.providers.registry import display_name as _display_provider  # noqa: E402
+from idt_core.workspace import tidy_description_text  # noqa: E402
 
 
 class ImageDescription:
@@ -32,7 +33,7 @@ class ImageDescription:
         # Stripped here, so new descriptions and ones loaded from older
         # workspaces both lose the line break some models open with: the
         # editor otherwise started on a blank line, read as "blank" (#424).
-        self.text = text.strip() if isinstance(text, str) else text
+        self.text = tidy_description_text(text)
         self.model = model
         self.prompt_style = prompt_style
         self.created = created or datetime.now().isoformat()

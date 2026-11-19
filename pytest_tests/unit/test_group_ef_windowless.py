@@ -48,6 +48,19 @@ def test_a_cli_description_is_stored_without_the_line_break():
     assert d.text == "A red barn."
 
 
+def test_a_cli_description_saved_before_the_fix_reads_cleanly():
+    from idt_core.workspace import WorkspaceDescription
+    d = WorkspaceDescription.from_dict({"id": "1", "text": "\r\n\nA red barn."})
+    assert d.text == "A red barn."
+
+
+def test_the_first_line_keeps_its_indentation():
+    """Only blank lines go: an indented code block or text picture is kept."""
+    from data_models import ImageDescription
+    assert ImageDescription(text="\n    indented code\nmore").text == "    indented code\nmore"
+    assert ImageDescription(text="  \n\t\n  x").text == "  x"
+
+
 def test_an_empty_or_missing_text_is_left_alone():
     from data_models import ImageDescription
     assert ImageDescription(text="").text == ""
@@ -74,14 +87,18 @@ def test_the_text_export_counts_pictures_only(tmp_path):
     ws.add_item(ImageItem(str(tmp_path / "clip.mp4"), item_type="video"))
     frame = ImageItem(str(tmp_path / "clip_0001.jpg"), item_type="extracted_frame")
     ws.add_item(frame)
-    ws.add_item(ImageItem("chat:chat_1", item_type="chat"))
+    chat = ImageItem("chat:chat_1", item_type="chat")
+    chat.add_description(ImageDescription(text="User: hi", model="m"))
+    ws.add_item(chat)
 
     fake = SimpleNamespace(workspace=ws, _format_metadata_for_export=lambda m: "")
     out = tmp_path / "export.txt"
     mod.ImageDescriberFrame.export_descriptions_to_text(fake, str(out))
     text = out.read_text(encoding="utf-8")
-    # a, b, the undescribed picture and the video frame: not the video or chat.
-    assert "Total Images: 4\n" in text
+    # The total matches the entries listed: the two described pictures.
+    assert "Total Images: 2\n" in text
+    assert text.count("\nFile: ") == 2
+    assert "chat" not in text.lower()
 
 
 # ---- #426 ------------------------------------------------------------------
