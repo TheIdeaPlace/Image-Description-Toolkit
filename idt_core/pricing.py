@@ -193,12 +193,15 @@ def format_dollars(amount: float) -> str:
     amount = max(amount, 0.0)              # a cost is never negative
     if amount == 0:
         return "0 cents"
-    # Decided on the rounded figure: 0.995 is stored as 0.99499..., which
-    # passed ">= 0.995" and then printed as "$0.99" (#495 review).
-    if round(amount, 2) >= 1:
-        return f"${amount:,.2f}"
+    # Decided on the figure as written, rounded half up: 0.995 is stored as
+    # 0.99499..., which float rounding turns into "$0.99" (#495 review).
+    from decimal import ROUND_HALF_UP, Decimal
+
+    dollars = Decimal(repr(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if dollars >= 1:
+        return f"${dollars:,.2f}"
     cents = amount * 100
-    if cents < 0.0001:                     # :.2g would switch to "1e-05"
+    if cents < 0.00005:                    # :.2g would switch to "1e-05"
         return "less than 0.0001 cents"
     text = f"{cents:.0f}" if cents >= 9.95 else f"{cents:.2g}"
     return "1 cent" if text == "1" else f"{text} cents"
