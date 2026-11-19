@@ -1014,7 +1014,26 @@ class DescriptionListBox(wx.ListBox):
         super().__init__(*args, **kwargs)
         self.descriptions_data = []
         self.custom_accessible = None
-    
+
+    def Clear(self):
+        """Empty the list and what its accessible object reads (#423).
+
+        Clearing only the visible items left the accessible object answering
+        with the previous picture's descriptions for items no longer there.
+        """
+        super().Clear()
+        self.descriptions_data = []
+        if self.custom_accessible is not None:
+            self.custom_accessible.descriptions_data = self.descriptions_data
+
+    def Set(self, items, *args, **kwargs):
+        """Plain strings (a chat's turns): the screen reader reads the items
+        themselves, not descriptions left from the last LoadDescriptions."""
+        super().Set(items, *args, **kwargs)
+        self.descriptions_data = []
+        if self.custom_accessible is not None:
+            self.custom_accessible.descriptions_data = self.descriptions_data
+
     def LoadDescriptions(self, descriptions_list, truncate_at=100):
         """
         Load descriptions into the listbox with accessibility support.
