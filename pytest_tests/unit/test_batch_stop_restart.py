@@ -696,6 +696,68 @@ def test_end_of_batch_reports_failures_once(frame):
     assert any("could not be described" in m and "bad image" in m for m in f.infos)
 
 
+def test_the_last_image_reaches_the_progress_window(frame, monkeypatch):
+    """#475: the batch's last image has no progress update after it, so the
+    finished window's summary left it out."""
+    from batch_progress_dialog import BatchProgressDialog
+    f = frame
+    w = _FakeWorker()
+    f.batch_worker = w
+    monkeypatch.setattr(f, "_token_records", [])
+    dlg = BatchProgressDialog(f, 1, describing=True)
+    f.batch_progress_dialog = dlg
+    img = str(f.src / "a.jpg")
+    dlg.update_progress(1, 1, file_path=img)
+    f.on_worker_complete(SimpleNamespace(
+        file_path=img, description="A dog on a beach.", model="llava",
+        provider="ollama", prompt_style="detailed", custom_prompt="",
+        metadata={"input_tokens": 600, "output_tokens": 276, "total_tokens": 876},
+        batch=w))
+    dlg.mark_complete("1 image described")
+    rows = [dlg.stats_list.GetString(i) for i in range(dlg.stats_list.GetCount())]
+    assert any(r.startswith("Last Image Described:") and r.endswith("a.jpg") for r in rows), rows
+    assert any(r.strip().startswith("Total Tokens:") and r.endswith("876") for r in rows), rows
+    f.batch_worker = None
+
+
+def test_a_stopped_workers_last_image_leaves_the_window_alone(frame, monkeypatch):
+    """A worker Stop left finishing its image isn't the window's batch."""
+    from batch_progress_dialog import BatchProgressDialog
+    f = frame
+    f.batch_worker = _FakeWorker()
+    stopped = _FakeWorker()
+    monkeypatch.setattr(f, "_token_records", [])
+    dlg = BatchProgressDialog(f, 1, describing=True)
+    f.batch_progress_dialog = dlg
+    img = str(f.src / "a.jpg")
+    dlg.update_progress(1, 1, file_path=img)
+    before = dict(dlg._last_progress)
+    f.on_worker_complete(SimpleNamespace(
+        file_path=img, description="A dog.", model="llava", provider="ollama",
+        prompt_style="detailed", custom_prompt="", metadata={}, batch=stopped))
+    assert dlg._last_progress == before
+    f.batch_worker = None
+
+
+def test_end_of_batch_rebuilds_the_list_before_focusing_it(frame, monkeypatch):
+    """#414: focus went to the image list and the list was rebuilt after it,
+    so NVDA said the focused item twice ("level 1 Europe trip collapsed",
+    then "level 0 Europe trip collapsed")."""
+    f = frame
+    w = _FakeWorker()
+    f.batch_worker = w
+    f._batch_failures, f._batch_first_failure = 0, None
+    order = []
+    monkeypatch.setattr(f, "refresh_image_list", lambda *a, **k: order.append("rebuild"))
+    monkeypatch.setattr(f, "_focus_current_mode", lambda: order.append("focus"))
+    monkeypatch.setattr(wx, "GetActiveWindow", lambda: None)
+    f.on_workflow_complete(SimpleNamespace(input_dir="1/1 images", output_dir="",
+                                           worker=w, halted=None, halted_files=[]))
+    assert "focus" in order
+    assert order.index("rebuild") < order.index("focus")
+    assert "rebuild" not in order[order.index("focus"):]
+
+
 def test_failed_start_keeps_a_halted_batchs_resume_state(frame, monkeypatch):
     f = frame
     halted_state = {"total_queued": 9, "provider": "claude-code"}
@@ -1704,7 +1766,8 @@ def test_describing_starts_before_extraction_ends(frame, monkeypatch, tmp_path):
     assert f.workspace.batch_state["total_queued"] == 3
     assert f.workspace.batch_state["videos"] == [str(f.src / "clip.mp4"), str(v2)]
     title = f.batch_progress_dialog.GetTitle()
-    assert title.startswith("Describing (step 2 of 2)"), title
+    assert "Describing (step 2 of 2) — Batch Processing" in title, title
+    assert "images described — " in title, title          # #412
 
 
 def test_stop_while_describing_and_extracting_queues_nothing_more(frame, monkeypatch, tmp_path):
@@ -1816,7 +1879,9 @@ def test_extraction_row_and_title(_frame):
         dlg.end_extraction("Describing")
         rows = [dlg.stats_list.GetString(i) for i in range(dlg.stats_list.GetCount())]
         assert not any("Extracting Frames" in r or "more as videos" in r for r in rows)
-        assert dlg.GetTitle() == "Describing (step 2 of 2) — Batch Processing"
+        # The progress first (#412): image 1 is being described, so none done.
+        assert dlg.GetTitle() == ("0%, 0 of 4 images described — "
+                                  "Describing (step 2 of 2) — Batch Processing")
         dlg.set_extraction(3, 3, "late.mp4")     # a late tick is ignored
         rows = [dlg.stats_list.GetString(i) for i in range(dlg.stats_list.GetCount())]
         assert not any("Extracting Frames" in r for r in rows)

@@ -19,7 +19,6 @@ import wx
 from pathlib import Path
 from typing import Optional
 
-SEP_LINE = "─" * 44  # reused in mark_complete()
 #: The stopping state's line, and the text that identifies its row (see
 #: update_progress, which keeps it selected through rebuilds).
 STOPPING_PREFIX = "Stopping:"
@@ -28,7 +27,7 @@ STOPPING_LINE = f"{STOPPING_PREFIX} finishing the current video or save…"
 
 def _row_label(row: str) -> str:
     """A stats row's label ("Items Processed" in "Items Processed:   3 / 9"),
-    or the whole row when it has none (separators, "Token Usage")."""
+    or the whole row when it has none ("Token Usage")."""
     label, sep, _ = row.partition(":")
     return label.strip() if sep else row
 
@@ -84,15 +83,20 @@ class BatchProgressDialog(wx.Dialog):
     """Modeless dialog showing batch processing progress and controls"""
     
     def __init__(self, parent, total_images: int,
-                 batch_provider: str = '', batch_model: str = '', batch_prompt: str = ''):
+                 batch_provider: str = '', batch_model: str = '', batch_prompt: str = '',
+                 describing: bool = False):
         """Initialize batch progress dialog
-        
+
         Args:
             parent: Parent window (ImageDescriberFrame)
             total_images: Total number of images to process
             batch_provider: AI provider name shown in Job Settings section
             batch_model: AI model name shown in Job Settings section
             batch_prompt: Prompt style shown in Job Settings section
+            describing: The window follows a batch of descriptions from the
+                start, with no stages (a resumed batch, frames, downloaded
+                images), so its title counts images described. A run with
+                stages says so through its "Describing" stage instead.
         """
         wx.Dialog.__init__(
             self,
@@ -111,6 +115,7 @@ class BatchProgressDialog(wx.Dialog):
         # modal error box per image, which a large failing batch stacked by the
         # hundred over the dialog.
         self.failed_count = 0
+        self._failed_videos = 0     # the part of failed_count that is videos
         self.last_failure = ''
         # Set by mark_stopping: later stages and progress keep saying so.
         self._stopping = False
@@ -121,7 +126,10 @@ class BatchProgressDialog(wx.Dialog):
         self.stage_name = ''
         self.stage_index = 0
         self.stage_count = 0
-        self.separator_indices = set()
+        self._describing = describing
+        # "45%, 9 of 20 images described", put at the front of the title
+        # while images are being described (#412). None otherwise.
+        self._title_progress = None
         # Describing waits for the next video's frames (#352); see
         # show_waiting_for_frames.
         self._waiting = False
@@ -165,10 +173,8 @@ class BatchProgressDialog(wx.Dialog):
             name="Processing statistics and current image"
         )
         self.stats_list.SetMinSize((450, 160))
-        # Bind key handler to skip separator lines during navigation
-        self.stats_list.Bind(wx.EVT_KEY_DOWN, self._on_stats_key)
-        # Bind selection-change handler so mouse clicks on separators jump away
-        self.stats_list.Bind(wx.EVT_LISTBOX, self._on_stats_selection)
+        # No separator rows: lines of "─" were list items, and a screen reader
+        # read them aloud (#427). Every row says something.
         main_sizer.Add(self.stats_list, 0, wx.ALL | wx.EXPAND, 10)
         
         # Progress label (kept: it says when the bar can't show a percentage)
@@ -215,7 +221,7 @@ class BatchProgressDialog(wx.Dialog):
         dialog_sizer = wx.BoxSizer(wx.VERTICAL)
         dialog_sizer.Add(panel, 1, wx.EXPAND)
         self.SetSizer(dialog_sizer)
-    
+
     def begin_stage(self, name: str, total: int,
                     stage_index: int = 0, stage_count: int = 0,
                     can_interrupt: bool = True, can_stop=None):
@@ -247,7 +253,7 @@ class BatchProgressDialog(wx.Dialog):
         self.pause_button.Enable(can_interrupt)
         self.stop_button.Enable(can_interrupt if can_stop is None else can_stop)
 
-        self._set_stage_title()
+        # update_progress sets the title, once, with this stage's progress.
         self.update_progress(0, total)
 
     def _set_stage_title(self):
@@ -255,12 +261,47 @@ class BatchProgressDialog(wx.Dialog):
         when the dialog is the active window. While stopping, the save that
         finishes the stop must not read as the batch's next step."""
         name = self.stage_name
+        if self._is_complete:
+            return              # mark_complete's title stays
         if self._stopping:
-            self.SetTitle(f"{STOPPING_PREFIX} {name.lower()} — Batch Processing")
-        elif self.stage_index and self.stage_count:
-            self.SetTitle(f"{name} (step {self.stage_index} of {self.stage_count}) — Batch Processing")
+            title = (f"{STOPPING_PREFIX} {name.lower()} — Batch Processing"
+                     if name else "Stopping — Batch Processing")
+        elif name and self.stage_index and self.stage_count:
+            title = f"{name} (step {self.stage_index} of {self.stage_count}) — Batch Processing"
+        elif name:
+            title = f"{name} — Batch Processing"
         else:
-            self.SetTitle(f"{name} — Batch Processing")
+            title = "Batch Processing Progress"
+        if self._title_progress and not self._stopping:
+            # Progress first: Insert+T (read title) is how a screen reader
+            # user checks how far a batch has got (#412).
+            title = f"{self._title_progress} — {title}"
+        if self.GetTitle() != title:     # each change can be spoken
+            self.SetTitle(title)
+
+    def _is_describing(self) -> bool:
+        if self.stage_name:
+            return self.stage_name.lower().startswith("describing")
+        return self._describing
+
+    def _progress_title(self, current: int, total: int, on_an_image: bool):
+        """ "45%, 9 of 20 images described", or None outside describing.
+
+        ``current`` is the image being described, so one fewer is done; one
+        that failed isn't described, and the percentage is of the same count.
+        While videos are still extracting the total grows, so no percentage
+        (it would fall as videos finish). The stage name says so before
+        begin_extraction has run, so the title doesn't flash a percentage."""
+        if not self._is_describing():
+            return None
+        done = max(current - 1, 0) if on_an_image else current
+        failed_images = max(self.failed_count - self._failed_videos, 0)
+        described = max(done - failed_images, 0)
+        if (total <= 0 or self._extraction is not None
+                or "extracting" in self.stage_name.lower()):
+            return f"{described:,} images described so far"
+        percent = int(described * 100 / total)
+        return f"{percent}%, {described:,} of {total:,} images described"
 
     # ----- frame extraction alongside describing (#344) ----- #
 
@@ -304,8 +345,10 @@ class BatchProgressDialog(wx.Dialog):
             return
         self._extraction = None
         self.stage_name = stage_name
-        self._set_stage_title()
-        self._rebuild()
+        if self._last_progress is None:
+            self._set_stage_title()
+        else:
+            self._rebuild()     # sets the title too, with the progress
 
     def _rebuild(self) -> None:
         if self._last_progress is not None:
@@ -317,9 +360,28 @@ class BatchProgressDialog(wx.Dialog):
         if self.progress_label.GetLabel() != text:
             self.progress_label.SetLabel(text)
 
-    def note_failure(self, image_name: str, error: str) -> None:
-        """Count a failed image; shown on the next progress update."""
+    def note_completed(self, last_image: str, last_description: str,
+                       token_stats: dict = None) -> None:
+        """An image was described. Kept for the next rebuild, not shown now:
+        the next image's progress update shows it, as it always has. The last
+        image of a batch has no next update, so without this mark_complete
+        rebuilt from the stats before it, and the summary left it out of "Last
+        Image Described", the token totals and the cost (#475)."""
+        if self._last_progress is None:
+            return
+        self._last_progress.update(last_image=last_image,
+                                   last_description=last_description)
+        if token_stats is not None:
+            self._last_progress["token_stats"] = token_stats
+
+    def note_failure(self, image_name: str, error: str, video: bool = False) -> None:
+        """Count a failed image (or, with ``video``, a video whose frames
+        couldn't be extracted); shown on the next progress update. A failed
+        video counts in "Failed" but not against images described (#412):
+        it never took a place in the describe count."""
         self.failed_count += 1
+        if video:
+            self._failed_videos += 1
         self.last_failure = f"{image_name}: {error}"
 
     def update_progress(self, current: int, total: int,
@@ -375,13 +437,6 @@ class BatchProgressDialog(wx.Dialog):
         on_stopping_line = (
             self._stopping and saved_selection != wx.NOT_FOUND
             and _is_stopping_row(self.stats_list.GetString(saved_selection)))
-        # Taken before the rebuild replaces separator_indices: checked against
-        # the new list, a real row whose index now holds a separator skipped
-        # the label match and the reader landed on another row (#352).
-        saved_on_separator = saved_selection in self.separator_indices
-
-        # Track separator row indices for keyboard navigation skip logic
-        self.separator_indices = set()
 
         # Rebuild stats list
         self.stats_list.Clear()
@@ -396,8 +451,6 @@ class BatchProgressDialog(wx.Dialog):
         if status_lines:
             for line in status_lines:
                 self.stats_list.Append(f"⏳ Status:                   {line}")
-            self.stats_list.Append("─" * 44)
-            self.separator_indices.add(self.stats_list.GetCount() - 1)
 
         # ── Processing Progress section ──────────────────────────────────────
         if self.stage_name:
@@ -443,10 +496,6 @@ class BatchProgressDialog(wx.Dialog):
                 time_str = f"{estimated_seconds / 3600:.1f} hours"
             self.stats_list.Append(f"Estimated Time Remaining:   {time_str}")
 
-        # ── Separator ────────────────────────────────────────────────────────
-        self.stats_list.Append("─" * 44)
-        self.separator_indices.add(self.stats_list.GetCount() - 1)
-
         # ── Job Settings section ─────────────────────────────────────────────
         if self.batch_provider or self.batch_model or self.batch_prompt:
             if self.batch_provider:
@@ -459,8 +508,6 @@ class BatchProgressDialog(wx.Dialog):
 
         # ── Token Usage section (only when data is available) ────────────────
         if token_stats:
-            self.stats_list.Append("─" * 44)
-            self.separator_indices.add(self.stats_list.GetCount() - 1)
             self.stats_list.Append("Token Usage")
             for row in cost_rows(token_stats, total, extracting=self._extraction is not None,
                                  current=current):
@@ -471,10 +518,6 @@ class BatchProgressDialog(wx.Dialog):
             self.stats_list.Append(f"  Total Tokens:             {token_stats['total']:,}")
             peak_label = f"{token_stats['peak_total']:,} ({token_stats['peak_name']})"
             self.stats_list.Append(f"  Largest Token Use:        {peak_label}")
-
-        # ── Separator ────────────────────────────────────────────────────────
-        self.stats_list.Append("─" * 44)
-        self.separator_indices.add(self.stats_list.GetCount() - 1)
 
         # ── Last completed + current image ───────────────────────────────────
         if last_image and last_description:
@@ -507,7 +550,11 @@ class BatchProgressDialog(wx.Dialog):
             # reviewing it read "0%" all through extraction. Say why instead.
             self._set_progress_label("Progress: total not known yet")
 
-        # Restore the previously selected row (skip separators if needed)
+        self._title_progress = self._progress_title(
+            current, total, on_an_image=bool(file_path or image_name))
+        self._set_stage_title()
+
+        # Restore the previously selected row
         count = self.stats_list.GetCount()
         stopping_row = wx.NOT_FOUND
         if on_stopping_line:
@@ -517,11 +564,9 @@ class BatchProgressDialog(wx.Dialog):
                                  if _is_stopping_row(self.stats_list.GetString(i))),
                                 wx.NOT_FOUND)
         label_row = wx.NOT_FOUND
-        if (stopping_row == wx.NOT_FOUND and saved_label
-                and not saved_on_separator):
+        if stopping_row == wx.NOT_FOUND and saved_label:
             same = [i for i in range(count)
-                    if i not in self.separator_indices
-                    and _row_label(self.stats_list.GetString(i)) == saved_label]
+                    if _row_label(self.stats_list.GetString(i)) == saved_label]
             if same:
                 # Rows can share a label (two status lines); take the one
                 # nearest where the reader was.
@@ -534,14 +579,8 @@ class BatchProgressDialog(wx.Dialog):
             self.stats_list.EnsureVisible(label_row)
         elif saved_selection != wx.NOT_FOUND and count > 0:
             idx = min(saved_selection, count - 1)
-            # Scan forward past any separator, then backward if still on one
-            while idx < count - 1 and idx in self.separator_indices:
-                idx += 1
-            while idx > 0 and idx in self.separator_indices:
-                idx -= 1
-            if idx not in self.separator_indices:
-                self.stats_list.SetSelection(idx)
-                self.stats_list.EnsureVisible(idx)
+            self.stats_list.SetSelection(idx)
+            self.stats_list.EnsureVisible(idx)
 
         self.Layout()
     
@@ -600,16 +639,12 @@ class BatchProgressDialog(wx.Dialog):
         row = next((i for i in range(self.stats_list.GetCount())
                     if _is_stopping_row(self.stats_list.GetString(i))), wx.NOT_FOUND)
         if row == wx.NOT_FOUND:
-            self.stats_list.Append(SEP_LINE)
-            self.separator_indices.add(self.stats_list.GetCount() - 1)
             self.stats_list.Append(STOPPING_LINE)
             row = self.stats_list.GetCount() - 1
         self.stats_list.SetSelection(row)
         self.stats_list.EnsureVisible(row)
         # The same title begin_stage gives a stage begun while stopping.
-        stage = getattr(self, 'stage_name', None)
-        self.SetTitle(f"{STOPPING_PREFIX} {stage.lower()} — Batch Processing"
-                      if stage else "Stopping — Batch Processing")
+        self._set_stage_title()
 
     def mark_complete(self, summary: str = "", stopped: bool = False):
         """
@@ -633,8 +668,6 @@ class BatchProgressDialog(wx.Dialog):
         self._last_progress = None
 
         # Append completion notice to the live stats list
-        self.stats_list.Append(SEP_LINE)
-        self.separator_indices.add(self.stats_list.GetCount() - 1)
         # stopped: the batch ended itself before the last image (e.g. the
         # provider is signed out). Say so; the title is what a screen
         # reader announces, and "Complete" would be wrong.
@@ -660,59 +693,7 @@ class BatchProgressDialog(wx.Dialog):
         # Update window title so screen readers announce completion
         self.SetTitle("Batch Stopped  —  Review stats then close" if stopped
                       else "Batch Complete  —  Review stats then close")
-    
+
     def reset_pause_button(self):
         """Reset pause button to 'Pause' state"""
         self.pause_button.SetLabel("Pause")
-    
-    def _on_stats_selection(self, event):
-        """Prevent separator lines from holding keyboard/mouse selection.
-
-        wx.EVT_LISTBOX fires on every selection change (arrow key, mouse click,
-        or programmatic SetSelection). If the newly selected index is a
-        separator, move focus to the nearest selectable item instead.
-        """
-        idx = self.stats_list.GetSelection()
-        separators = getattr(self, 'separator_indices', set())
-        if idx == wx.NOT_FOUND or idx not in separators:
-            event.Skip()
-            return
-
-        count = self.stats_list.GetCount()
-        # Try moving forward first, then backward
-        for delta, rng in [(1, range(idx + 1, count)), (-1, range(idx - 1, -1, -1))]:
-            for candidate in rng:
-                if candidate not in separators:
-                    self.stats_list.SetSelection(candidate)
-                    return
-
-        # No selectable item at all — deselect
-        self.stats_list.SetSelection(wx.NOT_FOUND)
-
-    def _on_stats_key(self, event):
-        """Handle keyboard navigation in stats list to skip all separator lines"""
-        keycode = event.GetKeyCode()
-        current_selection = self.stats_list.GetSelection()
-        separators = getattr(self, 'separator_indices', set())
-
-        if keycode == wx.WXK_DOWN:
-            if current_selection != wx.NOT_FOUND:
-                next_index = current_selection + 1
-                # Advance past any consecutive separators
-                while next_index in separators and next_index < self.stats_list.GetCount():
-                    next_index += 1
-                if next_index < self.stats_list.GetCount():
-                    self.stats_list.SetSelection(next_index)
-                    return
-
-        elif keycode == wx.WXK_UP:
-            if current_selection != wx.NOT_FOUND:
-                prev_index = current_selection - 1
-                # Step back past any consecutive separators
-                while prev_index in separators and prev_index >= 0:
-                    prev_index -= 1
-                if prev_index >= 0:
-                    self.stats_list.SetSelection(prev_index)
-                    return
-
-        event.Skip()
