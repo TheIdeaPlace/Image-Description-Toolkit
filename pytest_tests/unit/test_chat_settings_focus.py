@@ -43,17 +43,24 @@ def test_the_title_says_chat_once(name, title):
     assert chat_window_title(name) == title
 
 
-def test_chat_settings_opens_on_provider():
+def test_chat_settings_opens_on_provider(monkeypatch):
+    """Checked by spying on SetFocus rather than with FindFocus, which on
+    macOS needs the test process to be the active app (as in
+    test_mode_switch_focus.py)."""
     import wx
     import chat_window_wx
 
+    focused = []
+    monkeypatch.setattr(wx.Choice, "SetFocus", lambda self: focused.append(self))
     app = wx.App.Get() or wx.App(False)
     frame = wx.Frame(None)
     dlg = chat_window_wx.ChatDialog(frame, {}, cached_ollama_models=["llava"])
     try:
+        assert focused and focused[-1] is dlg.provider_choice
+        focused.clear()
         dlg.Show()
         wx.SafeYield()          # runs the CallAfter that refocuses once shown
-        assert wx.Window.FindFocus() is dlg.provider_choice
+        assert focused and focused[-1] is dlg.provider_choice
     finally:
         dlg.Destroy()
         frame.Destroy()
