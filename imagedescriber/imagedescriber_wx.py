@@ -8570,6 +8570,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 )
                 self.current_image_item.add_description(desc)
                 self.mark_modified()
+                # The list's "d" count changes too (#429: it didn't).
+                self.refresh_image_label(self.current_image_item.file_path)
                 self.display_image_info(self.current_image_item)
                 self.SetStatusText("Manual description added", 0)
 
