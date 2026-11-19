@@ -176,8 +176,8 @@ def test_the_range_is_part_of_the_field_name(cfg, monkeypatch):
     dlg, _shown = _dialog(cfg, monkeypatch, "time_interval_seconds", 5.0, FLOAT)
     try:
         # Spaces, not underscores, which JAWS and NVDA read as "underline".
-        assert dlg.editor.GetName() == "time interval seconds value, 0.5 to 30"
-        assert dlg.GetTitle() == "Edit: time interval seconds"
+        assert dlg.editor.GetName() == "Time interval seconds value, 0.5 to 30"
+        assert dlg.GetTitle() == "Edit: Time interval seconds"
         # What a screen reader gets on Windows: the accessible object's name, not
         # the "Value:" label before the field (installed-build settings check).
         try:
@@ -185,7 +185,7 @@ def test_the_range_is_part_of_the_field_name(cfg, monkeypatch):
         except (NotImplementedError, AttributeError):       # macOS: no wx.Accessible
             acc = None
         if acc is not None:
-            assert acc.GetName(0)[1] == "time interval seconds value, 0.5 to 30"
+            assert acc.GetName(0)[1] == "Time interval seconds value, 0.5 to 30"
     finally:
         dlg.Destroy()
 
@@ -193,7 +193,7 @@ def test_the_range_is_part_of_the_field_name(cfg, monkeypatch):
 def test_the_name_says_what_empty_means(cfg, monkeypatch):
     dlg, _shown = _dialog(cfg, monkeypatch, "max_frames_per_video", None, INT_OR_NULL)
     try:
-        assert dlg.editor.GetName() == "max frames per video value, 1 to 1000, or empty for no limit"
+        assert dlg.editor.GetName() == "Maximum frames per video value, 1 to 1000, or empty for no limit"
     finally:
         dlg.Destroy()
 
@@ -206,7 +206,7 @@ def test_the_message_box_title_is_spoken_cleanly(cfg, monkeypatch):
     try:
         dlg.editor.SetValue("x")
         dlg._on_ok(_Ok())
-        assert titles == ["batch delay"]
+        assert titles == ["Batch delay"]
     finally:
         dlg.Destroy()
 

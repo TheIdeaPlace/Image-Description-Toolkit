@@ -90,11 +90,18 @@ def test_estimate_prices_tokens():
 
 
 @pytest.mark.parametrize("amount, text", [
-    (0.36, "$0.36"), (12.5, "$12.50"), (1234.5, "$1,234.50"),
-    (0, "$0.00"),
-    # Under a cent, in cents: reads better aloud, never rounds to zero.
-    (0.00096, "0.096 cents"), (0.000005, "0.0005 cents"), (0.004999, "0.5 cents"),
-    (0.009996, "$0.01"),        # rounds to a cent: dollars, not "1 cents"
+    # From a dollar up: dollars and cents.
+    (12.5, "$12.50"), (1234.5, "$1,234.50"), (1.0, "$1.00"), (0.9951, "$1.00"),
+    # Under a dollar: cents, so lines in the batch window compare by ear
+    # (Kelly's run: "$0.02" beside "0.11 cents" sounded wrong; it was 2.1 cents).
+    (0.36, "36 cents"), (0.62, "62 cents"), (0.0212, "2.1 cents"),
+    (0.0011, "0.11 cents"), (0.00096, "0.096 cents"), (0.000005, "0.0005 cents"),
+    (0.004999, "0.5 cents"), (0.01, "1 cent"), (0.009996, "1 cent"),
+    (0.0996, "10 cents"), (0, "0 cents"),
+    # Edges (#495 review): exactly 0.995 rounds to a dollar; never negative
+    # or in scientific notation.
+    (0.995, "$1.00"), (0.99499, "99 cents"), (-5, "0 cents"),
+    (1e-7, "less than 0.0001 cents"), (1e-6, "0.0001 cents"),
 ])
 def test_format_dollars(amount, text):
     assert pricing.format_dollars(amount) == text
@@ -151,7 +158,7 @@ def test_cost_rows_read_like_a_taxi_meter(monkeypatch):
     stats = {"cost": 0.0365, "avg_cost": 0.00096, "cost_note": ""}
     rows = cost_rows(stats, total=6083, current=38)
     # Projected: the 38 done, exactly, plus the average for the 6,045 to go.
-    assert rows == ["  Estimated Cost So Far:    $0.04",
+    assert rows == ["  Estimated Cost So Far:    3.6 cents",
                     "  Average Cost per Image:   0.096 cents",
                     "  Projected Batch Cost:     about $5.84"]
     # No projection while videos are still extracting (the total is still growing).

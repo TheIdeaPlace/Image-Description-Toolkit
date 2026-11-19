@@ -180,11 +180,31 @@ def running_cost(records) -> dict:
 
 
 def format_dollars(amount: float) -> str:
-    """"$0.36", "$12.50"; under a cent, in cents ("0.096 cents"), which reads
-    better aloud than "$0.00096" and never rounds a real cost to zero."""
-    if amount >= 0.00995 or amount == 0:   # anything that rounds to a cent or more
-        return f"${amount:,.2f}"
-    return f"{amount * 100:.2g} cents"
+    """A cost, read aloud easily: under a dollar in cents, from a dollar up in
+    dollars and cents.
+
+    "0.096 cents", "2.1 cents", "62 cents", "$1.24", "$1,234.50". Under ten
+    cents it keeps two significant figures, so a real cost is never rounded
+    to nothing. All in cents under a dollar so the batch window's lines can
+    be compared by ear: it read "Estimated Cost So Far: $0.02" beside
+    "Average Cost per Image: 0.11 cents", which sounded as if they didn't add
+    up (Kelly, 11/19/2026; it was 2.1 cents over 19 pictures).
+    """
+    amount = max(amount, 0.0)              # a cost is never negative
+    if amount == 0:
+        return "0 cents"
+    # Decided on the figure as written, rounded half up: 0.995 is stored as
+    # 0.99499..., which float rounding turns into "$0.99" (#495 review).
+    from decimal import ROUND_HALF_UP, Decimal
+
+    dollars = Decimal(repr(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if dollars >= 1:
+        return f"${dollars:,.2f}"
+    cents = amount * 100
+    if cents < 0.00005:                    # :.2g would switch to "1e-05"
+        return "less than 0.0001 cents"
+    text = f"{cents:.0f}" if cents >= 9.95 else f"{cents:.2g}"
+    return "1 cent" if text == "1" else f"{text} cents"
 
 
 def estimate(provider: str, model: str, input_tokens: int, output_tokens: int):

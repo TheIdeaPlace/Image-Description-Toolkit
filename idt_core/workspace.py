@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import uuid
 from dataclasses import dataclass, field
@@ -40,6 +41,19 @@ FORMAT_VERSION = "1.0"
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+_LEADING_BLANK_LINES = re.compile(r"^(?:[ \t]*\r?\n)+")
+
+
+def tidy_description_text(text):
+    """``text`` without the blank lines some models open with, or trailing
+    whitespace (#424). Leading spaces on the first real line are kept, so an
+    indented code block or text picture is not changed. Non-strings pass
+    through unchanged."""
+    if not isinstance(text, str):
+        return text
+    return _LEADING_BLANK_LINES.sub("", text).rstrip()
 
 
 def _atomic_write_text(path: Path, text: str) -> None:
@@ -270,7 +284,9 @@ class WorkspaceDescription:
                metadata_context: Optional[str] = None) -> "WorkspaceDescription":
         return cls(
             id=str(uuid.uuid4()),
-            text=text,
+            # Some models open their answer with a line break; stored as is, the
+            # editor and reports started with a blank line (#424).
+            text=tidy_description_text(text),
             provider=provider,
             model=model,
             prompt_name=prompt_name,
@@ -312,7 +328,9 @@ class WorkspaceDescription:
         gui_metadata = (d.get("extra") or {}).get("metadata") or {}
         return cls(
             id=d.get("id") or str(uuid.uuid4()),
-            text=d.get("text", ""),
+            # Tidied on load too, so descriptions saved before #424 read
+            # cleanly in the CLI and the HTML report.
+            text=tidy_description_text(d.get("text", "")),
             provider=d.get("provider", ""),
             model=d.get("model", ""),
             prompt_name=d.get("prompt_name", d.get("prompt_style", "")),

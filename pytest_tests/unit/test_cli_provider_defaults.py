@@ -198,11 +198,13 @@ def test_an_unknown_inherited_prompt_falls_back_and_says_so(config_file, capsys)
 
 
 def test_configure_offers_real_prompt_names():
+    # Configure lists the settings file's prompts (#469); the fallback, used
+    # only for a file with none, must still be real prompt names.
     src = (_ROOT / "imagedescriber" / "configure_dialog.py").read_text(encoding="utf-8")
     shared = json.loads((_ROOT / "scripts" / "image_describer_config.json").read_text(encoding="utf-8"))
-    start = src.index('"default_prompt_style": {')
-    choices_line = next(l for l in src[start:].splitlines() if '"choices"' in l)
-    for choice in json.loads(choices_line.split(":", 1)[1].strip().rstrip(",")):
+    start = src.index("_FALLBACK_PROMPT_STYLES = [")
+    literal = src[start:src.index("]", start) + 1].split("=", 1)[1]
+    for choice in json.loads(" ".join(literal.split())):
         assert choice in shared["prompt_variations"], choice
 
 
