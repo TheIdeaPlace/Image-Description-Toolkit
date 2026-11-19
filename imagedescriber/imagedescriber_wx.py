@@ -3738,9 +3738,20 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 # Re-enable action buttons if current_image_item is still valid.
                 # This guards against the macOS DataViewTreeCtrl behaviour where
                 # re-clicking an already-selected item fires no selection-change event.
-                if self.image_list.GetItemData(new_selection_item) is None:
+                selected_path = self.image_list.GetItemData(new_selection_item)
+                if selected_path is None:
                     self._show_folder(new_selection_item)
-                elif self.current_image_item:
+                    return_item = None
+                else:
+                    # Reopening a workspace keeps the same path selected, but
+                    # its item is a new object; current must be that one, not
+                    # the closed workspace's (#501 review).
+                    return_item = self.workspace.items.get(selected_path)
+                    if return_item is not None and return_item is not self.current_image_item:
+                        self.current_image_item = return_item
+                        self.display_image_info(return_item)
+                        self.update_preview_for_item(return_item)
+                if return_item is not None and self.current_image_item:
                     self.process_btn.Enable(True)
                     self.save_desc_btn.Enable(True)
             elif displayed_count > 0:
