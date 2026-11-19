@@ -382,6 +382,15 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 
 ### For screen reader users
 
+- **Viewer mode lists descriptions oldest to newest, and opens on the newest.** It used
+  to list them by file path, so Home and End stayed on the same two pictures however many
+  descriptions came in, even after a refresh. Now End is always the latest description,
+  and switching to Viewer mode or refreshing lands on it, so during a run the first thing
+  you hear is what just arrived. Chat turns stay together after the picture descriptions.
+- **No Tab stop on an empty "panel".** In Viewer mode, Tab stopped on the picture preview,
+  an empty panel, between the descriptions list and the description. It now goes
+  straight from the list to the description. Editor mode's preview can't take focus
+  either.
 - **Switching between Editor and Viewer mode is heard straight away.** The switch always
   happened at once, but focus stayed on the view that had just been hidden, so JAWS and
   NVDA said nothing, and it seemed as if the switch hadn't happened. Focus now moves into
