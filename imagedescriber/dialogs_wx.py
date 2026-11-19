@@ -931,7 +931,11 @@ class ProcessingOptionsDialog(wx.Dialog):
 
         context_note = wx.StaticText(
             panel,
-            label="Date and camera are always included when available — no internet needed."
+            # The place is the only thing sent to the model (prompt_context);
+            # the date and camera are saved with each description but never
+            # sent. The old note said they were always included (#487 review).
+            label="With geocoding on, the place is sent to the AI. The date and "
+                  "camera are saved with each description but never sent."
         )
         context_sizer.Add(context_note, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
 

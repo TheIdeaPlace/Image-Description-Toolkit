@@ -112,12 +112,37 @@ def test_a_provider_taking_no_attachments_says_so(files):
 # Size limits
 # ---------------------------------------------------------------------------
 
-def test_claude_image_limit_is_enforced(files):
-    big = files("big.png", CLAUDE_IMAGE_LIMIT + 1)
+@pytest.mark.parametrize("provider", ["claude", "claude-code", "anthropic"])
+def test_a_large_photo_is_fitted_for_claude_not_refused(tmp_path, provider):
+    """Claude chat fits every picture before sending it, so a phone photo
+    over 5 MB is scaled down. It was refused at attach time, before it
+    could be fitted (#487 review, 11/19/2026)."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    from idt_core.chat.encoding import encode_attachment_claude
+
+    big = tmp_path / "phone.png"
+    # Noise doesn't compress: well over 5 MB as a PNG.
+    import os
+
+    Image.frombytes("RGB", (1800, 1400), os.urandom(1800 * 1400 * 3)
+                    ).save(big, format="PNG", compress_level=0)
+    assert big.stat().st_size > CLAUDE_IMAGE_LIMIT
+    attachment, _ = prepare_attachment(big, provider)
+    block = encode_attachment_claude(attachment)
+    assert len(base64.b64decode(block["source"]["data"])) <= CLAUDE_IMAGE_LIMIT
+    Image.open(io.BytesIO(base64.b64decode(block["source"]["data"])))   # a real picture
+
+
+def test_a_document_over_the_limit_is_still_refused(files):
+    big = files("big.pdf", 33 * 1024 * 1024)
     with pytest.raises(AttachmentError) as excinfo:
         prepare_attachment(big, "claude")
     message = str(excinfo.value)
-    assert "big.png" in message
+    assert "big.pdf" in message
     assert "MB" in message  # the limit is stated in units a person reads
 
 
@@ -246,16 +271,17 @@ def test_a_failed_heic_conversion_names_the_file(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_one_bad_file_does_not_discard_the_others(files):
-    """Nine good photos and one oversized should attach nine."""
+    """Nine good photos and one oversized document should attach nine. (A
+    large photo is no longer a bad file for Claude: it's fitted.)"""
     good = [files(f"ok{i}.png") for i in range(9)]
-    bad = files("toobig.png", CLAUDE_IMAGE_LIMIT + 1)
+    bad = files("toobig.pdf", 33 * 1024 * 1024)
 
     attachments, converted, errors = prepare_attachments(
         good + [bad], "claude")
 
     assert len(attachments) == 9
     assert len(errors) == 1
-    assert "toobig.png" in errors[0]
+    assert "toobig.pdf" in errors[0]
     assert converted == []
 
 
