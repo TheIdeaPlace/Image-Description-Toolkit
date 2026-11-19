@@ -27,6 +27,7 @@ LiveUpdateEvent, EVT_LIVE_UPDATE = wx.lib.newevent.NewEvent()
 try:
     from shared.wx_common import (
         DescriptionListBox,
+        NoFocusPanel,
         show_warning,
         show_info,
         ask_yes_no
@@ -36,12 +37,30 @@ try:
 except ImportError:
     # Fallback for dev/frozen paths
     DescriptionListBox = wx.ListBox # Fallback
+    NoFocusPanel = wx.Panel  # Fallback
     show_warning = wx.MessageBox
     show_info = wx.MessageBox
     def ask_yes_no(parent, message, caption):
         return wx.MessageBox(message, caption, wx.YES_NO) == wx.YES
     def apply_accessible_names(root):
         return 0
+
+
+def _created_sort_key(created) -> float:
+    """Seconds since the epoch for a description's ``created`` ISO timestamp,
+    for sorting; 0 (first) when missing or unreadable. Parsed rather than
+    compared as text: a timestamp with a time zone ("…Z", "+00:00") and one
+    without don't sort correctly as strings."""
+    from datetime import datetime
+
+    if not created:
+        return 0.0
+    try:
+        stamp = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
+        return stamp.timestamp()   # naive is taken as local time
+    except (ValueError, OverflowError, OSError):
+        return 0.0
+
 
 class WorkflowMonitor(threading.Thread):
     """Background thread for monitoring workflow progress"""
@@ -257,7 +276,10 @@ class ViewerPanel(wx.Panel):
         right_sizer = wx.BoxSizer(wx.VERTICAL)
         
         # Image Preview (Top Right)
-        self.image_preview_panel = wx.Panel(right_panel, size=(-1, 300))
+        # Only painted on, never a Tab stop: as a plain wx.Panel, Tab stopped
+        # on an empty "panel" between the list and the description (Kelly,
+        # 11/19/2026). SetCanFocus(False) alone didn't stop it.
+        self.image_preview_panel = NoFocusPanel(right_panel, size=(-1, 300))
         self.image_preview_panel.SetBackgroundColour(wx.Colour(200, 200, 200)) # Placeholder gray
         self.image_preview_bitmap = None
         self.image_preview_panel.Bind(wx.EVT_PAINT, self.on_paint_preview)
@@ -376,14 +398,32 @@ class ViewerPanel(wx.Panel):
                 }
                 self.entries.append(entry)
         
-        # Sort by creation time if possible, or filename
-        # Workspace is usually unsorted dict, so sorting helps consistency
-        self.entries.sort(key=lambda x: x.get('file_path', ''))
-        
-        self.refresh_list()
-        
-    def refresh_list(self):
-        """Update the UI list from self.entries"""
+        # Oldest description first, newest last, so End is always the latest
+        # picture description: during a run, End says what just came in.
+        # Sorted by file path before, so Home and End never moved however many
+        # descriptions arrived (Kelly chose this order, 11/19/2026).
+        # - Chat turns stay grouped after the pictures, as before: mixed in by
+        #   time, a chat answer between two photo descriptions wouldn't be
+        #   recognisable as one (the list reads only the text).
+        # - Equal times keep path order. A description with no time is given
+        #   one when loaded (ImageDescription and the bundle reader use "now"),
+        #   so in practice every entry has a time.
+        self.entries.sort(key=lambda x: (str(x.get('file_path', '')).startswith('chat:'),
+                                         _created_sort_key(x.get('created')),
+                                         x.get('file_path', '')))
+
+        # Start on the newest picture description, the one End goes to: the
+        # first thing heard on switching to Viewer mode is what came in last
+        # (Kelly, 11/19/2026). Chats come after the pictures, so it's the last
+        # entry that isn't a chat, or the last entry if all are chats.
+        newest = next((i for i in range(len(self.entries) - 1, -1, -1)
+                       if not str(self.entries[i].get('file_path', '')).startswith('chat:')),
+                      len(self.entries) - 1)
+        self.refresh_list(select=newest)
+
+    def refresh_list(self, select: int = 0):
+        """Update the UI list from self.entries, selecting entry ``select``
+        (the first by default)."""
         # Prepare data for Accessible ListBox
         display_data = []
         for entry in self.entries:
@@ -406,7 +446,7 @@ class ViewerPanel(wx.Panel):
         self.desc_list.LoadDescriptions(display_data)
         
         if self.entries:
-            self.desc_list.SetSelection(0)
+            self.desc_list.SetSelection(min(max(select, 0), len(self.entries) - 1))
             self.on_selection_changed(None)
         else:
             self.clear_details()
@@ -610,6 +650,9 @@ class ViewerPanel(wx.Panel):
             self.load_from_directory(self.current_dir)
             if sel != wx.NOT_FOUND and sel < self.desc_list.GetCount():
                 self.desc_list.SetSelection(sel)
+                # SetSelection fires no event: without this the details kept
+                # showing entry 0 while the list was back on the user's entry.
+                self.on_selection_changed(None)
             # Title is updated in load_from_directory via refresh_list
 
     def on_list_key(self, event):
