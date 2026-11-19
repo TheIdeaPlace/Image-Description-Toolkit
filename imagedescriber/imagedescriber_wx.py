@@ -6682,6 +6682,13 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             except Exception:
                 pass  # Don't let this break the main processing flow
 
+            # The progress window shows this on the next image's update; the
+            # batch's last image has none, so hand it over now (#475).
+            dlg = self.batch_progress_dialog
+            if batch is not None and dlg and not dlg.IsBeingDeleted():
+                dlg.note_completed(Path(event.file_path).name, event.description,
+                                   self._compute_token_stats())
+
             # Phase 3: Set processing state to completed
             image_item.processing_state = "completed"
             image_item.processing_error = None  # Clear any previous error
@@ -8148,7 +8155,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # Show progress dialog (starting from resumed position)
         total = batch_state.get('total_queued', len(file_paths))
         if BatchProgressDialog:
-            self.batch_progress_dialog = BatchProgressDialog(self, total)
+            self.batch_progress_dialog = BatchProgressDialog(self, total, describing=True)
             self.batch_progress_dialog.Show()
             # Enable "Show Batch Progress" menu item
             if hasattr(self, 'show_batch_progress_item'):
@@ -8406,7 +8413,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
         # Show batch progress dialog
         if BatchProgressDialog:
-            self.batch_progress_dialog = BatchProgressDialog(self, total_images=len(to_process))
+            self.batch_progress_dialog = BatchProgressDialog(
+                self, total_images=len(to_process), describing=True)
             self.batch_progress_dialog.Show()
 
         # Get API key for the provider
@@ -8510,7 +8518,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
         # Show progress dialog
         if BatchProgressDialog:
-            self.batch_progress_dialog = BatchProgressDialog(self, len(frame_paths))
+            self.batch_progress_dialog = BatchProgressDialog(
+                self, len(frame_paths), describing=True)
             self.batch_progress_dialog.Show()
             # Enable "Show Batch Progress" menu item
             if hasattr(self, 'show_batch_progress_item'):
