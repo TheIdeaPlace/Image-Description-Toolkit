@@ -229,7 +229,10 @@ class TestVideoDialogDefaults:
         shipped = json.loads((_ROOT / "scripts" / "video_frame_extractor_config.json")
                              .read_text(encoding="utf-8"))
         assert dialog_cls.initial_settings(shipped) == dialog_cls.initial_settings(None)
-        assert shipped["max_frames_per_video"] is None
+        # 50, the cap scene detection always had: an empty field now means no
+        # limit, and shipping that would let a long, busy video send hundreds
+        # of frames to a paid provider by default.
+        assert shipped["max_frames_per_video"] == 50
 
 
 class TestExtractVideoUsesSavedSettings:
