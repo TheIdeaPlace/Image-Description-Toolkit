@@ -332,15 +332,18 @@ class BatchProgressDialog(wx.Dialog):
         """ "45%, 9 of 20 images described", or None outside describing.
 
         ``current`` is the image being described, so one fewer is done; one
-        that failed isn't described. While videos are still extracting the
-        total grows, so no percentage (it would fall as videos finish)."""
+        that failed isn't described, and the percentage is of the same count.
+        While videos are still extracting the total grows, so no percentage
+        (it would fall as videos finish). The stage name says so before
+        begin_extraction has run, so the title doesn't flash a percentage."""
         if not self._is_describing():
             return None
         done = max(current - 1, 0) if on_an_image else current
         described = max(done - self.failed_count, 0)
-        if total <= 0 or self._extraction is not None:
+        if (total <= 0 or self._extraction is not None
+                or "extracting" in self.stage_name.lower()):
             return f"{described:,} images described so far"
-        percent = int(done * 100 / total)
+        percent = int(described * 100 / total)
         return f"{percent}%, {described:,} of {total:,} images described"
 
     # ----- frame extraction alongside describing (#344) ----- #

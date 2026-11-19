@@ -720,6 +720,25 @@ def test_the_last_image_reaches_the_progress_window(frame, monkeypatch):
     f.batch_worker = None
 
 
+def test_a_stopped_workers_last_image_leaves_the_window_alone(frame, monkeypatch):
+    """A worker Stop left finishing its image isn't the window's batch."""
+    from batch_progress_dialog import BatchProgressDialog
+    f = frame
+    f.batch_worker = _FakeWorker()
+    stopped = _FakeWorker()
+    monkeypatch.setattr(f, "_token_records", [])
+    dlg = BatchProgressDialog(f, 1, describing=True)
+    f.batch_progress_dialog = dlg
+    img = str(f.src / "a.jpg")
+    dlg.update_progress(1, 1, file_path=img)
+    before = dict(dlg._last_progress)
+    f.on_worker_complete(SimpleNamespace(
+        file_path=img, description="A dog.", model="llava", provider="ollama",
+        prompt_style="detailed", custom_prompt="", metadata={}, batch=stopped))
+    assert dlg._last_progress == before
+    f.batch_worker = None
+
+
 def test_end_of_batch_rebuilds_the_list_before_focusing_it(frame, monkeypatch):
     """#414: focus went to the image list and the list was rebuilt after it,
     so NVDA said the focused item twice ("level 1 Europe trip collapsed",

@@ -208,7 +208,7 @@ except ImportError:
 
 # Import chat feature components
 try:
-    from chat_window_wx import ChatDialog, ChatWindow
+    from chat_window_wx import ChatDialog, ChatWindow, chat_window_title
 except ImportError as e:
     import traceback
     # Write error to file for debugging frozen exe
@@ -225,6 +225,9 @@ except ImportError as e:
     print(traceback.format_exc())
     ChatDialog = None
     ChatWindow = None
+
+    def chat_window_title(name):
+        return f"Chat: {name}"
 
 # Import Viewer components
 try:
@@ -2158,7 +2161,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             providers = set(d.provider for d in image_item.descriptions if d.provider)
             models = set(_display_model(d.provider, d.model)
                          for d in image_item.descriptions if d.model)
-            info = f"Chat: {session_name}"
+            # "Chat: Chat - Ollama …" said Chat twice (#421).
+            info = chat_window_title(session_name)
             if turn_count:
                 exchanges = turn_count // 2
                 info += f" ({exchanges} exchange{'s' if exchanges != 1 else ''})"
@@ -6685,7 +6689,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             # The progress window shows this on the next image's update; the
             # batch's last image has none, so hand it over now (#475).
             dlg = self.batch_progress_dialog
-            if batch is not None and dlg and not dlg.IsBeingDeleted():
+            if (batch is not None and batch is self.batch_worker
+                    and dlg and not dlg.IsBeingDeleted()):
                 dlg.note_completed(Path(event.file_path).name, event.description,
                                    self._compute_token_stats())
 

@@ -575,15 +575,16 @@ def test_silent_policy_announces_nothing(frame):
 
 
 def test_announce_speaks_without_moving_focus(frame, monkeypatch):
-    """#439: the reply goes to the screen reader through shared.uia_notify,
-    and focus stays put. The focus bounce, all there was, said nothing under
+    """#439: with NVDA running the reply goes to it directly, and focus
+    stays put. The focus bounce, all there was, said nothing under
     NVDA in ImageDescriber's identical chat window (#410)."""
     import chat_app_wx
     from chat_app_wx import ANNOUNCE_FULL
 
     said, focused = [], []
-    monkeypatch.setattr(chat_app_wx, "notify_screen_reader",
-                        lambda hwnd, text, **kw: said.append(text) or True)
+    monkeypatch.setattr(chat_app_wx, "speak_with_nvda",
+                        lambda text: said.append(text) or True)
+    monkeypatch.setattr(frame, "IsActive", lambda: True)
     monkeypatch.setattr(frame.history_list, "SetFocus",
                         lambda: focused.append(True))
     frame.announce_policy = ANNOUNCE_FULL
@@ -593,14 +594,13 @@ def test_announce_speaks_without_moving_focus(frame, monkeypatch):
 
 
 def test_announce_falls_back_to_the_focus_bounce(frame, monkeypatch):
-    """Where nothing can speak it (macOS, or no NVDA and no UIA), the old
-    bounce still runs, so VoiceOver keeps hearing replies."""
+    """Without NVDA (JAWS, Narrator, VoiceOver) the old bounce still runs."""
     import chat_app_wx
     from chat_app_wx import ANNOUNCE_FULL
 
     focused = []
-    monkeypatch.setattr(chat_app_wx, "notify_screen_reader",
-                        lambda hwnd, text, **kw: False)
+    monkeypatch.setattr(chat_app_wx, "speak_with_nvda", lambda text: False)
+    monkeypatch.setattr(frame, "IsActive", lambda: True)
     monkeypatch.setattr(frame.history_list, "SetFocus",
                         lambda: focused.append(True))
     frame.announce_policy = ANNOUNCE_FULL
@@ -608,13 +608,27 @@ def test_announce_falls_back_to_the_focus_bounce(frame, monkeypatch):
     assert focused == [True]
 
 
+def test_an_inactive_window_does_not_speak_over_another_app(frame, monkeypatch):
+    import chat_app_wx
+    from chat_app_wx import ANNOUNCE_FULL
+
+    said = []
+    monkeypatch.setattr(chat_app_wx, "speak_with_nvda",
+                        lambda text: said.append(text) or True)
+    monkeypatch.setattr(frame, "IsActive", lambda: False)
+    frame.announce_policy = ANNOUNCE_FULL
+    frame._announce("Hello")
+    assert said == []
+
+
 def test_summary_policy_announces_the_summary(frame, monkeypatch):
     import chat_app_wx
     from chat_app_wx import ANNOUNCE_SUMMARY
 
     said = []
-    monkeypatch.setattr(chat_app_wx, "notify_screen_reader",
-                        lambda hwnd, text, **kw: said.append(text) or True)
+    monkeypatch.setattr(chat_app_wx, "speak_with_nvda",
+                        lambda text: said.append(text) or True)
+    monkeypatch.setattr(frame, "IsActive", lambda: True)
     frame.announce_policy = ANNOUNCE_SUMMARY
     frame._announce("One two three. Four five.")
     assert len(said) == 1

@@ -128,7 +128,21 @@ def test_a_failure_is_not_counted_as_described(dialog):
     dialog.begin_stage("Describing", 4, can_interrupt=True)
     dialog.note_failure("b.jpg", "bad")
     dialog.update_progress(3, 4, file_path="c.jpg")
-    assert dialog.GetTitle().startswith("50%, 1 of 4 images described — ")
+    # The percentage is of the same count the title says.
+    assert dialog.GetTitle().startswith("25%, 1 of 4 images described — ")
+
+
+def test_starting_to_describe_while_extracting_shows_no_percentage(dialog):
+    """begin_stage runs before begin_extraction; the title must not flash a
+    percentage in between (#412 review)."""
+    titles = []
+    real = dialog.SetTitle
+    dialog.SetTitle = lambda t: (titles.append(t), real(t))
+    dialog.begin_stage("Describing and extracting frames", 2, stage_index=2,
+                       stage_count=2, can_interrupt=True)
+    dialog.begin_extraction(3)
+    assert titles and not [t for t in titles if "%" in t], titles
+    assert len(titles) == 1, titles
 
 
 def test_other_stages_keep_their_title(dialog):

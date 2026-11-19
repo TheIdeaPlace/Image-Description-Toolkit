@@ -89,7 +89,7 @@ from shared.speech_engine import (  # noqa: E402
     list_speech_options,
     speaker,
 )
-from shared.uia_notify import notify as notify_screen_reader  # noqa: E402
+from shared.uia_notify import speak_with_nvda  # noqa: E402
 
 APP_NAME = "IDT Chat"
 
@@ -1167,13 +1167,16 @@ class ChatFrame(wx.Frame):
     def _announce(self, text):
         """Make a screen reader speak `text` without stealing the caret.
 
-        On Windows, shared.uia_notify speaks it through NVDA's controller
-        client, or raises a UI Automation notification (Narrator, JAWS), with
-        focus left where it is (#439). Moving focus to the history list and
-        back, all there was before, said nothing under NVDA in ImageDescriber's
-        chat window (#410), because NVDA cuts speech off when focus returns.
-        That bounce stays as the fallback where neither route exists (macOS,
-        where VoiceOver speaks it).
+        With NVDA running it is spoken through NVDA's controller client, focus
+        left where it is (#439). Moving focus to the history list and back said
+        nothing under NVDA in ImageDescriber's chat window (#410), because NVDA
+        cuts speech off when focus returns.
+
+        Everywhere else (JAWS, Narrator, VoiceOver) the focus bounce stays, as
+        before. A UI Automation notification would report success whether or
+        not anything spoke it, and whether JAWS speaks one from a wx window is
+        unconfirmed, so it isn't used here. Only while this window is active:
+        a reply finishing while the user is in another app isn't read over it.
         """
         if self.announce_policy == ANNOUNCE_SILENT or not text:
             return
@@ -1182,7 +1185,7 @@ class ChatFrame(wx.Frame):
             text = f"{_first_sentence(text)} Response complete, {words} words."
         self._set_status(text[:120], 0)
         try:
-            if notify_screen_reader(self.GetHandle(), text, activity_id="idt-chat"):
+            if self.IsActive() and speak_with_nvda(text):
                 return
         except RuntimeError:        # window already destroyed
             return
