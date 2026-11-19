@@ -6,8 +6,13 @@ Point it at a folder of photos and it produces a description of each one. Descri
 can be written for alt text, for cataloging, for making an archive searchable, or for
 anyone who needs to know what is in a picture without seeing it.
 
-It runs entirely on your own machine if you want it to. No account, no subscription,
-no uploading your photos anywhere.
+**Your choice of AI.** Use models that run on your own computer, or paid AI services,
+whichever suits the job. With Ollama, Apple Intelligence on a Mac, or Windows AI on a
+Copilot+ PC, your photos never leave your machine and there's nothing to pay: no
+account, no subscription, no uploading. When you want the most detailed descriptions,
+use Claude or OpenAI with your own API key, or Claude through the Claude subscription
+you already have; IDT shows what a run is costing as it goes. You can switch between
+them at any time, picture by picture or folder by folder.
 
 ---
 
