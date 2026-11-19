@@ -252,6 +252,17 @@ def test_stdin_mode_all_described_exits_0(tmp_path, idt_home, monkeypatch):
     assert run_idt(monkeypatch, "describe", "-", *DESCRIBE) == 0
 
 
+def test_stdin_flag_needs_no_source(tmp_path, idt_home, monkeypatch):
+    """#500: --stdin alone was refused, "the following arguments are required: source"."""
+    _stdin(monkeypatch, [_jpeg(tmp_path / "in" / "a.jpg")])
+    assert run_idt(monkeypatch, "describe", "--stdin", *DESCRIBE) == 0
+
+
+def test_describe_with_no_source_says_what_to_give(idt_home, monkeypatch, capsys):
+    assert run_idt(monkeypatch, "describe", *DESCRIBE) == cli_main.EXIT_USAGE
+    assert "give a folder of pictures" in capsys.readouterr().err
+
+
 def test_watch_reports_the_whole_watch_when_stopped(tmp_path, idt_home, monkeypatch):
     src = tmp_path / "Inbox"
     _jpeg(src / "a.jpg")
