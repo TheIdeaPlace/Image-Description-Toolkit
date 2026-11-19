@@ -287,6 +287,10 @@ class ErrorKind:
     INVALID_REQUEST = "invalid_request"
     SERVER_ERROR = "server_error"
     TIMEOUT = "timeout"
+    #: The request never reached the provider: no internet, DNS failure,
+    #: connection refused. Retryable like a server error, but worded so the
+    #: user checks their connection rather than blaming the provider (#476).
+    CONNECTION = "connection"
     #: The provider cannot run at all -- no API key, SDK missing, wrong OS.
     #: Distinct from AUTH: nothing was ever sent, so there is no status code
     #: and no request to blame. Permanently non-retryable; retrying a provider
@@ -295,7 +299,7 @@ class ErrorKind:
     UNKNOWN = "unknown"
 
     ALL = ("rate_limit", "auth", "invalid_request", "server_error",
-           "timeout", "unavailable", "unknown")
+           "timeout", "connection", "unavailable", "unknown")
 
 
 #: Kinds worth another attempt. This is the ONLY definition of that policy;
@@ -304,6 +308,7 @@ RETRYABLE_KINDS = frozenset({
     ErrorKind.RATE_LIMIT,
     ErrorKind.SERVER_ERROR,
     ErrorKind.TIMEOUT,
+    ErrorKind.CONNECTION,
 })
 
 #: Status placeholder used when a retryable failure has no numeric HTTP status
@@ -382,6 +387,10 @@ def classify_provider_exception(exc: BaseException):
     # A dropped connection, or 408/409 (which the SDKs themselves retry), is
     # transient. Its message is just "Connection error.", so without this it
     # classified UNKNOWN and was never retried by retry_on_api_error.
+    # With no status at all the request never left the machine, so it is
+    # worded as a connection problem, not a server error (#476).
+    if 'APIConnectionError' in error_type and status_code is None:
+        return ErrorKind.CONNECTION, status_code
     if 'APIConnectionError' in error_type or status_code in (408, 409):
         return ErrorKind.SERVER_ERROR, status_code
     if 'AuthenticationError' in error_type or status_code == 401:
@@ -442,6 +451,10 @@ def format_provider_error(provider: str, kind: str, status_code=None,
         return f"Invalid request - {message} {suffix}"
     if kind == ErrorKind.SERVER_ERROR:
         return f"Server error from {provider} {suffix}"
+    if kind == ErrorKind.CONNECTION:
+        name = provider[:-4] if provider.endswith(" API") else provider
+        return (f"Couldn't connect to {name}. Check your internet connection. "
+                f"{suffix}")
     if kind == ErrorKind.TIMEOUT:
         return f"Request timeout - try again later {suffix}"
     if kind == ErrorKind.UNAVAILABLE:
@@ -486,6 +499,26 @@ def provider_error_from_exception(exc: BaseException, provider: str,
         message=str(exc),
         timestamp=timestamp,
     )
+
+
+def unavailable_message(provider: str, has_key: bool, has_sdk: bool = True) -> str:
+    """Why an API-key provider cannot run, and where to fix it (#477).
+
+    The SDKs are bundled with every build, so for a user the cause is almost
+    always the missing key. Saying "or SDK not installed" sent people looking
+    for something they could not install. Worded without arrows: a screen
+    reader reads "→" as "right arrow".
+    """
+    if has_key and not has_sdk:
+        return f"The {provider} SDK is not installed."
+    if has_key:
+        # A key, but the client failed to start (a proxy or base URL setting)
+        return f"The {provider} client couldn't start. See the log for why."
+    if sys.platform == "darwin":
+        where = "ImageDescriber, Preferences, on the API Keys tab"
+    else:
+        where = "Tools, Configure Settings, on the API Keys tab"
+    return f"No {provider} API key. Add one in {where}."
 
 
 def raise_provider_error(provider: str, kind: str, status_code=None,
@@ -980,7 +1013,7 @@ class OpenAIProvider(AIProvider):
         if not self.is_available():
             raise_provider_error(
                 provider="OpenAI", kind=ErrorKind.UNAVAILABLE,
-                message="OpenAI API key not configured or SDK not installed")
+                message=unavailable_message("OpenAI", bool(self.api_key), HAS_OPENAI))
         
         try:
             # Normalise every image to a resized JPEG before sending to OpenAI.
@@ -1346,7 +1379,7 @@ class ClaudeProvider(AIProvider):
         if not self.is_available():
             raise_provider_error(
                 provider="Claude", kind=ErrorKind.UNAVAILABLE,
-                message="Claude API key not configured or SDK not installed")
+                message=unavailable_message("Claude", bool(self.api_key), HAS_ANTHROPIC))
         
         try:
             # Determine media type from file extension

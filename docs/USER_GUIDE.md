@@ -24,8 +24,7 @@ IDT includes three standalone applications that share the same AI provider infra
 
 | Provider | CLI name | GUI name | Type | API Key | Available on |
 |---|---|---|---|---|---|
-| Ollama | `ollama` | `ollama` | Local | No | Windows, macOS |
-| Ollama Cloud | — | `ollama_cloud` | Cloud (self-hosted) | No | GUI only |
+| Ollama | `ollama` | `ollama` | Local (its cloud models run on ollama.com) | No | Windows, macOS |
 | Anthropic Claude | `anthropic` | `claude` | Cloud | Yes | Windows, macOS |
 | OpenAI GPT | `openai` | `openai` | Cloud | Yes | Windows, macOS |
 | Claude Code (your Claude subscription) | `claude-code` | `claude-code` | Cloud | No — sign in to Claude Code | Windows, macOS |
@@ -155,7 +154,7 @@ Claude (through the API) and OpenAI need an API key. Ollama, Claude Code, Apple 
 
 **Saving the key: the easy way**
 
-In ImageDescriber, open **Tools → Configure Settings** (on a Mac, **ImageDescriber → Preferences**) and go to the **API Keys** tab. The list has one row per provider (OpenAI, Claude (Anthropic) and Ollama Web Search), each saying whether a key is set and where it comes from. Arrow to the provider, then choose the button after the list: it reads **Add Key** when that provider has no key and **Replace Key** when it has one. A box for that provider's key opens with the cursor already in it; paste the key and choose OK. The key is saved in Windows Credential Manager or the macOS Keychain. Both ImageDescriber and `idt` use it, so you only enter it once.
+In ImageDescriber, open **Tools → Configure Settings** (on a Mac, **ImageDescriber → Preferences**) and go to the **API Keys** tab. The list has one row per provider (OpenAI, Claude (Anthropic) and Ollama Web Search), each saying whether a key is set and where it comes from. Arrow to the provider, then choose the button after the list: it reads **Add Key** when that provider has no key and **Replace Key** when it has one. A box for that provider's key opens, titled for example "Add Claude (Anthropic) API Key" or "Replace Claude (Anthropic) API Key", with the cursor already in it; paste the key and press Enter, which chooses OK. The key is saved in Windows Credential Manager or the macOS Keychain. Both ImageDescriber and `idt` use it, so you only enter it once.
 
 **Checking that a key works**
 
@@ -173,7 +172,7 @@ IDT looks in these places, in this order, and uses the first key it finds:
 3. The `api_keys` section of your `image_describer_config.json` settings file. Older versions of ImageDescriber saved keys there, and it is still used on a system with no credential store.
 4. A plain text key file, from older versions of IDT: `claude.txt` or `anthropic.txt` for Claude, `openai_api_key.txt` or `openai.txt` for OpenAI. IDT looks for it in the current folder and, for the installed programs, in the folder that holds `idt.exe` or `ImageDescriber.exe`. The file must contain only the key: no label, no second key, nothing else.
 
-Because an environment variable comes first, an old or wrong key in `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` wins over the one saved in Configure.
+Because an environment variable comes first, an old or wrong key in `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` wins over the one saved in Configure. Configure warns you when this happens: after you save a key, it says an environment variable still provides a key for that provider and is used first, and that removing the environment variable lets IDT use the key you saved. The API Keys list also says where each key comes from, such as "set via environment variable".
 
 **Ollama (no key required)**
 
@@ -261,7 +260,8 @@ If you installed via a virtual environment, activate it first (`.winenv\Scripts\
 **Using the CLI**
 
 ```bash
-# Describe a single folder of images using Ollama (no API key needed)
+# Describe a folder of images with your default provider:
+# Ollama (no API key needed) unless you chose another in Configure or with idt config
 idt describe ~/Pictures/Vacation
 
 # With Claude for highest quality
@@ -358,12 +358,15 @@ Leave these out and IDT uses sensible defaults for the provider and model you pi
 |---|---|---|
 | `--limit N` | Unlimited | Stop after describing N images (useful for testing). N must be 1 or more; leave it out for no limit |
 | `--redescribe` | Off | Re-describe already-described images (adds new description, keeps old ones) |
-| `--workspace PATH` | `<folder name>.idtw` in the workspace root | Path or name for the workspace bundle |
+| `--workspace NAME\|PATH`, `-w` | `<folder name>.idtw` in the workspace root | The workspace bundle to create or use. A bare name goes under the workspace root; a path, or a name ending in `.idtw`, is used as it is (relative to the current folder) |
 | `--copy-originals` / `--no-copy-originals` | Off for a new workspace | Copy the pictures into the workspace, or reference them where they are |
 | `--no-video` | Off | Skip automatic video frame extraction |
 | `--video-interval SECONDS` | 5.0 | Seconds between extracted video frames, 0.5 to 60 |
 | `--show-descriptions` | Off | Print each description to the terminal as it's generated |
 | `--quiet, -q` | Off | Minimal output; in stdin mode, prints the image's full path, a tab, then the description |
+| `--stdin` | Off | Read image paths from stdin; the same as passing `-` as the source |
+| `--project DIR` | The folder that holds all the paths | In stdin mode, the folder the pictures are treated as belonging to, which names the workspace |
+| `--showgui` | Off | Run the describe in ImageDescriber instead of the console: it opens on the folder, starts the batch and shows the progress. Closing ImageDescriber ends the command. Takes a folder of pictures, not a workspace |
 
 **Output Control**
 
@@ -501,8 +504,17 @@ idt video <source> [options]
 | Option | Default | Description |
 |---|---|---|
 | `--describe` | Off | Describe extracted frames |
-| `--provider`, `--model`, `--prompt`, `--prompt-text` | — | AI options |
+| `--redescribe` | Off | Describe again frames that already have a description |
+| `--provider`, `--model`, `--prompt`, `--prompt-text` | — | AI options, as for [`idt describe`](#idt-describe--generate-descriptions) |
+| `--ollama-host URL` | `http://127.0.0.1:11434` | The Ollama server address |
+| `--think`, `--no-think`, `--temperature F`, `--max-tokens N` | Automatic | Generation settings, as for `idt describe` |
 | `--quiet, -q` | Off | Minimal output |
+
+**Workspace Option**
+
+| Option | Default | Description |
+|---|---|---|
+| `--workspace NAME\|PATH`, `-w` | Named after the folder you give, or for a single video the folder that holds it, in the workspace root | The workspace to extract into. A bare name goes under the workspace root; a path, or a name ending in `.idtw`, is used as it is (relative to the current folder) |
 
 **Supported video formats:** `.mp4`, `.mov`, `.avi`, `.mkv`, `.m4v`, `.wmv`, `.mts`, `.m2ts`
 
@@ -696,7 +708,12 @@ idt watch <directory> [options]
 | Option | Default | Description |
 |---|---|---|
 | `--interval SECONDS` | 30 | Polling interval, 1 or more |
-| `--provider`, `--model`, `--prompt` | — | AI options |
+| `--workspace NAME\|PATH`, `-w` | Named after the folder, in the workspace root | The workspace to describe into. A bare name goes under the workspace root; a path, or a name ending in `.idtw`, is used as it is (relative to the current folder) |
+| `--provider`, `--model`, `--prompt`, `--prompt-text` | — | AI options, as for [`idt describe`](#idt-describe--generate-descriptions) |
+| `--ollama-host URL` | `http://127.0.0.1:11434` | The Ollama server address |
+| `--think`, `--no-think`, `--temperature F`, `--max-tokens N` | Automatic | Generation settings, as for `idt describe` |
+| `--no-metadata` | Off | Don't read EXIF data (date, camera, GPS) from the images |
+| `--geocode` | Off | Turn GPS coordinates into a place name and add it to the prompt (requires internet) |
 | `--quiet, -q` | Off | Tab-separated output for piping |
 
 Press `Ctrl+C` to stop. Useful for monitoring a downloads folder or a folder receiving uploads.
@@ -983,7 +1000,7 @@ ImageDescriber is a wxPython desktop application for interactively managing imag
 The application has two modes:
 
 - **Editor Mode** — Create workspaces, add images, process descriptions, and export results.
-- **Viewer Mode** — Read-only review of descriptions from a completed workspace or CLI workflow.
+- **Viewer Mode** — Read-only list of every description in the open workspace (or in an older, pre-4.5 workflow folder). See [Viewer Mode](#viewer-mode).
 
 ### Menu Reference
 
@@ -994,22 +1011,25 @@ The application has two modes:
 | New Workspace | Ctrl+N | Create a new empty workspace |
 | Open Workspace (.idtw)... | Ctrl+O | Open a saved workspace bundle |
 | Save Workspace | Ctrl+S | Save the current workspace |
-| Save Workspace As... | — | Save with a new name |
+| Save Workspace As... | Ctrl+Shift+S | Save with a new name |
 | Load Directory | Ctrl+L | Add images from a folder |
-| Refresh Folder from Disk... | Ctrl+Shift+R | Rescan a folder for new or missing files |
+| Refresh Folder from Disk... | Ctrl+Shift+R | Rescan a folder for new or missing files. Available when a folder is selected in the image list |
 | Load Images From URL... | Ctrl+U | Download and import images from a web page |
-| Import Workflow (to Workspace)... | — | Import descriptions from a CLI workflow output |
+| Import Workflow (to Workspace)... | — | Bring the descriptions from an older (before version 4.5) `wf_…` workflow folder into the workspace |
 | Export Descriptions... | — | Save descriptions as text or HTML |
 | Embed Descriptions into Images... | — | Write descriptions into image metadata |
 | Export HTML Gallery... | Ctrl+Shift+H | Create an interactive HTML image gallery |
 | Workspace Statistics... | Ctrl+I | Show statistics: counts, tokens, costs, providers |
-| Open Workflow Result (Viewer Mode)... | — | Open a CLI workflow result in Viewer Mode |
-| Exit | Ctrl+Q | Close the application |
+| Open Workflow Result (Viewer Mode)... | — | Read an older (before version 4.5) `wf_…` workflow folder in Viewer Mode. Not for `.idtw` workspaces: open those with Open Workspace |
+| Close Window | Cmd+W | macOS only |
+| Exit | Ctrl+Q | Close the application (Cmd+Q on macOS) |
 
 #### Edit Menu
 
 | Item | Shortcut | Description |
 |---|---|---|
+| Undo | Ctrl+Z | Undo the last change in the focused text field |
+| Redo | Ctrl+Y (Cmd+Shift+Z on macOS) | Redo what Undo took back |
 | Cut | Ctrl+X | Cut text from focused field |
 | Copy | Ctrl+C | Copy selected text |
 | Paste | Ctrl+V | Paste text or an image from clipboard |
@@ -1019,34 +1039,37 @@ The application has two modes:
 
 | Item | Description |
 |---|---|
-| Process Current Image | Generate a description for the selected image |
+| Process Current Image (P) | Describe the selected image. With a folder selected, describes that folder's images that have no description; with a video selected, opens Extract Video Frames |
 | Process Undescribed in Selected Folder | Batch-process the images with no description in the folder selected in the image list |
 | Redescribe All in Selected Folder | Re-process every image in the selected folder (adds new descriptions) |
 | Process Undescribed Images (Entire Workspace) | Batch-process only images that have no description, in the whole workspace |
 | Redescribe All Images (Entire Workspace) | Re-process all images (adds new descriptions alongside existing ones) |
-| Show Batch Progress | Show the batch progress dialog |
-| Update Image List (F5) | Refresh the image list |
+| Show Batch Progress | Show the Batch Progress dialog again. Available while a batch runs |
+| Stop All Processing (Ctrl+.) | Stop the batch, and any other background work such as a folder scan. Available while something is running |
+| Update Image List (F5; Cmd+R on macOS) | Refresh the image list |
 | Refresh AI Models | Reload available models from all providers |
-| Chat with AI Model (Ctrl+T) | Open the interactive chat window |
+| Chat with AI Model (Ctrl+T, or C) | Open the interactive chat window |
 | Convert HEIC Files... | Convert HEIC/HEIF images to JPEG |
 | Extract Video Frames... | Extract frames from video files |
 | Describe Video with AI... | Generate an AI description for a video |
 | Play Video | Play the selected video in your system's default player (or press Enter on the video) |
-| Rename Item | Rename the selected image or folder |
+| Rename Item (F2, or R) | Give the selected image, video or chat a new display name |
 
 #### Descriptions Menu
 
 | Item | Description |
 |---|---|
-| Add Manual Description | Type a description by hand |
-| Ask Followup Question | Ask the AI a follow-up question about the selected image |
-| Edit Description... | Edit an existing description |
-| Delete Description | Remove a description |
-| Copy Description | Copy description text to clipboard |
+| Add Manual Description (M) | Type a description by hand |
+| Ask Followup Question (F) | Ask the AI a follow-up question about the selected image |
+| Edit Description... | Edit the description shown in the editor |
+| Delete Description | Delete the description shown in the editor, after asking |
+| Copy Description | Copy the description shown in the editor to the clipboard |
 | Copy Image Path | Copy the file path to clipboard |
-| Copy Image | Copy the image file to clipboard |
-| Copy Image + Description | Copy both image and description text |
-| Show All Descriptions... | List all descriptions in a dialog |
+| Copy Image | Copy the image to the clipboard |
+| Copy Image + Description | Copy both the image and the description shown in the editor |
+| Show All Descriptions... | A summary of the workspace in one read-only box: each described image, with the model, prompt style and first 100 characters of each of its descriptions |
+
+**Which description these act on.** Edit, Delete and the Copy items use the description the editor is showing: the one you selected in the description list, not always the newest. Delete's question names it and quotes its start, for example "Delete description 2 of 3, by Claude Haiku 5.5?" followed by "It begins:" and the first words. After you edit or delete, the editor stays on that place in the list. In Viewer mode, the Copy items use the description selected in the Viewer instead.
 
 **The usage line.** Each description ImageDescriber writes ends with a line such as `[Token Usage: 4,196 total (3,000 prompt + 1,196 completion) | Time: 8.12s]`, or just `[Time: 8.12s]` when the provider reports no token counts. It's saved with the description, and you read it wherever ImageDescriber shows a description in full: the description list, the editor and Viewer mode. It's left out everywhere the description goes outside ImageDescriber: the copy commands, every export and report, the HTML gallery, descriptions embedded into images, and `idt show`, `idt export` and `idt combine`. A location at the start of a description, such as "Madison, Wisconsin - ", is part of the description and is kept everywhere.
 
@@ -1056,20 +1079,22 @@ The application has two modes:
 |---|---|
 | **Application Mode** → Editor Mode | Switch to the workspace editor |
 | **Application Mode** → Viewer Mode | Switch to the read-only viewer |
-| **Filter** → All Items | Show all images, videos, and chats (Ctrl+Shift+A) |
-| **Filter** → Described Only | Show only images with at least one description (Ctrl+Shift+D) |
-| **Filter** → Undescribed Only | Show only images lacking a description (Ctrl+Shift+U) |
-| **Filter** → Videos Only | Show video files and their extracted frames |
-| **Filter** → Chats Only | Show saved chat sessions |
+| Filter: All Items | Show all images, videos, and chats (Ctrl+Shift+A) |
+| Filter: Described Only | Show only images with at least one description (Ctrl+Shift+D) |
+| Filter: Undescribed Only | Show only images lacking a description (Ctrl+Shift+U) |
+| Filter: Videos Only | Show video files and their extracted frames |
+| Filter: Chats Only | Show saved chat sessions |
 | Show Image Previews | Toggle the image thumbnail panel |
 | Find Images... (Ctrl+F) | Show or hide the search bar |
+
+The five Filter items sit directly in the View menu, not in a submenu, and only one is on at a time.
 
 #### Tools Menu
 
 | Item | Shortcut | Description |
 |---|---|---|
 | Edit Prompts... | Ctrl+Shift+P | Create, edit, and manage AI prompt templates |
-| Configure Settings... | Ctrl+Shift+C | Open the settings dialog |
+| Configure Settings... | Ctrl+Shift+C | Open the settings dialog. On a Mac it is **ImageDescriber → Preferences...** (Cmd+,) |
 | Install Ollama... | — | Instructions for installing the local Ollama server |
 | Install FFmpeg (for video GPS)... | — | Instructions for installing FFmpeg |
 | Export Configuration... | — | Save settings to a file |
@@ -1083,7 +1108,7 @@ The application has two modes:
 
 | Item | Description |
 |---|---|
-| User Guide... | Open this guide |
+| User Guide... (F1; Cmd+? on macOS) | Open this guide |
 | Report an Issue... | Go to the GitHub issue tracker |
 | Check for Updates... | Ask GitHub right now whether a newer version exists |
 | Automatically Check for Updates | Toggle the once-a-day check at startup (on by default) |
@@ -1093,7 +1118,14 @@ The application has two modes:
 
 ### The Main Window Layout
 
-The main window is divided into three areas.
+The main window has the image list on the left and the descriptions on the right. Its controls, in the order you reach them with Tab, which is also the order a screen reader meets them:
+
+1. **Images in workspace**: the image list, on the left. (When the search bar is showing, its search box ("Filter images by text") and Clear search button come first.)
+2. **Description list for current image**: the descriptions of the selected image, on the right.
+3. **Image description editor**: the text of the selected description, below the list.
+4. The **Generate Description** and **Save Description** buttons, below the editor.
+
+The image preview is never a Tab stop. Shift+Tab moves back through the same order.
 
 **Left panel: Image list**
 
@@ -1124,21 +1156,30 @@ Use **View → Find Images** (`Ctrl+F`) to show a search bar that filters by fil
 
 When an image is selected:
 
-- **Description list** — All descriptions for this image, showing provider/model and date. Click a description to view or edit its text.
-- **Generate Description button** — Processes the selected image with the current AI settings.
+- **Image preview** — Thumbnail of the selected image (toggle with **View → Show Image Previews**).
+- **Description list** — All descriptions for this image. Arrow to a description (or click it) to show it in the editor.
+- **Generate Description button** — Opens the **Processing Options** dialog for the selected image, then describes it with what you choose there. Pressing `P` in the image list does the same. With a folder selected, it describes that folder's images that have no description yet.
 - **Save Description button** — Saves edits made to the description text.
 
-**Bottom right: Metadata and text editor**
+**Bottom right: Description editor**
 
-- **Image preview** — Thumbnail of the selected image (toggle with **View → Show Image Previews**).
-- **Description text editor** — Full text of the selected description. You can edit it directly and save with the **Save Description** button.
-- Below the text: metadata appended automatically: provider, model, prompt style, creation date, capture date, GPS location, camera info, and token counts.
+The **Image description editor** shows the full text of the selected description, including its usage line (see [The usage line](#descriptions-menu)). You can edit it directly and save with the **Save Description** button.
+
+Below the description, after a line of three dashes (`---`), the editor adds the description's details:
+
+- **Provider**, **Model** (by name, such as "Claude Haiku 5.5"), **Prompt** (the prompt style) and **Created** (the date it was made).
+- For an image downloaded from a web page, a **Download Source** section with its **URL** and the date it was **Downloaded**.
+- When the picture's file has them, an **Image Info** section: **AI context** (what was added to the prompt, such as the place name), **Captured** (when the photo was taken), **Location**, **GPS** coordinates and **Camera**.
+
+**Save Description saves only the description.** The details are there for you to read; they are left out when you save, so they never become part of the description. If you change the details text itself, Save refuses with: "The details shown with the description were changed, so ImageDescriber can't tell them from the description. Undo that change, or delete the details, then save." Undo the change (Ctrl+Z), or delete the whole details block, and save again.
 
 **Status bar**
 
 The bar at the bottom of the window shows:
 - Left: Current action or status message.
-- Right: Workspace summary (e.g., "250 images, 180 described").
+- Right: A count, such as "250 images", or the filter in use after you choose one from the View menu.
+
+While a batch runs, the window title shows how far it has got, for example `42%, 21 of 50 - ImageDescriber - MyTrip.idtw`.
 
 ---
 
@@ -1152,14 +1193,16 @@ The bar at the bottom of the window shows:
 
 **Opening an existing workspace**
 
-- **File → Open Workspace (.idtw)...** to browse for a bundle.
-- Drag-and-drop a `.idtw` folder onto the application window.
+- **File → Open Workspace (.idtw)...** (`Ctrl+O`) to browse for a bundle.
+- From a command prompt or Terminal, start ImageDescriber with the bundle's path, for example `ImageDescriber.exe C:\Users\you\Documents\idt\MyTrip.idtw`.
+
+A large workspace can take a while to open, especially from a OneDrive or network folder. If opening takes more than half a second, a progress window titled "Opening workspace — Batch Processing" appears and counts the items as they are read; it closes by itself when the workspace is open.
 
 **Refreshing after changes on disk**
 
 If you add new images to the source folder after loading:
 
-- **File → Refresh Folder from Disk...** (`Ctrl+Shift+R`) — rescans the folder and adds new files. Images marked `[!]` (file deleted) are noted but their descriptions are kept.
+- Select the folder in the image list, then choose **File → Refresh Folder from Disk...** (`Ctrl+Shift+R`). You can also open the folder's context menu (the Applications key, `Shift+F10`, or a right-click) and choose **Refresh Folder from Disk…**. It rescans the folder and adds new files. Images marked `[!]` (file deleted) are noted but their descriptions are kept.
 
 **Workspace statistics**
 
@@ -1179,25 +1222,42 @@ If you add new images to the source folder after loading:
 **Starting a batch job**
 
 1. Choose **Process → Process Undescribed Images (Entire Workspace)** (or **Redescribe All Images (Entire Workspace)** to re-process everything).
-2. The **Processing Options** dialog appears:
-   - **Provider** — Ollama, OpenAI, Claude, or MLX.
-   - **Model** — Populated from the chosen provider.
-   - **Prompt Style** — Choose a built-in style or enter custom text.
-   - **Enable Geocoding** — Reverse-geocode GPS coordinates to place names.
-   - **Embed After Processing** — Automatically embed descriptions into image copies when the batch finishes.
-3. Click **OK** to start. The **Batch Progress** dialog opens.
+2. The **Processing Options** dialog appears. It has two tabs, **General** and **AI Model**, and opens on the AI Model tab with the focus on **Provider**. Use Ctrl+Tab to move between the tabs.
 
-You can also right-click a folder node in the image list and choose **Process Folder** to batch only that folder.
+   **AI Model tab**
+   - **Provider** — Ollama, OpenAI and Claude, plus Claude Code, Apple Intelligence, Windows AI and MLX on a computer that can run them. A provider that can't run on this computer isn't listed.
+   - **Model name** — Populated from the chosen provider. The box after it describes the selected model.
+   - **Prompt style** — Choose a built-in style or one of your own.
+   - **Custom prompt** — Optional. Text typed here replaces the prompt style; leave it blank to use the style.
+
+   **General tab**
+   - **Skip images that already have descriptions** — Off by default.
+   - **Geocode GPS coordinates to city/state (requires internet)** — Turn a picture's GPS coordinates into a place name and add it to the prompt. The date and camera are never sent to the AI.
+   - **Embed description into workspace after processing** — After each image is described, put a copy of it in the workspace's `embedded` folder with the description written into the copy's metadata. Your originals are never changed.
+   - **Copy original images into the workspace** — On, the workspace keeps its own copy of every picture, so you can move it to another computer. Off, it refers to your pictures where they are.
+3. Choose **OK** to start, or **Cancel** to close the dialog without describing. The **Batch Progress** dialog opens. (**Apply**, where it's shown, keeps the geocoding and copy-originals choices for the rest of this session without closing the dialog.)
+
+To batch only one folder, select the folder in the image list and choose **Process → Process Undescribed in Selected Folder**, or **Process → Redescribe All in Selected Folder** to describe every image in it again. Pressing `P` with a folder selected also describes that folder's images that have no description yet.
 
 **The Batch Progress dialog**
 
 | Element | Description |
 |---|---|
-| Statistics display | Shows current count, average time per image, estimated time remaining, and current filename |
+| Processing statistics and current image | A list you read with the arrow keys: items processed, failures, average time per image, estimated time remaining, the provider, model and prompt style, token use and cost (see below), the last image described with the start of its description, and the current image. |
 | Progress bar | Visual percentage complete |
 | Pause / Resume | Temporarily pause and resume the batch |
 | Stop | Cancel the batch (descriptions generated so far are kept) |
-| Close | Hide the dialog; processing continues in the background |
+| Close | Hide the dialog; processing continues in the background. **Process → Show Batch Progress** brings it back |
+
+**Token use and cost.** Once descriptions start coming back, the list has a **Token Usage** section:
+
+- **Estimated Cost So Far** — what the pictures described so far cost, at the provider's list prices.
+- **Average Cost per Image**.
+- **Projected Batch Cost** — about what the whole batch will cost: the cost so far plus the average for each picture still to go. Not shown while videos are still having their frames extracted, since the total isn't known yet.
+- **Average Input Tokens**, **Average Output Tokens**, **Average Total Tokens** and **Total Tokens**.
+- **Largest Token Use** — the most tokens one picture took, and which picture.
+
+For a model that isn't charged per token, the cost line says why instead: "no charge (runs on your computer)", "covered by your Ollama plan", "covered by your Claude plan" (Claude Code), or "no price known for this model". The costs are estimates; your provider's bill is the real figure.
 
 **Video files in a batch**
 
@@ -1247,7 +1307,7 @@ The chat window is a general-purpose, multi-turn conversation with the AI model 
 - **Conversation history** (ListBox) — All messages, navigable with arrow keys. Screen readers announce new messages automatically.
 - **Message detail pane** — Full text of the selected message. Editable so you can select and copy from it; edits are not saved.
 - **Input field** — Type your message. `Enter` sends; `Shift+Enter` starts a new line.
-- **Attach Files** — Attach images to the conversation. Shown only for providers that accept attachments; Claude also accepts PDFs. You can also paste an image straight from the clipboard with `Ctrl+V`.
+- **Attach Files** — Attach images or text files to the conversation. Shown only for providers that accept attachments; Claude and OpenAI also accept PDFs, and MLX takes images only. See [Attaching files](#attaching-files) for what each provider accepts. You can also paste an image from the clipboard with **Paste Image** (on Windows, `Ctrl+V` also works).
 - **Change Model** — Switch provider or model mid-conversation. History is kept.
 - **Token usage** — Shows how much of the model's context window the conversation is using.
 - **Session → Thinking** — Automatic, On or Off. Off makes a reasoning model answer faster: a question about a photo on a large thinking model can otherwise take minutes. For Claude and OpenAI, Off means the least effort the model takes. The choice applies from your next message, and a new chat window starts with the last one you picked.
@@ -1256,17 +1316,28 @@ The chat window is a general-purpose, multi-turn conversation with the AI model 
 
 Chat sessions are saved with the workspace and appear as chat items in the item list. Press `Enter` on a saved chat to resume it — the full conversation history is restored, so the model retains context. Attachments from earlier turns are not re-attached when resuming.
 
+**Known problem: chats in a workspace saved before.** In a workspace that has already been saved, **File → Save Workspace** doesn't save chats, so a chat started or continued there is lost when you close the workspace. To keep it, use **File → Save Workspace As...** (`Ctrl+Shift+S`) and save under a new name. The issue is tracked as [#403](https://github.com/TheIdeaPlace/Image-Description-Toolkit/issues/403).
+
 ---
 
 ### Viewer Mode
 
-**View → Application Mode → Viewer Mode** switches the application to a read-only display of all descriptions in the current workspace or workflow result.
+**View → Application Mode → Viewer Mode** switches the application to a read-only list of every description in the open workspace, one after another, so you can read through them without moving between images. **View → Application Mode → Editor Mode** switches back.
 
-This mode is also used when opening a CLI `idt describe` output via **File → Open Workflow Result (Viewer Mode)...**.
+**The list.** The focus moves to the list, named "Viewer, all descriptions", as soon as you switch. Picture descriptions are in the order they were made, oldest first and newest last. Chat messages are kept together after them, so with no chats in the workspace, End takes you to the most recent description. The Viewer starts on the newest picture description, so the first thing you hear is the latest result.
 
-In Viewer Mode:
-- Descriptions cannot be edited.
-- **Live monitoring** is available: the view auto-refreshes when new descriptions arrive (useful when running `idt describe` in a terminal and watching progress in the GUI simultaneously).
+**Tab order.** **Refresh**, **Live Monitoring**, the list, the **Description** box, **Copy Text**, **Copy Image**. The picture preview is never a Tab stop. Live Monitoring is dimmed, and so skipped, for a workspace (see below).
+
+- **Description** — the full text of the selected description, read-only, with its usage line (see [The usage line](#descriptions-menu)) and a line naming the model and prompt style.
+- **Copy Text** — copies the description and that model line, without the usage line.
+- **Copy Image** — copies the picture.
+- **Refresh** — reloads the list. The Viewer doesn't update by itself: to see descriptions added since you switched, such as from a batch that is still running, choose Refresh (or switch to Viewer Mode again).
+
+The **Descriptions** menu's Copy items (Copy Description, Copy Image Path, Copy Image, Copy Image + Description) act on the description selected in the Viewer.
+
+**Changes are made in Editor mode.** Viewer mode only reads. If you try something that changes the workspace, such as Process Current Image (`P`), Edit or Delete Description, Add Manual Description, Ask Followup Question, Rename Item or Play Video, ImageDescriber tells you where to do it instead, for example: "Editing a description is done in Editor mode. To switch, choose View, Application Mode, Editor Mode, then select beach.jpg."
+
+**Older workflow folders.** **File → Open Workflow Result (Viewer Mode)...** opens a `wf_…` folder made by IDT before version 4.5 in the Viewer. It doesn't open a `.idtw` workspace; for those, use **File → Open Workspace** and then switch to Viewer Mode. For a workflow folder, **Live Monitoring** can be turned on: the Viewer then watches the folder's description file and refreshes when it changes. Changes to a workflow folder's descriptions aren't possible in the Viewer; ImageDescriber suggests importing it with **File → Import Workflow (to Workspace)...**, which brings its descriptions into the workspace.
 
 ---
 
@@ -1311,11 +1382,29 @@ Embedded copies mirror the subfolder structure of the source.
 
 See [Appendix D: Keyboard Shortcut Reference](#appendix-d-keyboard-shortcut-reference) for the full table.
 
-**Tab order in the main window:**
+**Tab order in the main window (Editor mode):**
 
-Image list → Description list → Description text editor (Shift+Tab to move backward)
+Image list → Description list → Description editor → Generate Description → Save Description (Shift+Tab to move backward). When the search bar is showing, its search box ("Filter images by text") and Clear search button come before the image list. The image preview is never a Tab stop.
 
-All menu items, buttons, and interactive controls are reachable by keyboard. Arrow keys navigate the image list and description list. Space activates checkboxes and radio items.
+**Tab order in Viewer mode:**
+
+Refresh → Live Monitoring (dimmed and skipped for a workspace) → the list of descriptions → Description → Copy Text → Copy Image.
+
+All menu items, buttons, and interactive controls are reachable by keyboard. Arrow keys navigate the image list and description list.
+
+**Single-letter keys.** In the image list and the description list (and the Viewer's list), these letters act at once, with no Ctrl or Alt. They don't apply while you're typing in a text box.
+
+| Key | Does |
+|---|---|
+| `P` | Process the selected image (Process → Process Current Image) |
+| `R` or `F2` | Rename the selected item |
+| `M` | Add a manual description |
+| `F` | Ask a follow-up question |
+| `C` | Open the chat window |
+
+Because of these, typing one of these letters in the image list doesn't jump to an item starting with it. In Viewer mode, all but `C` say they're done in Editor mode.
+
+**Enter in the image list** plays a video in your system's default player, or reopens a saved chat.
 
 ---
 
@@ -1331,12 +1420,11 @@ All menu items, buttons, and interactive controls are reachable by keyboard. Arr
 > | `claude-code` | `claude-code` | Same name in both; shown as "Claude Code" in pickers |
 > | `apple` | `apple` | Same name in both; shown as "Apple Intelligence" in pickers |
 > | `Windows-AI` | `Windows-AI` | Same name in both, in any case (`windows-ai` works too); shown as "Windows AI" in pickers |
-> | — | `ollama_cloud` | GUI only; remote Ollama server |
 > | — | `mlx` | GUI only; Apple Silicon local models |
 
 ### Ollama — Local (Windows and macOS)
 
-Ollama runs AI models on your own machine. No internet connection is required after the model is downloaded. No data leaves your computer.
+Ollama runs AI models on your own machine. No internet connection is required after the model is downloaded. No data leaves your computer, except with Ollama's cloud models (see [Ollama's cloud models](#ollamas-cloud-models)).
 
 **CLI and GUI provider name:** `ollama`
 
@@ -1364,7 +1452,11 @@ Ollama runs AI models on your own machine. No internet connection is required af
 idt describe ~/Photos --provider ollama --model minicpm-v4.6 --ollama-host http://192.168.1.100:11434
 ```
 
-In the GUI, a separate **Ollama Cloud** provider (`ollama_cloud`) handles remote Ollama connections — configure the host URL in **Tools → Configure Settings**.
+ImageDescriber has no setting for another Ollama server: it always uses the Ollama on this computer (`http://127.0.0.1:11434`).
+
+#### Ollama's cloud models
+
+Ollama also offers cloud models, whose names end in `-cloud` (or `:cloud`). They run on ollama.com rather than on your computer, so your pictures are sent there, but you reach them through the Ollama on your computer like any other model. To use one, sign in to Ollama (`ollama signin`) and pull the model with `ollama pull`. It then appears in ImageDescriber's Ollama model list and in `idt models --provider ollama`, as long as Ollama reports that it can see images. There is no separate provider to choose. The Batch Progress dialog shows their cost as "covered by your Ollama plan".
 
 **Recommended models**
 
@@ -1384,7 +1476,7 @@ Claude models produce the highest quality, most detailed descriptions. Requires 
 
 **CLI provider name:** `anthropic` · **GUI provider name:** `claude`
 
-**Setup:** Set `ANTHROPIC_API_KEY` in your environment (see [Setting Up API Keys](#setting-up-api-keys)).
+**Setup:** In ImageDescriber, choose **Tools → Configure Settings** (on a Mac, **ImageDescriber → Preferences**), go to the **API Keys** tab, select **Claude (Anthropic)** and choose **Add Key**. Or set the `ANTHROPIC_API_KEY` environment variable. See [Setting Up API Keys](#setting-up-api-keys).
 
 **Available models**
 
@@ -1415,7 +1507,7 @@ Requires an OpenAI API key. Good for workflows already integrated with OpenAI.
 
 **CLI and GUI provider name:** `openai`
 
-**Setup:** Set `OPENAI_API_KEY` in your environment.
+**Setup:** In ImageDescriber, choose **Tools → Configure Settings** (on a Mac, **ImageDescriber → Preferences**), go to the **API Keys** tab, select **OpenAI** and choose **Add Key**. Or set the `OPENAI_API_KEY` environment variable. See [Setting Up API Keys](#setting-up-api-keys).
 
 **Available models**
 
@@ -1763,7 +1855,7 @@ HEIC works out of the box in the installed and standalone builds, which include 
 
 ### Geocoding — Location from GPS
 
-When `--geocode` is used (CLI) or **Enable Geocoding** is checked (GUI), IDT reverse-geocodes GPS coordinates from image EXIF data to human-readable place names using the OpenStreetMap Nominatim API.
+When `--geocode` is used (CLI) or **Geocode GPS coordinates to city/state (requires internet)** is checked on the General tab of ImageDescriber's Processing Options dialog, IDT reverse-geocodes GPS coordinates from image EXIF data to human-readable place names using the OpenStreetMap Nominatim API.
 
 The place name, and only the place name, is added to the start of the prompt:
 
@@ -1951,9 +2043,13 @@ What each provider accepts:
 
 | Provider | Accepts | Size limit |
 |---|---|---|
-| Ollama | JPEG, PNG, GIF, WebP | None published |
-| OpenAI | JPEG, PNG, GIF, WebP | None published |
-| Claude | JPEG, PNG, GIF, WebP, **PDF** | 5 MB per image, 32 MB per PDF |
+| Ollama | JPEG, PNG, GIF, WebP, text files | None published for images |
+| OpenAI | JPEG, PNG, GIF, WebP, **PDF**, text files | 32 MB per PDF |
+| Claude | JPEG, PNG, GIF, WebP, **PDF**, text files | Larger pictures are scaled down to fit; 32 MB per PDF |
+| Claude Code | JPEG, PNG, GIF, WebP, text files | Larger pictures are scaled down to fit |
+| Apple Intelligence | JPEG, PNG, GIF, WebP, text files | None published for images |
+
+**Text files** are `.txt`, `.log`, `.md`, `.csv`, `.html`, `.htm`, `.css`, `.js`, `.py`, `.json`, `.xml`, `.yaml` and `.yml`. Their text goes into your message, up to 1 MB per file. (In ImageDescriber's chat window, MLX takes images only.)
 
 **HEIC and HEIF photos from an iPhone are converted to JPEG automatically** — no provider reads HEIC directly.
 
@@ -2090,7 +2186,7 @@ idt chat --provider claude --system "Answer in one sentence." --message "What is
 
 The chat window and description list use `wx.ListBox` instead of tree controls, providing a single tab stop and reliable screen reader announcement of new content.
 
-All interactive controls have accessible names set via `SetAccessibleName()`. Separator rows in lists are automatically skipped during keyboard navigation.
+All interactive controls have accessible names set via `SetAccessibleName()`.
 
 **idt CLI**
 
@@ -2102,9 +2198,9 @@ The CLI uses no ANSI color codes in interactive mode (`idt guideme`) and all out
 
 **All features in the GUI are reachable by keyboard.** No action requires a mouse.
 
-**Image list:** Arrow keys to navigate, Enter to expand/collapse folders, Space to toggle checkboxes.
+**Image list:** Up and Down Arrow to move, Right Arrow to expand a folder or video, Left Arrow to collapse it. Enter plays a video or reopens a saved chat. Single letters such as `P` (process) and `R` (rename) act on the selected item; see [Keyboard Shortcuts](#keyboard-shortcuts).
 
-**Tab order:** Image list → Description list → Description text editor. Shift+Tab moves backward.
+**Tab order:** Image list → Description list → Description editor → Generate Description → Save Description. Shift+Tab moves backward. The image preview is never a Tab stop. In Viewer mode: Refresh → Live Monitoring (skipped for a workspace) → the list → Description → Copy Text → Copy Image.
 
 **Menu bar:** Alt (Windows) or Ctrl+F2 (macOS) activates the menu bar. All menu items have keyboard equivalents shown in the menu.
 
@@ -2132,7 +2228,7 @@ The CLI uses no ANSI color codes in interactive mode (`idt guideme`) and all out
 **No models showing in the GUI**
 
 - Ollama: Open a terminal and run `ollama list`. If nothing appears, open `http://127.0.0.1:11434` in a browser. If that fails, restart Ollama or reinstall it.
-- OpenAI / Claude: Check that a key is saved under **Tools → Configure Settings → API Keys** (on a Mac, **ImageDescriber → Preferences → API Keys**), or that the `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable is set. See [Setting Up API Keys](#setting-up-api-keys). Run `idt models` to see whether each provider answers.
+- OpenAI / Claude: Check that a key is saved under **Tools → Configure Settings → API Keys** (on a Mac, **ImageDescriber → Preferences → API Keys**), or that the `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` environment variable is set. On that tab, select the provider and choose **Test Key** (`Alt+T`): the **Test result** box says whether the key works and, if not, what's wrong and what to do. See [Setting Up API Keys](#setting-up-api-keys). Run `idt models` to see whether each provider answers.
 
 **Processing completes but descriptions are blank or very short**
 
@@ -2303,7 +2399,7 @@ MyTrip.idtw/                        Workspace bundle (a folder ending in .idtw)
       "created": "2024-09-12T10:15:32+00:00",
       "input_tokens": 512,
       "output_tokens": 183,
-      "metadata_context": "Zugspitze, Germany  Sep 12, 2024  iPhone 14 Pro"
+      "metadata_context": "Zugspitze, Germany"
     }
   ],
   "active_description_id": "550e8400-e29b-41d4-a716-446655440000"
@@ -2317,8 +2413,7 @@ MyTrip.idtw/                        Workspace bundle (a folder ending in .idtw)
 The shortcuts you are most likely to reach for. For the complete set —
 every menu item in both apps, every Alt mnemonic on Windows, and the
 chords the operating systems have already claimed — see
-[KEYBOARD_SHORTCUTS.md](KEYBOARD_SHORTCUTS.md), which is checked against
-the source by the test suite.
+[KEYBOARD_SHORTCUTS.md](KEYBOARD_SHORTCUTS.md).
 
 ### Global Shortcuts
 
@@ -2327,17 +2422,23 @@ the source by the test suite.
 | New Workspace | Ctrl+N | Cmd+N |
 | Open Workspace | Ctrl+O | Cmd+O |
 | Save Workspace | Ctrl+S | Cmd+S |
+| Save Workspace As | Ctrl+Shift+S | Cmd+Shift+S |
 | Load Directory | Ctrl+L | Cmd+L |
 | Refresh Folder from Disk | Ctrl+Shift+R | Cmd+Shift+R |
 | Load from URL | Ctrl+U | Cmd+U |
 | Export HTML Gallery | Ctrl+Shift+H | Cmd+Shift+H |
 | Workspace Statistics | Ctrl+I | Cmd+I |
+| Chat with AI Model | Ctrl+T | Cmd+T |
+| Stop All Processing | Ctrl+. | Cmd+. |
+| User Guide | F1 | Cmd+? |
 | Exit / Quit | Ctrl+Q | Cmd+Q |
 
 ### Edit
 
 | Action | Windows / Linux | macOS |
 |---|---|---|
+| Undo | Ctrl+Z | Cmd+Z |
+| Redo | Ctrl+Y | Cmd+Shift+Z |
 | Cut | Ctrl+X | Cmd+X |
 | Copy | Ctrl+C | Cmd+C |
 | Paste | Ctrl+V | Cmd+V |
@@ -2347,23 +2448,32 @@ the source by the test suite.
 
 | Action | Shortcut |
 |---|---|
-| Update Image List | F5 |
+| Update Image List | F5 (Cmd+R on macOS) |
 | Filter: All Items | Ctrl+Shift+A |
 | Filter: Described Only | Ctrl+Shift+D |
 | Filter: Undescribed Only | Ctrl+Shift+U |
 | Find Images (search bar) | Ctrl+F |
 | Edit Prompts | Ctrl+Shift+P |
-| Configure Settings | Ctrl+Shift+C |
+| Configure Settings | Ctrl+Shift+C (Cmd+, for Preferences on macOS) |
+
+On macOS, the Ctrl+ shortcuts in this table are Cmd+.
 
 ### Image List Navigation
 
 | Action | Key |
 |---|---|
-| Move up/down | Arrow keys |
-| Expand folder | Right arrow |
-| Collapse folder | Left arrow |
-| Select item | Enter |
-| Toggle checkbox | Space |
+| Move up/down | Up and Down Arrow |
+| Expand folder or video | Right Arrow |
+| Collapse folder or video | Left Arrow |
+| Play a video, or reopen a saved chat | Enter |
+| Process the selected image (or a folder's undescribed images) | P |
+| Rename the selected item | R or F2 |
+| Add a manual description | M |
+| Ask a follow-up question | F |
+| Open the chat window | C |
+| Paste an image from the clipboard into the workspace | Ctrl+V |
+
+The single letters work in the image list and the description list, not while you're typing in a text box.
 
 ---
 

@@ -149,8 +149,10 @@ class TestWorkspaceExports:
         from idt_core.exporter import export_workspace_html
         html = export_workspace_html(ws).read_text(encoding="utf-8")
         _no_usage(html)
+        # The alt is short now; the description is in the body, once (#465).
         alts = re.findall(r'alt="([^"]*)"', html)
-        assert alts and all("Madison, Wisconsin - A red barn" in a for a in alts)
+        assert alts and all(a.endswith(", described below") for a in alts)
+        assert "Madison, Wisconsin - A red barn" in html
         assert "Older one." in html
 
     def test_csv(self, ws):
@@ -192,7 +194,7 @@ class TestProjectExports:
         from idt_core.exporter import export_html
         html = export_html(project).read_text(encoding="utf-8")
         _no_usage(html)
-        assert 'alt="Madison, Wisconsin - A red barn' in html
+        assert "<figcaption>Madison, Wisconsin - A red barn" in html
 
     def test_csv_and_txt(self, project):
         from idt_core.exporter import export_csv, export_txt

@@ -449,12 +449,14 @@ class TestExporter:
         assert "<nav" in content
         assert "<header" in content
 
-    def test_html_description_in_alt_and_figcaption(self, tmp_path):
+    def test_html_description_in_figcaption_not_alt(self, tmp_path):
+        """Once, in the caption: in the alt too, screen readers read it twice (#465)."""
         from idt_core.exporter import export_html
         project = self._setup_described_project(tmp_path)
         content = export_html(project).read_text(encoding="utf-8")
-        assert "Mock description" in content
-        assert 'alt="Mock description' in content
+        assert "<figcaption>Mock description" in content
+        assert 'alt="Mock description' not in content
+        assert content.count("Mock description") == content.count("<figcaption>")
 
     def test_csv_export_creates_file(self, tmp_path):
         from idt_core.exporter import export_csv

@@ -696,9 +696,17 @@ def test_delete_chat_menu_item_has_no_accelerator():
     )
 
 
+def _tiny_png(path):
+    """A real picture: Claude's attachments are checked as pictures (#494),
+    and a refused one opens a modal error that hangs the test."""
+    from PIL import Image
+
+    Image.new("RGB", (4, 4), "white").save(path, "PNG")
+
+
 def test_delete_removes_the_selected_attachment(frame, tmp_path):
     photo = tmp_path / "photo.png"
-    photo.write_bytes(b"png")
+    _tiny_png(photo)
     frame.provider_name = "claude"
     frame._add_attachments([photo])
     frame.attach_list.SetSelection(0)
@@ -722,7 +730,7 @@ def test_attachments_are_sent_then_cleared(frame, tmp_path):
     from idt_core.chat import ChatEngine
 
     photo = tmp_path / "photo.png"
-    photo.write_bytes(b"pretend-png")
+    _tiny_png(photo)
     frame.provider_name = "claude"
     frame._add_attachments([photo])
 
@@ -769,7 +777,7 @@ def test_a_rejected_file_leaves_the_queue_empty_not_broken(frame, tmp_path):
 
 def test_switching_to_a_provider_without_attachments_clears_the_queue(frame, tmp_path):
     photo = tmp_path / "photo.png"
-    photo.write_bytes(b"png")
+    _tiny_png(photo)
     frame.provider_name = "claude"
     frame._add_attachments([photo])
     assert frame.pending_attachments

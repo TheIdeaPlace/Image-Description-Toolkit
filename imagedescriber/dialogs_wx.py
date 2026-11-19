@@ -38,6 +38,7 @@ from shared.wx_common import (
     save_file_dialog,
     number_field,
     refuse_bad_number,
+    set_screen_reader_name,
 )
 from shared.number_entry import (validate_number, VIDEO_INTERVAL_RANGE,
                                  SCENE_THRESHOLD_RANGE)
@@ -624,10 +625,14 @@ class FollowupQuestionDialog(wx.Dialog):
         self.model_desc_text = wx.TextCtrl(
             self,
             style=wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_WORDWRAP | wx.TE_NO_VSCROLL,
-            name="Model description and guidance"
+            name="Model description"
         )
         self.model_desc_text.SetMinSize((-1, 52))
-        set_accessible_name(self.model_desc_text, "Model description and guidance")
+        # set_accessible_name is SetName (plus macOS), which a Windows edit box
+        # ignores: NVDA said "edit read only multi line moondream..." with no
+        # name (#418). An accessible object gives it one there.
+        set_accessible_name(self.model_desc_text, "Model description")
+        set_screen_reader_name(self.model_desc_text, "Model description")
         model_sizer.Add(self.model_desc_text, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 5)
 
         main_sizer.Add(model_sizer, 0, wx.ALL | wx.EXPAND, 10)
@@ -931,7 +936,11 @@ class ProcessingOptionsDialog(wx.Dialog):
 
         context_note = wx.StaticText(
             panel,
-            label="Date and camera are always included when available — no internet needed."
+            # The place is the only thing sent to the model (prompt_context);
+            # the date and camera are saved with each description but never
+            # sent. The old note said they were always included (#487 review).
+            label="With geocoding on, the place is sent to the AI. The date and "
+                  "camera are saved with each description but never sent."
         )
         context_sizer.Add(context_note, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
 
@@ -1057,10 +1066,14 @@ class ProcessingOptionsDialog(wx.Dialog):
         self.model_desc_text = wx.TextCtrl(
             panel,
             style=wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_WORDWRAP | wx.TE_NO_VSCROLL,
-            name="Model description and guidance"
+            name="Model description"
         )
         self.model_desc_text.SetMinSize((-1, 52))
-        set_accessible_name(self.model_desc_text, "Model description and guidance")
+        # set_accessible_name is SetName (plus macOS), which a Windows edit box
+        # ignores: NVDA said "edit read only multi line moondream..." with no
+        # name (#418). An accessible object gives it one there.
+        set_accessible_name(self.model_desc_text, "Model description")
+        set_screen_reader_name(self.model_desc_text, "Model description")
         model_sizer.Add(self.model_desc_text, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 5)
 
         sizer.Add(model_sizer, 0, wx.ALL | wx.EXPAND, 10)
@@ -1494,27 +1507,58 @@ class VideoExtractionDialog(wx.Dialog):
     TIME_INFO = {"type": "float", "range": list(VIDEO_INTERVAL_RANGE)}
     SCENE_INFO = {"type": "float", "range": list(SCENE_THRESHOLD_RANGE)}
 
-    def __init__(self, parent=None, video_path: str = ""):
+    def __init__(self, parent=None, video_path: str = "", defaults: Optional[dict] = None):
         super().__init__(
             parent,
             title="Extract Video Frames",
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER
         )
-        
+
         self.video_path = video_path
-        
-        # Initialize settings with defaults
-        self.extraction_mode = "time_interval"
-        self.time_interval = 5.0
-        self.scene_threshold = 30.0
+
+        # Open at what Configure saved (video_frame_extractor_config.json),
+        # not at fixed values: accepting the dialog as it opened used to
+        # replace a saved 2-second interval with 5 (#437).
+        initial = self.initial_settings(defaults)
+        self.extraction_mode = initial["extraction_mode"]
+        self.time_interval = initial["time_interval_seconds"]
+        self.scene_threshold = initial["scene_change_threshold"]
         self.process_after_extraction = True
-        
+
         self.init_ui()
         self.SetSize((520, 450))
         self.Centre()
-        
-        # Set initial focus to extraction mode for accessibility
-        wx.CallAfter(self.time_radio.SetFocus)
+
+        # Set initial focus to the selected extraction mode for accessibility
+        focus = self.scene_radio if self.extraction_mode == "scene_change" else self.time_radio
+        wx.CallAfter(focus.SetFocus)
+
+    @staticmethod
+    def initial_settings(defaults: Optional[dict]) -> dict:
+        """The mode, interval and threshold the dialog opens at.
+
+        Saved values that aren't usable numbers fall back to the shipped
+        defaults rather than opening the dialog on something it would refuse.
+        """
+        defaults = defaults or {}
+        mode = defaults.get("extraction_mode")
+        if mode not in ("time_interval", "scene_change"):
+            mode = "time_interval"
+
+        def usable(key, info, fallback):
+            value = defaults.get(key)
+            if value is None or isinstance(value, bool):
+                return fallback
+            number, error = validate_number(info, str(value))
+            return fallback if error else float(number)
+
+        return {
+            "extraction_mode": mode,
+            "time_interval_seconds": usable("time_interval_seconds",
+                                            VideoExtractionDialog.TIME_INFO, 5.0),
+            "scene_change_threshold": usable("scene_change_threshold",
+                                             VideoExtractionDialog.SCENE_INFO, 30.0),
+        }
     
     def init_ui(self):
         """Initialize the dialog UI"""
@@ -1538,7 +1582,6 @@ class VideoExtractionDialog(wx.Dialog):
             style=wx.RB_GROUP,
             name="Time interval extraction mode"
         )
-        self.time_radio.SetValue(True)
         mode_sizer.Add(self.time_radio, 0, wx.ALL, 5)
         
         # Time interval input
@@ -1561,6 +1604,10 @@ class VideoExtractionDialog(wx.Dialog):
             name="Scene change detection mode"
         )
         mode_sizer.Add(self.scene_radio, 0, wx.ALL, 5)
+        if self.extraction_mode == "scene_change":
+            self.scene_radio.SetValue(True)
+        else:
+            self.time_radio.SetValue(True)
         
         # Scene threshold input
         scene_panel = wx.Panel(panel)

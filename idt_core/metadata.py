@@ -10,7 +10,7 @@ include when and where the photo was taken — critical for accessibility.
 Usage:
     extractor = MetadataExtractor()
     meta = extractor.extract(path)
-    context = meta.prompt_context()   # "Munich, Germany  Sep 12, 2025  iPhone 14 Pro"
+    context = meta.prompt_context()   # "Munich, Germany" (the place only)
     geocoder = NominatimGeocoder(cache_path=~/.idt/geocode_cache.json)
     meta = geocoder.enrich(meta)
 """

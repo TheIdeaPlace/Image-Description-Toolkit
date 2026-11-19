@@ -436,7 +436,7 @@ class ProcessingWorker(threading.Thread):
             # Inject EXIF context into the prompt before the AI call so the model
             # knows when/where/with-what the photo was taken.  Uses idt_core's
             # MetadataExtractor which returns a clean ImageMetadata with
-            # prompt_context() → "Munich, Germany  Sep 12, 2025  iPhone 14 Pro".
+            # prompt_context() → "Munich, Germany" (the place only).
             # Falls back gracefully when idt_core is unavailable (frozen builds
             # that haven't been updated yet).
             prompt_text, exif_context_str = self._inject_exif_context(prompt_text)
@@ -994,7 +994,7 @@ class ProcessingWorker(threading.Thread):
         the photo was taken.
 
         Returns (enriched_prompt, context_str) where context_str is the short
-        context line that was injected ("Munich, Germany  Sep 12, 2025  iPhone 14 Pro"),
+        context line that was injected ("Munich, Germany": the place only),
         or ("", "") if extraction failed or idt_core is unavailable.  Never raises.
         """
         if not _IDTCoreMetadataExtractor:
@@ -1859,7 +1859,7 @@ class VideoProcessingWorker(threading.Thread):
             # Create detector with config
             detector = EnhancedSceneDetector(
                 min_frames=self.extraction_config.get("min_frames_per_video", 5),
-                max_frames=self.extraction_config.get("max_frames_per_video", 50) or 50,
+                max_frames=self.extraction_config.get("max_frames_per_video"),
                 target_frames=self.extraction_config.get("target_frames_per_video", 15),
                 min_scene_duration=self.extraction_config.get("min_scene_duration_seconds", 1.0),
                 adaptive_threshold=True
@@ -1939,8 +1939,8 @@ class VideoProcessingWorker(threading.Thread):
         Reads frames sequentially — no seeking — so it works on MPEG and other
         containers that don't support random access.  Applied caps:
         - min_frame_gap: enforces at least min_scene_duration seconds between saves
-        - max_frames: hard stop at the configured maximum (default 50) so a
-          highly-dynamic video can't produce thousands of output frames
+        - max_frames: hard stop at Configure's Max frames per video, when one
+          is set; empty means no limit (#437)
         """
         import cv2
         import numpy as np
@@ -1949,8 +1949,10 @@ class VideoProcessingWorker(threading.Thread):
         # significantly.  Matches the metric in enhanced_scene_detector.
         threshold = self.extraction_config.get("scene_change_threshold", 30)  # 0-100
         min_duration = self.extraction_config.get("min_scene_duration_seconds", 1)
-        max_frames = self.extraction_config.get("max_frames_per_video", 50) or 50
-        
+        # Empty in Configure saves None, which means no limit. It used to be
+        # read as `or 50`, so "no limit" stopped at 50 frames (#437).
+        max_frames = self.extraction_config.get("max_frames_per_video")
+
         extracted_paths = []
         prev_frame = None
         last_extract_frame = -1
@@ -1966,7 +1968,7 @@ class VideoProcessingWorker(threading.Thread):
             if not ret:
                 break
             
-            if extract_count >= max_frames:
+            if max_frames and extract_count >= max_frames:
                 logger.info(f"Basic scene detection: reached max_frames cap ({max_frames})")
                 break
             

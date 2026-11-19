@@ -136,9 +136,23 @@ def _make_provider(provider: str, model: Optional[str], ollama_host: str,
         print("Note: Windows-AI takes no generation settings; they were ignored.",
               file=sys.stderr)
 
+    api_key = None
+    if provider in ("anthropic", "openai"):
+        # Once, up front, as `idt chat` does. Without it Claude failed on every
+        # picture with the SDK's "Could not resolve authentication method"
+        # (#467), and OpenAI with its own SDK wording.
+        from idt_core.keys import missing_key_message, resolve_api_key
+        key_name = "claude" if provider == "anthropic" else "openai"
+        api_key = resolve_api_key(key_name)
+        if not api_key:
+            shown = "Claude" if provider == "anthropic" else "OpenAI"
+            print(f"Error: {missing_key_message(shown)}", file=sys.stderr)
+            sys.exit(1)
+
     if provider == "anthropic":
         from idt_core.providers.claude import ClaudeProvider, DEFAULT_MODEL
-        return ClaudeProvider(model=model or DEFAULT_MODEL, options=options)
+        return ClaudeProvider(model=model or DEFAULT_MODEL, api_key=api_key,
+                              options=options)
 
     if provider == "apple":
         from idt_core.providers.apple import AppleProvider, DEFAULT_MODEL
@@ -183,7 +197,8 @@ def _make_provider(provider: str, model: Optional[str], ollama_host: str,
 
     if provider == "openai":
         from idt_core.providers.openai_provider import OpenAIProvider, DEFAULT_MODEL
-        return OpenAIProvider(model=model or DEFAULT_MODEL, options=options)
+        return OpenAIProvider(model=model or DEFAULT_MODEL, api_key=api_key,
+                              options=options)
 
     print(f"Unknown provider: {provider!r}", file=sys.stderr)
     print(f"Valid providers: {', '.join(_PROVIDER_CHOICES_SHOWN)}", file=sys.stderr)
@@ -771,6 +786,12 @@ def cmd_describe(args):
     stdin_mode = getattr(args, "stdin", False) or args.source == "-"
     if stdin_mode:
         return _cmd_describe_stdin(args)
+    if args.source is None:
+        # Optional only so --stdin can stand alone (#500).
+        print("Error: give a folder of pictures or a workspace to describe, "
+              "or --stdin to read picture paths.\n  idt describe <folder>",
+              file=sys.stderr)
+        sys.exit(EXIT_USAGE)
 
     source = Path(args.source).resolve()
 
@@ -3243,8 +3264,9 @@ Supported providers:
         formatter_class=_KeepLinesFormatter,
     )
     p_desc.add_argument(
-        "source",
-        help="Directory containing images, or '-' to read image paths from stdin",
+        "source", nargs="?",
+        help="Directory containing images, or '-' to read image paths from stdin "
+             "(may be left out with --stdin)",
     )
     p_desc.add_argument("--workspace", "-w", metavar="NAME|PATH",
                         help="Workspace bundle to create/use. Bare name -> under the "

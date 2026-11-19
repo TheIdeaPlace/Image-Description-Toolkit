@@ -2,7 +2,7 @@
 Workspace Statistics Dialog for ImageDescriber
 
 Provides one-line-per-stat analysis of the current workspace, organized in
-collapsible sections with separator headers. Topics covered:
+sections, each starting with a heading row. Topics covered:
 
 - Workspace Overview (counts, file types, extracted frames)
 - Descriptions (totals, multi-described items)
@@ -14,8 +14,8 @@ collapsible sections with separator headers. Topics covered:
 - Processing Performance (timing, throughput, projections)
 - Activity Timeline (first/most-recent description, busiest day)
 
-Accessibility: wx.ListBox with single tab stop; separator rows are
-skipped on arrow-key navigation and cannot receive mouse focus.
+Accessibility: wx.ListBox with single tab stop; every row says something
+(no "─" rule rows for a screen reader to read aloud, #427).
 """
 
 import math
@@ -23,7 +23,7 @@ import re
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import List, Set, Tuple
+from typing import List, Tuple
 
 import wx
 
@@ -80,9 +80,6 @@ def _strip_metadata_affixes(text: str) -> str:
 
     return text
 
-SEP = "─" * 52
-
-
 def _split_words(text: str) -> List[str]:
     """Extract lowercase words from text."""
     return re.findall(r"[a-z][a-z']*", text.lower())
@@ -125,28 +122,19 @@ def _fmt_date(dt: datetime) -> str:
     return f"{month} {day}, {year}  {hour}:{minute} {ampm}"
 
 
-def compute_workspace_stats(workspace) -> Tuple[List[str], Set[int]]:
-    """
-    Compute all statistics and return (lines, separator_indices).
-
-    lines             — list of strings to display in the ListBox
-    separator_indices — set of line indices that are visual separator rows
-    """
+def compute_workspace_stats(workspace) -> List[str]:
+    """Compute all statistics: the lines to show in the ListBox, one per row."""
     lines: List[str] = []
-    sep_idx: Set[int] = set()
 
     all_items = list(workspace.items.values())
     if not all_items:
         lines.append("No items in workspace yet.")
-        return lines, sep_idx
+        return lines
 
     # ── Section builder helpers ────────────────────────────────────────────────
-    def S():
-        lines.append(SEP)
-        sep_idx.add(len(lines) - 1)
-
     def H(title: str):
-        S()
+        # A heading that names the section, with no rule above it: lines of
+        # "─" were list items, and a screen reader read them aloud (#427).
         lines.append(title)
 
     def R(label: str, value):
@@ -542,9 +530,7 @@ def compute_workspace_stats(workspace) -> Tuple[List[str], Set[int]]:
             rate = len(all_descs) / span
             R("Avg descriptions / day:", f"{rate:.1f}")
 
-    # ── Final separator ────────────────────────────────────────────────────────
-    S()
-    return lines, sep_idx
+    return lines
 
 
 class WorkspaceStatsDialog(wx.Dialog):
@@ -552,7 +538,7 @@ class WorkspaceStatsDialog(wx.Dialog):
     Modal dialog showing comprehensive workspace statistics.
 
     Modeled after BatchProgressDialog: wx.ListBox with monospace font,
-    separator rows skippable by keyboard, one-line-per-stat layout.
+    one-line-per-stat layout, a heading row naming each section.
     """
 
     def __init__(self, parent, workspace):
@@ -597,7 +583,7 @@ class WorkspaceStatsDialog(wx.Dialog):
         except Exception:
             pass
 
-        self._lines, self.separator_indices = compute_workspace_stats(workspace)
+        self._lines = compute_workspace_stats(workspace)
         for line in self._lines:
             self.stats_list.Append(line)
 
@@ -620,53 +606,9 @@ class WorkspaceStatsDialog(wx.Dialog):
         # ── Bindings ──────────────────────────────────────────────────────────
         close_btn.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(wx.ID_CLOSE))
         self.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
-        self.stats_list.Bind(wx.EVT_LISTBOX, self._on_selection)
-        self.stats_list.Bind(wx.EVT_KEY_DOWN, self._on_key)
-
-    # ── Accessibility: separator row handling ──────────────────────────────────
 
     def _on_char_hook(self, event):
         if event.GetKeyCode() == wx.WXK_ESCAPE:
             self.EndModal(wx.ID_CLOSE)
         else:
             event.Skip()
-
-    def _on_selection(self, event):
-        """Jump away from separator row on mouse click."""
-        idx = self.stats_list.GetSelection()
-        if idx == wx.NOT_FOUND or idx not in self.separator_indices:
-            event.Skip()
-            return
-        count = self.stats_list.GetCount()
-        candidates = list(range(idx + 1, count)) + list(range(idx - 1, -1, -1))
-        for c in candidates:
-            if c not in self.separator_indices:
-                self.stats_list.SetSelection(c)
-                return
-        self.stats_list.SetSelection(wx.NOT_FOUND)
-
-    def _on_key(self, event):
-        """Arrow navigation skips separator rows."""
-        key = event.GetKeyCode()
-        cur   = self.stats_list.GetSelection()
-        count = self.stats_list.GetCount()
-
-        if key == wx.WXK_DOWN and cur != wx.NOT_FOUND:
-            nxt = cur + 1
-            while nxt < count and nxt in self.separator_indices:
-                nxt += 1
-            if nxt < count:
-                self.stats_list.SetSelection(nxt)
-                self.stats_list.EnsureVisible(nxt)
-                return
-
-        elif key == wx.WXK_UP and cur != wx.NOT_FOUND:
-            prv = cur - 1
-            while prv >= 0 and prv in self.separator_indices:
-                prv -= 1
-            if prv >= 0:
-                self.stats_list.SetSelection(prv)
-                self.stats_list.EnsureVisible(prv)
-                return
-
-        event.Skip()

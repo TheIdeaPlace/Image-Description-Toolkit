@@ -244,7 +244,10 @@ Descriptions, `Alt+V` View, `Alt+T` Tools, `Alt+H` Help. Within an open menu:
 `ImageDescriberFrame.on_key_press` is bound to `EVT_CHAR_HOOK`, so these run
 **before** any menu accelerator. They are suppressed while a text field has
 focus (`_is_text_entry_focused`), and live everywhere else — which in practice
-means the workspace tree and the description list.
+means the workspace tree and the description list, and in Viewer mode the
+Viewer's list. There, every key that would change the workspace (`P`, `R`,
+`M`, `F`, `Z`, `F2`) shows a message saying it's done in Editor mode
+(`_refuse_in_viewer`) instead; `C` still opens the chat window.
 
 | Key | Runs | Same as |
 | --- | --- | --- |
@@ -289,6 +292,17 @@ its in-app chat window (`chat_window_wx.py`) and the viewer
 (`viewer_components.py`). This is a gap rather than a conflict: adding them
 later means picking from the letters the menu bar does not already own
 (anything outside F, E, P, D, V, T, H).
+
+Tab order, which the user guide also gives:
+
+- **Editor mode:** the search bar's search box ("Filter images by text") and Clear search button when it is
+  showing, the workspace tree, the description list, the description editor,
+  Generate Description, Save Description. The tree and the description list
+  move focus on Tab themselves (`on_image_list_key`, `on_desc_list_key`).
+- **Viewer mode:** Refresh, Live Monitoring (disabled, so skipped, for a
+  workspace), the list, the Description box, Copy Text, Copy Image. The list
+  moves focus to the Description box on Tab itself (`on_list_key`).
+- The image preview is a `NoFocusPanel` in both modes, never a Tab stop.
 
 ---
 
