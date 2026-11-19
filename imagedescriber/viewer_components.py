@@ -275,6 +275,10 @@ class ViewerPanel(wx.Panel):
         
         # Image Preview (Top Right)
         self.image_preview_panel = wx.Panel(right_panel, size=(-1, 300))
+        # Only painted on: a panel with no focusable children takes focus
+        # itself, so Tab stopped on an empty "panel" between the list and the
+        # description (Kelly, 11/19/2026).
+        self.image_preview_panel.SetCanFocus(False)
         self.image_preview_panel.SetBackgroundColour(wx.Colour(200, 200, 200)) # Placeholder gray
         self.image_preview_bitmap = None
         self.image_preview_panel.Bind(wx.EVT_PAINT, self.on_paint_preview)
