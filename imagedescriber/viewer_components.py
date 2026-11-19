@@ -650,6 +650,9 @@ class ViewerPanel(wx.Panel):
             self.load_from_directory(self.current_dir)
             if sel != wx.NOT_FOUND and sel < self.desc_list.GetCount():
                 self.desc_list.SetSelection(sel)
+                # SetSelection fires no event: without this the details kept
+                # showing entry 0 while the list was back on the user's entry.
+                self.on_selection_changed(None)
             # Title is updated in load_from_directory via refresh_list
 
     def on_list_key(self, event):

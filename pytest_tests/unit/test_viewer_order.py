@@ -104,14 +104,38 @@ def test_picture_previews_are_not_tab_stops(frame):
     """Tab stopped on an empty "panel" between Viewer mode's list and its
     description (Kelly, 11/19/2026). Checked on the VM's desktop too: Tab now
     goes list, description, Copy Text."""
-    for panel in (frame.viewer_panel.image_preview_panel, frame.image_preview_panel):
+    from shared.wx_common import NoFocusPanel
+
+    # The previews, and the Editor's container that holds only a label and
+    # its preview (with nothing focusable inside, it would take Tab itself).
+    for panel in (frame.viewer_panel.image_preview_panel, frame.image_preview_panel,
+                  frame.preview_container):
+        assert isinstance(panel, NoFocusPanel)   # not the wx.Panel fallback
         assert not panel.AcceptsFocusFromKeyboard()
         assert not panel.AcceptsFocus()
 
 
 def test_switching_to_viewer_lands_on_the_newest(frame, tmp_path):
     """Kelly: the first thing heard should be the latest description."""
+    frame.switch_mode("viewer", _workspace(tmp_path))
     panel = frame.viewer_panel
-    panel.load_from_workspace(_workspace(tmp_path))
     assert panel.desc_list.GetSelection() == len(panel.entries) - 1
     assert panel.selected_entry()["description"] == "a.jpg at 2026-11-19T08:00:00"
+    # The details show the same entry (SetSelection fires no event).
+    assert panel.desc_text.GetValue().startswith("a.jpg at 2026-11-19T08:00:00")
+    frame.switch_mode("editor")
+
+
+def test_a_workspace_of_only_chats_selects_the_last(frame):
+    from data_models import ImageDescription, ImageItem, ImageWorkspace
+
+    w = ImageWorkspace(new_workspace=True)
+    chat = ImageItem("chat:chat_1", item_type="chat")
+    for i in range(2):
+        chat.add_description(ImageDescription(f"Turn {i}", "m", "chat",
+                                              created=f"2026-11-18T0{i}:00:00"))
+    w.add_item(chat)
+    panel = frame.viewer_panel
+    panel.load_from_workspace(w)
+    assert panel.desc_list.GetSelection() == 1
+    assert panel.desc_text.GetValue().startswith("Turn 1")

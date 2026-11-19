@@ -1538,8 +1538,10 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # ===== TOP SECTION: PREVIEW + DESCRIPTION LIST (SIDE-BY-SIDE) =====
         top_row_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
-        # Left column: image preview section
-        self.preview_container = wx.Panel(panel)
+        # Left column: image preview section. Holds only a label and the
+        # preview, so it's a NoFocusPanel too: a plain panel with nothing
+        # focusable inside takes Tab itself.
+        self.preview_container = NoFocusPanel(panel)
         self.preview_container.SetCanFocus(False)
         preview_sizer = wx.BoxSizer(wx.VERTICAL)
 
