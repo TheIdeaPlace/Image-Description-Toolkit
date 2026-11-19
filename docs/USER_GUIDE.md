@@ -364,7 +364,7 @@ Leave these out and IDT uses sensible defaults for the provider and model you pi
 | `--video-interval SECONDS` | 5.0 | Seconds between extracted video frames, 0.5 to 60 |
 | `--show-descriptions` | Off | Print each description to the terminal as it's generated |
 | `--quiet, -q` | Off | Minimal output; in stdin mode, prints the image's full path, a tab, then the description |
-| `--stdin` | Off | Read image paths from stdin. A source argument is still required, so pass `-` as the source instead (`idt describe -`) |
+| `--stdin` | Off | Read image paths from stdin; the same as passing `-` as the source |
 | `--project DIR` | The folder that holds all the paths | In stdin mode, the folder the pictures are treated as belonging to, which names the workspace |
 | `--showgui` | Off | Run the describe in ImageDescriber instead of the console: it opens on the folder, starts the batch and shows the progress. Closing ImageDescriber ends the command. Takes a folder of pictures, not a workspace |
 
@@ -1202,7 +1202,7 @@ A large workspace can take a while to open, especially from a OneDrive or networ
 
 If you add new images to the source folder after loading:
 
-- Select the folder in the image list, then choose **File → Refresh Folder from Disk...** (`Ctrl+Shift+R`). With a mouse, you can also right-click the folder and choose **Refresh Folder from Disk…**. It rescans the folder and adds new files. Images marked `[!]` (file deleted) are noted but their descriptions are kept.
+- Select the folder in the image list, then choose **File → Refresh Folder from Disk...** (`Ctrl+Shift+R`). You can also open the folder's context menu (the Applications key, `Shift+F10`, or a right-click) and choose **Refresh Folder from Disk…**. It rescans the folder and adds new files. Images marked `[!]` (file deleted) are noted but their descriptions are kept.
 
 **Workspace statistics**
 
