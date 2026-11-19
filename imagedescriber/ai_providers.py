@@ -453,7 +453,7 @@ def format_provider_error(provider: str, kind: str, status_code=None,
         return f"Server error from {provider} {suffix}"
     if kind == ErrorKind.CONNECTION:
         name = provider[:-4] if provider.endswith(" API") else provider
-        return (f"Couldn't connect to {name}. Check your internet connection "
+        return (f"Couldn't connect to {name}. Check your internet connection. "
                 f"{suffix}")
     if kind == ErrorKind.TIMEOUT:
         return f"Request timeout - try again later {suffix}"
@@ -501,7 +501,7 @@ def provider_error_from_exception(exc: BaseException, provider: str,
     )
 
 
-def unavailable_message(provider: str, has_key: bool) -> str:
+def unavailable_message(provider: str, has_key: bool, has_sdk: bool = True) -> str:
     """Why an API-key provider cannot run, and where to fix it (#477).
 
     The SDKs are bundled with every build, so for a user the cause is almost
@@ -509,8 +509,11 @@ def unavailable_message(provider: str, has_key: bool) -> str:
     for something they could not install. Worded without arrows: a screen
     reader reads "→" as "right arrow".
     """
-    if has_key:
+    if has_key and not has_sdk:
         return f"The {provider} SDK is not installed."
+    if has_key:
+        # A key, but the client failed to start (a proxy or base URL setting)
+        return f"The {provider} client couldn't start. See the log for why."
     if sys.platform == "darwin":
         where = "ImageDescriber, Preferences, on the API Keys tab"
     else:
@@ -1010,7 +1013,7 @@ class OpenAIProvider(AIProvider):
         if not self.is_available():
             raise_provider_error(
                 provider="OpenAI", kind=ErrorKind.UNAVAILABLE,
-                message=unavailable_message("OpenAI", bool(self.api_key)))
+                message=unavailable_message("OpenAI", bool(self.api_key), HAS_OPENAI))
         
         try:
             # Normalise every image to a resized JPEG before sending to OpenAI.
@@ -1376,7 +1379,7 @@ class ClaudeProvider(AIProvider):
         if not self.is_available():
             raise_provider_error(
                 provider="Claude", kind=ErrorKind.UNAVAILABLE,
-                message=unavailable_message("Claude", bool(self.api_key)))
+                message=unavailable_message("Claude", bool(self.api_key), HAS_ANTHROPIC))
         
         try:
             # Determine media type from file extension

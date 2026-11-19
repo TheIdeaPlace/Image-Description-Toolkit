@@ -418,7 +418,9 @@ def missing_key_message(provider: str) -> str:
     """An error message that names the variable to set."""
     name = _canonical(provider)
     var = ENV_VARS.get(name, "the provider's API key")
+    where = ("ImageDescriber, Preferences, API Keys" if sys.platform == "darwin"
+             else "Tools, Configure Settings, API Keys")
     return (
         f"No API key found for {provider}. Set the {var} environment variable, "
-        f"or add it in ImageDescriber under Tools, Configure Settings, API Keys."
+        f"or add it in ImageDescriber under {where}."
     )

@@ -75,7 +75,7 @@ class TestNoConnection:
     def test_the_wording_says_check_the_connection(self):
         text = provider_error_from_exception(
             APIConnectionError("Connection error."), "Claude API", timestamp=TS)
-        assert text.startswith("Couldn't connect to Claude. Check your internet connection")
+        assert text.startswith("Couldn't connect to Claude. Check your internet connection. ")
         assert "Server error" not in text
         assert "Claude API" not in text
 
@@ -131,8 +131,19 @@ class TestNoKeyMessage:
         assert "Preferences" in ai_providers.unavailable_message("Claude", has_key=False)
 
     def test_a_key_without_the_sdk_says_so(self):
-        assert ai_providers.unavailable_message("Claude", has_key=True) == \
+        assert ai_providers.unavailable_message("Claude", has_key=True, has_sdk=False) == \
             "The Claude SDK is not installed."
+
+    def test_a_key_whose_client_failed_does_not_blame_the_sdk(self):
+        message = ai_providers.unavailable_message("Claude", has_key=True, has_sdk=True)
+        assert "SDK" not in message and "couldn't start" in message
+
+    def test_cli_message_names_preferences_on_a_mac(self, monkeypatch):
+        from idt_core import keys
+        monkeypatch.setattr(keys.sys, "platform", "darwin")
+        assert "Preferences, API Keys" in keys.missing_key_message("Claude")
+        monkeypatch.setattr(keys.sys, "platform", "win32")
+        assert "Tools, Configure Settings, API Keys" in keys.missing_key_message("Claude")
 
 
 # ------------------------------------------------------------------ #
