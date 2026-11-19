@@ -4857,8 +4857,13 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         else:
             wx.CallAfter(self.SetStatusText, f"{done} of {total}  {name}", 0)
 
-    def _run_with_progress(self, stage_name: str, total: int, work):
+    def _run_with_progress(self, stage_name: str, total: int, work,
+                           show_after: float = 0.0):
         """Run `work(progress_cb)` off the main thread while the dialog repaints.
+
+        ``show_after``: seconds to wait before showing the progress window. A
+        quick job (opening a small workspace) then finishes with no window
+        flashing up and a screen reader announcing a dialog for nothing.
 
         Saving a large workspace writes one sidecar per item — 7,674 items over a
         network share measured at ~2 minutes — and doing that inline froze the UI
@@ -4874,42 +4879,20 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         Returns whatever `work` returned; re-raises whatever it raised.
         """
         state = {}
-
-        # A batch owns the shared dialog: its stage counter, its labels, its
-        # describe progress. A save started mid-batch must not touch any of that
-        # — doing so relabelled the running batch and pushed the counter past its
-        # own total ("Saving workspace (step 4 of 3)"). Give this work its own
-        # throwaway dialog instead.
-        standalone = self._batch_worker_running()
-
-        if standalone:
-            dlg = BatchProgressDialog(self, total) if BatchProgressDialog else None
-            if dlg:
-                dlg.begin_stage(stage_name, total, can_interrupt=False)
-                dlg.Show()
-                dlg.Raise()
-            owns_dialog = False
-        else:
-            # stage_count 0 suppresses "step N of M" — a standalone save is not
-            # part of a multi-stage run.
-            owns_dialog = self.batch_progress_dialog is None
-            dlg = self._ensure_progress_dialog({}, 0)
-            # Its Close button only hides it; a save pumping events against a
-            # hidden dialog disables every window with nothing shown.
-            if dlg and not dlg.IsShown():
-                dlg.Show()
-            self._begin_stage(stage_name, total)
-
-        # Progress is bound to *this* dialog rather than going through
-        # _stage_progress, which always targets the shared batch dialog.
+        # The dialog, once there is one. progress_cb runs on the worker thread
+        # and may fire before the dialog exists (show_after): it keeps only
+        # the latest count, which is shown when the dialog appears.
+        shown = {'dlg': None, 'last': None}
         last_paint = [0.0]
 
         def progress_cb(done, tot, name=""):
+            shown['last'] = (done, tot, name)
             now = time.time()
             is_final = tot > 0 and done >= tot
             if not is_final and (now - last_paint[0]) < 0.125:
                 return
             last_paint[0] = now
+            dlg = shown['dlg']
             if dlg:
                 wx.CallAfter(dlg.update_progress, done, tot, image_name=name)
 
@@ -4921,6 +4904,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             finally:
                 state['done'] = True
 
+        standalone = owns_dialog = False
+        dlg = None
         # Every progress save (Save, Save As, a batch's own saves) pumps
         # events here; a batch completion arriving meanwhile is queued and
         # delivered once the outermost pump ends (see on_workflow_complete).
@@ -4929,7 +4914,47 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         try:
             threading.Thread(target=runner, daemon=True).start()
             try:
+                deadline = time.monotonic() + show_after
+                while not state.get('done') and time.monotonic() < deadline:
+                    wx.SafeYield(None, True)      # every window disabled, briefly
+                    time.sleep(0.02)
+                # Without show_after the dialog is always set up, even if the
+                # work already finished: a batch's own save advances the
+                # shared dialog's stage counter here ("step 2 of 3").
+                if show_after <= 0 or not state.get('done'):
+                    # A batch owns the shared dialog: its stage counter, its
+                    # labels, its describe progress. A save started mid-batch
+                    # must not touch any of that -- doing so relabelled the
+                    # running batch and pushed the counter past its own total
+                    # ("Saving workspace (step 4 of 3)"). Give this work its
+                    # own throwaway dialog instead.
+                    standalone = self._batch_worker_running()
+                    if standalone:
+                        dlg = BatchProgressDialog(self, total) if BatchProgressDialog else None
+                        if dlg:
+                            dlg.begin_stage(stage_name, total, can_interrupt=False)
+                            dlg.Show()
+                            dlg.Raise()
+                    else:
+                        # stage_count 0 suppresses "step N of M" -- a
+                        # standalone save is not part of a multi-stage run.
+                        owns_dialog = self.batch_progress_dialog is None
+                        dlg = self._ensure_progress_dialog({}, 0)
+                        if dlg and not dlg.IsShown():
+                            dlg.Show()
+                        self._begin_stage(stage_name, total)
+                    shown['dlg'] = dlg
+                    if dlg and shown['last']:
+                        done, tot, name = shown['last']
+                        dlg.update_progress(done, tot, image_name=name)
                 while not state.get('done'):
+                    # Its Close button and Escape only hide it, and SafeYield
+                    # keeps every other window disabled: hidden, the user is
+                    # left with no window that answers until the work ends
+                    # (#492 review). So it comes back.
+                    if dlg and not dlg.IsShown():
+                        dlg.Show()
+                        dlg.Raise()
                     wx.SafeYield(dlg, True)
                     time.sleep(0.02)
                 wx.SafeYield(dlg, True)           # drain queued progress CallAfters
@@ -5376,7 +5401,18 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 opened = Workspace.open(Path(file_path))
                 return opened, bundle_to_gui_workspace_dict(opened, progress=progress)
 
-            bundle, data = self._run_with_progress("Opening workspace", 0, _read)
+            # A folder scan still running would share the progress window and
+            # keep adding its files to the workspace this replaces; stop it,
+            # as Load Directory does (#492 review).
+            if self.scan_worker:
+                self.scan_worker.stop()
+                self.scan_worker = None
+            bundle, data = self._run_with_progress("Opening workspace", 0, _read,
+                                                   show_after=0.5)
+            # The app may have started closing while the read ran (an update
+            # download, a logoff): don't build into a window on its way out.
+            if self._window_closing or not self or self.IsBeingDeleted():
+                return
 
             self.workspace = ImageWorkspace.from_dict(data)
             self.workspace_file = Path(file_path)
@@ -10149,6 +10185,13 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def _auto_check_updates(self):
         """Silent startup check. Says nothing at all unless there is an update."""
+        # An open or save is running with its progress window (opening a large
+        # workspace at startup can take a minute): "Update Available" over it,
+        # and Download closing the app mid-open, would be wrong. Try again
+        # once it's done (#492 review).
+        if self._progress_pump_depth > 0:
+            wx.CallLater(2000, self._auto_check_updates)
+            return
         try:
             from idt_core import updater
             from idt_core.config import UserConfig
