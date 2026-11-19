@@ -190,6 +190,13 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 
 ### Fixed
 
+- **Opening a large workspace no longer freezes ImageDescriber.** Opening a workspace reads
+  one small file per picture. The first time after starting your computer, a workspace of
+  12,906 pictures in a OneDrive folder took a minute and a half to read, and the window
+  said "Not Responding" the whole time. The reading now happens in the background, with an
+  "Opening workspace" window that counts as it goes; it appears only when an open takes
+  more than half a second. Closing that window while it works brings it back, rather than
+  leaving no window that answers.
 - **No more "Not Responding" after the Process dialog in a large workspace.** Pressing P
   on one picture rebuilt the whole image list when the dialog closed and again when the
   description arrived. In a workspace of 12,906 pictures each rebuild froze ImageDescriber
