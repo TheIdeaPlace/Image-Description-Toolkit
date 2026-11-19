@@ -6,7 +6,7 @@ inside `ChatWindow.on_attach_files`; copying it into the new app is exactly how
 this repo ended up with three provider layers.
 
 The behaviour worth pinning down is what happens when a *selection* is partly
-bad. Someone attaching ten photos, one of which is over Claude's 5 MB limit,
+bad. Someone attaching ten files, one of which is a PDF over Claude's 32 MB limit,
 should get nine attachments and one explanation — not an empty queue and a
 dialog. `prepare_attachments` is written for that case and
 `test_one_bad_file_does_not_discard_the_others` is the assertion that keeps it.
@@ -33,11 +33,28 @@ CLAUDE_IMAGE_LIMIT = 5 * 1024 * 1024
 CLAUDE_PDF_LIMIT = 32 * 1024 * 1024
 
 
+_REAL_PICTURE = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG", ".gif": "GIF",
+                 ".webp": "WEBP"}
+
+
 @pytest.fixture
 def files(tmp_path):
+    """A file of ``size`` bytes. Pictures start with a real tiny image (the
+    rest is padding a decoder ignores), because a picture for Claude must be
+    readable to be attached (#494 review)."""
     def make(name, size=64):
+        import io
+
+        from PIL import Image
+
         path = tmp_path / name
-        path.write_bytes(b"x" * size)
+        fmt = _REAL_PICTURE.get(path.suffix.lower())
+        head = b""
+        if fmt:
+            buf = io.BytesIO()
+            Image.new("RGB", (4, 4), "red").save(buf, format=fmt)
+            head = buf.getvalue()
+        path.write_bytes(head + b"x" * max(size - len(head), 0))
         return path
     return make
 
@@ -137,6 +154,25 @@ def test_a_large_photo_is_fitted_for_claude_not_refused(tmp_path, provider):
     Image.open(io.BytesIO(base64.b64decode(block["source"]["data"])))   # a real picture
 
 
+@pytest.mark.parametrize("provider", ["claude", "claude-code"])
+def test_a_damaged_picture_is_refused_when_attached(tmp_path, provider):
+    """Not when sent: there, Pillow's error was classified as a connection
+    failure and reported as "could not reach the provider" (#494 review)."""
+    bad = tmp_path / "broken.jpg"
+    bad.write_bytes(b"not a picture" * 600_000)   # about 7.8 MB
+    with pytest.raises(AttachmentError) as excinfo:
+        prepare_attachment(bad, provider)
+    assert "broken.jpg" in str(excinfo.value)
+    assert "can't be read as a picture" in str(excinfo.value)
+
+
+def test_fitting_is_a_registry_capability():
+    assert capabilities_for("claude").fits_images
+    assert capabilities_for("claude-code").fits_images
+    assert not capabilities_for("openai").fits_images
+    assert not capabilities_for("ollama").fits_images
+
+
 def test_a_document_over_the_limit_is_still_refused(files):
     big = files("big.pdf", 33 * 1024 * 1024)
     with pytest.raises(AttachmentError) as excinfo:
@@ -234,8 +270,10 @@ def test_heic_is_converted_to_jpeg(tmp_path, monkeypatch):
     converted_calls = []
 
     def fake_convert(src, dst):
+        from PIL import Image
+
         converted_calls.append((src, dst))
-        Path(dst).write_bytes(b"jpeg-bytes")
+        Image.new("RGB", (4, 4), "red").save(dst, format="JPEG")   # a real JPEG
 
     monkeypatch.setattr(converter, "convert_heic_to_jpg", fake_convert)
 

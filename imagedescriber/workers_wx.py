@@ -436,7 +436,7 @@ class ProcessingWorker(threading.Thread):
             # Inject EXIF context into the prompt before the AI call so the model
             # knows when/where/with-what the photo was taken.  Uses idt_core's
             # MetadataExtractor which returns a clean ImageMetadata with
-            # prompt_context() → "Munich, Germany  Sep 12, 2025  iPhone 14 Pro".
+            # prompt_context() → "Munich, Germany" (the place only).
             # Falls back gracefully when idt_core is unavailable (frozen builds
             # that haven't been updated yet).
             prompt_text, exif_context_str = self._inject_exif_context(prompt_text)
@@ -994,7 +994,7 @@ class ProcessingWorker(threading.Thread):
         the photo was taken.
 
         Returns (enriched_prompt, context_str) where context_str is the short
-        context line that was injected ("Munich, Germany  Sep 12, 2025  iPhone 14 Pro"),
+        context line that was injected ("Munich, Germany": the place only),
         or ("", "") if extraction failed or idt_core is unavailable.  Never raises.
         """
         if not _IDTCoreMetadataExtractor:

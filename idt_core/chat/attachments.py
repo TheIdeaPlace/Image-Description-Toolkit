@@ -58,11 +58,6 @@ EXTENSION_MIME_TYPES = {
 #: Converted to JPEG before sending: no provider decodes HEIC.
 HEIC_EXTENSIONS = {".heic", ".heif"}
 
-#: Providers whose chat fits every picture to the API's limits before sending
-#: it (encoding.encode_attachment_claude -> claude_code.fit_image), so a
-#: picture's file size is no reason to refuse it.
-_FITS_IMAGES = {"claude", "claude-code"}
-
 
 def infer_media_type(path) -> str:
     """MIME type from the file extension.
@@ -144,9 +139,19 @@ def prepare_attachment(
     limit = capabilities.size_limit_for(media_type)
     # A phone photo over 5 MB is scaled down for Claude, not refused: checking
     # the file's size here refused it before it could be fitted (#487 review,
-    # 11/19/2026). Documents keep their limit.
-    if media_type.startswith("image/") and capabilities.provider in _FITS_IMAGES:
+    # 11/19/2026). Documents keep their limit. It must be a picture that can be
+    # read, though: checked here, a damaged one is refused with a clear reason
+    # rather than failing when sent as "could not reach the provider" (#494
+    # review).
+    if media_type.startswith("image/") and capabilities.fits_images:
         limit = None
+        from ..converter import _side_of
+
+        if not _side_of(source.read_bytes()):
+            raise AttachmentError(
+                f"{source.name} can't be read as a picture. It may be damaged or "
+                f"not really a {media_type.split('/')[1].upper()} file."
+            )
     if limit is not None:
         size = source.stat().st_size
         if size > limit:
