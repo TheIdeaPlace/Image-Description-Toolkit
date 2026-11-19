@@ -1243,7 +1243,7 @@ To batch only one folder, select the folder in the image list and choose **Proce
 
 | Element | Description |
 |---|---|
-| Processing statistics and current image | A list you read with the arrow keys: items processed, failures, average time per image, estimated time remaining, the provider, model and prompt style, token use and cost (see below), the last image described with the start of its description, and the current image. The separator lines are skipped as you arrow |
+| Processing statistics and current image | A list you read with the arrow keys: items processed, failures, average time per image, estimated time remaining, the provider, model and prompt style, token use and cost (see below), the last image described with the start of its description, and the current image. |
 | Progress bar | Visual percentage complete |
 | Pause / Resume | Temporarily pause and resume the batch |
 | Stop | Cancel the batch (descriptions generated so far are kept) |
@@ -2186,7 +2186,7 @@ idt chat --provider claude --system "Answer in one sentence." --message "What is
 
 The chat window and description list use `wx.ListBox` instead of tree controls, providing a single tab stop and reliable screen reader announcement of new content.
 
-All interactive controls have accessible names set via `SetAccessibleName()`. Separator rows in lists are automatically skipped during keyboard navigation.
+All interactive controls have accessible names set via `SetAccessibleName()`.
 
 **idt CLI**
 
