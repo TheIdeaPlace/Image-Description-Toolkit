@@ -27,6 +27,7 @@ LiveUpdateEvent, EVT_LIVE_UPDATE = wx.lib.newevent.NewEvent()
 try:
     from shared.wx_common import (
         DescriptionListBox,
+        NoFocusPanel,
         show_warning,
         show_info,
         ask_yes_no
@@ -36,6 +37,7 @@ try:
 except ImportError:
     # Fallback for dev/frozen paths
     DescriptionListBox = wx.ListBox # Fallback
+    NoFocusPanel = wx.Panel  # Fallback
     show_warning = wx.MessageBox
     show_info = wx.MessageBox
     def ask_yes_no(parent, message, caption):
@@ -274,11 +276,10 @@ class ViewerPanel(wx.Panel):
         right_sizer = wx.BoxSizer(wx.VERTICAL)
         
         # Image Preview (Top Right)
-        self.image_preview_panel = wx.Panel(right_panel, size=(-1, 300))
-        # Only painted on: a panel with no focusable children takes focus
-        # itself, so Tab stopped on an empty "panel" between the list and the
-        # description (Kelly, 11/19/2026).
-        self.image_preview_panel.SetCanFocus(False)
+        # Only painted on, never a Tab stop: as a plain wx.Panel, Tab stopped
+        # on an empty "panel" between the list and the description (Kelly,
+        # 11/19/2026). SetCanFocus(False) alone didn't stop it.
+        self.image_preview_panel = NoFocusPanel(right_panel, size=(-1, 300))
         self.image_preview_panel.SetBackgroundColour(wx.Colour(200, 200, 200)) # Placeholder gray
         self.image_preview_bitmap = None
         self.image_preview_panel.Bind(wx.EVT_PAINT, self.on_paint_preview)

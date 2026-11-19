@@ -464,6 +464,22 @@ class ModifiedStateMixin:
             return False
 
 
+class NoFocusPanel(wx.Panel):
+    """A panel that is only drawn on, and never a Tab stop.
+
+    A wx.Panel with no focusable children takes focus itself, and on Windows
+    SetCanFocus(False) doesn't stop that, so JAWS and NVDA landed on an empty
+    "panel" (ImageDescriber's picture preview, between Viewer mode's list and
+    its description; Kelly, 11/19/2026). Saying it accepts no focus does.
+    """
+
+    def AcceptsFocus(self):
+        return False
+
+    def AcceptsFocusFromKeyboard(self):
+        return False
+
+
 # ==================== NUMBER FIELDS ====================
 
 class _AccessibleName(wx.Accessible):

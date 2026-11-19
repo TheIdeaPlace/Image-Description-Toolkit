@@ -81,6 +81,7 @@ try:
         show_about_dialog,
         get_app_version,
         DescriptionListBox,  # NEW: Accessible listbox for descriptions with full text in screen readers
+        NoFocusPanel,
     )
     from shared.exif_utils import extract_exif_datetime
     # Names controls for VoiceOver. wx cannot do it on macOS -- SetAccessible()
@@ -1546,7 +1547,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         preview_sizer.Add(self.image_preview_label, 0, wx.ALL, 5)
 
         # Preview panel is centered and sized to current image aspect ratio.
-        self.image_preview_panel = wx.Panel(self.preview_container)
+        # Only painted on: never a Tab stop (see NoFocusPanel).
+        self.image_preview_panel = NoFocusPanel(self.preview_container)
         self.image_preview_panel.SetMinSize((250, 250))
         self.image_preview_panel.SetBackgroundColour(wx.Colour(200, 200, 200))
         self.image_preview_panel.SetName("Image preview panel")
