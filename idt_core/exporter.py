@@ -199,7 +199,8 @@ def export_html(project: Project, filename: str = "descriptions.html") -> Path:
         a(f'    <article id="{slug}">')
         a(f"      <h2>{_h(item.display_name)}</h2>")
         a("      <figure>")
-        a(f'        <img src="{_h(img_src_str)}" alt="{_h(text)}" loading="lazy">')
+        a(f'        <img src="{_h(img_src_str)}" alt="{_h(_short_alt(item.display_name))}" '
+          f'loading="lazy">')
         a(f"        <figcaption>{_h(text)}</figcaption>")
         a("      </figure>")
 
@@ -331,6 +332,10 @@ def _ws_when(desc) -> str:
 def _ws_img_src(ws, item, reports_dir: Path) -> str:
     """Build an <img src> for a report in reports_dir, for copy or reference mode."""
     img = ws.image_path(item)
+    # Browsers can't show HEIC; use the JPEG the pipeline made from it (#465).
+    converted = getattr(item, "converted", None)
+    if converted and (ws.path / converted).is_file():
+        img = ws.path / converted
     try:
         # Relative to the report — works for bundle copies and for reference
         # originals that live on the same drive as the bundle.
@@ -381,14 +386,13 @@ def export_workspace_html(ws, filename: str = "descriptions.html") -> Path:
     a('  <main id="main-content">')
     for i, item in enumerate(items, 1):
         slug = f"img-{i:04d}"
-        active = item.active_description
-        alt_text = strip_usage_line(active.text) if active else "(no description)"
         img_src = _ws_img_src(ws, item, reports_dir)
         multi = len(item.descriptions) > 1
         a(f'    <article id="{slug}">')
         a(f"      <h2>{_h(item.display_name)}</h2>")
         a("      <figure>")
-        a(f'        <img src="{_h(img_src)}" alt="{_h(alt_text)}" loading="lazy">')
+        a(f'        <img src="{_h(img_src)}" alt="{_h(_short_alt(item.display_name))}" '
+          f'loading="lazy">')
         a("      </figure>")
         # Show every description in its own labeled block
         a(f"      <h3>{'Descriptions' if multi else 'Description'}</h3>")
@@ -525,6 +529,16 @@ def _render_item_metadata(a, meta: dict, indent: str = "      ") -> None:
     for label, value in rows:
         a(f"{indent}  <dt>{_h(label)}</dt><dd>{_h(str(value))}</dd>")
     a(f"{indent}</dl>")
+
+
+def _short_alt(name: str) -> str:
+    """The picture's alt text: short, because its description follows it.
+
+    The whole description used to be the alt, so JAWS and NVDA read it twice,
+    once for the picture and once for the text below (#465). Not empty, so
+    the picture can still be found by graphics navigation.
+    """
+    return f"{name}, described below"
 
 
 def _h(text: str) -> str:

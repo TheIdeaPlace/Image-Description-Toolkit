@@ -1287,9 +1287,12 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
         threshold = extraction_config.get("scene_change_threshold", 30.0)  # 0-100 scale
         min_duration = extraction_config.get("min_scene_duration_seconds", 1.0)
-        max_frames = extraction_config.get("max_frames_per_video", 50) or 50
+        # Empty in Configure saves None, which means no limit. It used to be
+        # read as `or 50`, so "no limit" stopped at 50 frames (#437).
+        max_frames = extraction_config.get("max_frames_per_video")
 
-        print(f"Scene detection: threshold={threshold:.1f}%, min_duration={min_duration}s, max_frames={max_frames}")
+        print(f"Scene detection: threshold={threshold:.1f}%, min_duration={min_duration}s, "
+              f"max_frames={max_frames or 'no limit'}")
 
         extracted_paths = []
         prev_frame = None
@@ -1307,7 +1310,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             if not ret:
                 break
 
-            if extract_count >= max_frames:
+            if max_frames and extract_count >= max_frames:
                 print(f"Scene detection: reached max_frames cap ({max_frames})")
                 break
 
@@ -4705,6 +4708,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     "min_scene_duration_seconds": cfg.get("min_scene_duration_seconds", 1.0),
                     "start_time_seconds": cfg.get("start_time_seconds", 0),
                     "end_time_seconds": cfg.get("end_time_seconds"),
+                    # Empty in Configure means no limit (#437).
+                    "max_frames_per_video": cfg.get("max_frames_per_video"),
                 }
         except Exception:
             pass
@@ -4715,6 +4720,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             "min_scene_duration_seconds": 1.0,
             "start_time_seconds": 0,
             "end_time_seconds": None,
+            "max_frames_per_video": None,
         }
 
     def _ensure_progress_dialog(self, options: dict, stage_count: int):
@@ -8323,8 +8329,9 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 self.refresh_image_list()
                 self.mark_modified()
 
-        # Show extraction dialog
-        dialog = VideoExtractionDialog(self, selected_video)
+        # Show extraction dialog, opened at what Configure saved (#437)
+        saved_config = self._load_video_extraction_config()
+        dialog = VideoExtractionDialog(self, selected_video, defaults=saved_config)
         if dialog.ShowModal() != wx.ID_OK:
             dialog.Destroy()
             return
@@ -8333,32 +8340,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         process_after = settings.pop('process_after_extraction')
         dialog.Destroy()
 
-        # Load defaults from config file, then overlay dialog settings
-        try:
-            from idt_core.config_loader import load_json_config
-            video_config, _, _ = load_json_config('video_frame_extractor_config.json')
-            if video_config:
-                extraction_config = {
-                    # Defaults from config file
-                    "start_time_seconds": video_config.get("start_time_seconds", 0),
-                    "end_time_seconds": video_config.get("end_time_seconds"),
-                    "time_interval_seconds": video_config.get("time_interval_seconds", 5.0),
-                    "scene_change_threshold": video_config.get("scene_change_threshold", 30.0),
-                    "min_scene_duration_seconds": video_config.get("min_scene_duration_seconds", 1.0),
-                    **settings  # Dialog settings override config file
-                }
-            else:
-                raise Exception("Config not loaded")
-        except Exception:
-            # Fallback to hardcoded defaults
-            extraction_config = {
-                "start_time_seconds": 0,
-                "end_time_seconds": None,
-                "time_interval_seconds": 5.0,
-                "scene_change_threshold": 30.0,
-                "min_scene_duration_seconds": 1.0,
-                **settings
-            }
+        # The saved settings, with the dialog's choices over them
+        extraction_config = {**saved_config, **settings}
 
         # Frames are written into the bundle's derived/frames/. Ensure a real bundle
         # exists first (under ~/Documents/idt) so extraction never drops frames into a
