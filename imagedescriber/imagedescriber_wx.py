@@ -5367,8 +5367,16 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 show_error(self, f"Not a valid .idtw workspace bundle:\n{file_path}")
                 return
 
-            bundle = Workspace.open(Path(file_path))
-            data = bundle_to_gui_workspace_dict(bundle)
+            # Read off the UI thread, with a progress window. Every item is a
+            # sidecar file; on a cold start 12,906 of them in a OneDrive
+            # folder took 95 seconds, read here on the UI thread, and Windows
+            # called ImageDescriber "Not Responding" the whole time (Kelly,
+            # 11/19/2026). Warm, the same read takes about 3 seconds.
+            def _read(progress):
+                opened = Workspace.open(Path(file_path))
+                return opened, bundle_to_gui_workspace_dict(opened, progress=progress)
+
+            bundle, data = self._run_with_progress("Opening workspace", 0, _read)
 
             self.workspace = ImageWorkspace.from_dict(data)
             self.workspace_file = Path(file_path)

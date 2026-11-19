@@ -739,15 +739,26 @@ class Workspace:
                     continue
         return None
 
-    def items(self) -> list[WorkspaceItem]:
+    def items(self, progress=None) -> list[WorkspaceItem]:
+        """Every item, read from its sidecar.
+
+        ``progress(done, total, name)``, if given, is called as each sidecar is
+        read. On a cold start a large bundle can take minutes here (12,906
+        sidecars in a OneDrive folder took 95 seconds), so ImageDescriber reads
+        it off the UI thread and shows the count.
+        """
         if not self.descriptions_dir.is_dir():
             return []
         out: list[WorkspaceItem] = []
-        for p in sorted(self.descriptions_dir.glob("**/*.json")):
+        paths = sorted(self.descriptions_dir.glob("**/*.json"))
+        total = len(paths)
+        for done, p in enumerate(paths, start=1):
             try:
                 out.append(WorkspaceItem.from_dict(json.loads(p.read_text(encoding="utf-8"))))
             except Exception:
-                continue
+                pass
+            if progress is not None:
+                progress(done, total, p.stem)
         return out
 
     def image_path(self, item: WorkspaceItem) -> Path:

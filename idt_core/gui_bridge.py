@@ -349,15 +349,17 @@ def _gui_chat_item_to_bundle(ws: Workspace, key: str, item: dict) -> None:
 # bundle  ->  GUI workspace dict                                                #
 # --------------------------------------------------------------------------- #
 
-def bundle_to_gui_workspace_dict(ws: Workspace) -> dict:
+def bundle_to_gui_workspace_dict(ws: Workspace, progress=None) -> dict:
     """
     Build a GUI ImageWorkspace.to_dict()-shaped document from a bundle so the GUI
     can load it. Item file paths point at the bundle's image copies so the GUI
     displays the workspace's own images.
+
+    ``progress(done, total, name)`` is passed to Workspace.items().
     """
     items: dict = {}
 
-    for wi in ws.items():
+    for wi in ws.items(progress=progress):
         # For reference-mode items, point the GUI at the original file so it
         # can display the image without requiring a copy inside the bundle.
         gui_path = str(ws.image_path(wi))
