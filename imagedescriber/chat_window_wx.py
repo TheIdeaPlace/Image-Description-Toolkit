@@ -10,6 +10,7 @@ Provides a fully accessible chat window with:
 - Image preview during conversation
 """
 
+import re
 import sys
 import os
 import tempfile
@@ -70,6 +71,7 @@ from idt_core.chat.messages import Attachment as ChatAttachment
 from idt_core.chat.providers import create_chat_provider
 from idt_core.keys import resolve_api_key
 from shared.chat_worker_wx import ChatWorker
+from shared.uia_notify import notify as notify_screen_reader
 
 # Provider attachment capabilities.
 #
@@ -124,6 +126,16 @@ class _NamedTextAccessible(wx.Accessible):
         return (wx.ACC_OK, self._label)
 
 
+def chat_window_title(display_name: str) -> str:
+    """The chat window's title for a named chat. Chats are named "Chat - …"
+    by default, and "Chat: " in front of that was read "Chat: Chat - …"
+    (#421), so the prefix is only added to a name that doesn't say Chat."""
+    name = (display_name or "").strip()
+    if re.match(r"chat\b", name, re.IGNORECASE):
+        return name
+    return f"Chat: {name}"
+
+
 class ChatDialog(wx.Dialog):
     """Simple dialog to select AI provider and model for chat session
     
@@ -146,11 +158,24 @@ class ChatDialog(wx.Dialog):
         self.cached_ollama_models = cached_ollama_models
         self._create_ui()
         self.Centre()
-        
+        # Open on Provider, the first thing to choose (#421). Windows put focus
+        # on OK, so Tab went OK, Cancel, Provider, Model. Set now and again
+        # once the dialog is showing, since showing it moves focus to the
+        # default button.
+        self.provider_choice.SetFocus()
+        wx.CallAfter(self._focus_provider)
+
+    def _focus_provider(self):
+        try:
+            if self and self.IsShown():
+                self.provider_choice.SetFocus()
+        except RuntimeError:        # closed before this ran
+            pass
+
     def _create_ui(self):
         """Create dialog UI"""
         main_sizer = wx.BoxSizer(wx.VERTICAL)
-        
+
         # Instructions
         intro_text = wx.StaticText(self, 
             label="Select AI provider and model for your chat session:")
@@ -344,7 +369,7 @@ class ChatWindow(wx.Dialog):
         """
         # Set window title based on whether we have a named chat item or image
         if chat_item and chat_item.display_name:
-            title = f"Chat: {chat_item.display_name}"
+            title = chat_window_title(chat_item.display_name)
         elif image_item:
             title = f"Chat: {Path(image_item.file_path).name}"
         else:
@@ -773,13 +798,21 @@ class ChatWindow(wx.Dialog):
     def on_send_message(self, event):
         """Send user message and start AI processing"""
         message = self.input_text.GetValue().strip()
+        if self.is_processing:
+            # The message box stays usable during a turn (#410), so this can
+            # happen: keep what was typed and say why nothing was sent, without
+            # a modal box that takes focus away. Checked before the empty test,
+            # so Enter in an empty box mid-turn is answered too. A beep where
+            # the screen reader can't be asked (macOS, old Windows).
+            self.status_text.SetLabel("Still waiting for the reply. Your message is kept.")
+            if not notify_screen_reader(self.GetHandle(),
+                                        "Still waiting for the reply. Your message is kept.",
+                                        activity_id="idt-chat-busy"):
+                wx.Bell()
+            return
         if not message:
             return
-            
-        if self.is_processing:
-            show_warning(self, "Please wait for the AI response to complete.")
-            return
-        
+
         # Validate any queued attachments still exist on disk
         missing = [a for a in self.pending_attachments if not Path(a['path']).exists()]
         if missing:
@@ -834,10 +867,13 @@ class ChatWindow(wx.Dialog):
         self.status_text.SetLabel("AI is typing...")
         self.is_processing = True
         
-        # Disable input while processing
-        self.input_text.Enable(False)
+        # Only Send is disabled while processing (on_send_message refuses a
+        # second message). The message box stays enabled: disabling the control
+        # with focus sent focus to the next one, so Enter was answered with
+        # "unavailable" and a jump to Clear Input, and the reply announcement
+        # bounced focus from there (#410).
         self.send_btn.Enable(False)
-        
+
         # Initialize response buffer
         self.current_response_chunks = []
         
@@ -1097,8 +1133,9 @@ class ChatWindow(wx.Dialog):
         self.history_list.SetSelection(last_idx)
         self._update_message_detail(last_idx)
 
-        # Force screen reader announcement by setting focus briefly then returning it
-        wx.CallAfter(self._announce_new_message, display_text)
+        # Have the screen reader speak the reply (#410). After this handler, so
+        # it comes after _finish_processing below.
+        wx.CallAfter(self._announce_new_message, full_response)
         
         # Update message count
         msg_count = len(self.session['messages'])
@@ -1117,15 +1154,22 @@ class ChatWindow(wx.Dialog):
         self._finish_processing()
 
     def _announce_new_message(self, message_text: str):
-        """Force screen reader to announce new AI message
-        
-        This is done by briefly moving focus to the history list,
-        then returning it to the input field.
+        """Have the screen reader speak a new reply, leaving focus where it is.
+
+        On Windows this raises a UI Automation notification, which screen
+        readers are documented to speak (not yet confirmed by ear for this
+        window). Elsewhere, or if UIA refuses, focus is moved to the history
+        list and back, as before.
+
+        That bounce alone was all there was, and with NVDA nothing was spoken
+        (#410, NVDA bug bash 11/15/2026).
         """
-        # Temporarily move focus to history list (triggers announcement)
+        if not self or not message_text:
+            return
+        if notify_screen_reader(self.GetHandle(), message_text, activity_id="idt-chat-reply"):
+            return
+        # Fallback: briefly move focus to the history list, then back.
         self.history_list.SetFocus()
-        
-        # Return focus to input after brief delay
         wx.CallLater(100, self.input_text.SetFocus)
         
     def on_chat_error(self, event):
@@ -1561,8 +1605,7 @@ class ChatWindow(wx.Dialog):
         })
 
         self.status_text.SetLabel("Summarizing conversation…")
-        self.send_btn.Enable(False)
-        self.input_text.Enable(False)
+        self.send_btn.Enable(False)     # the message box stays enabled, as for a turn (#410)
         self.is_processing = True
         self.current_response_chunks = []
 

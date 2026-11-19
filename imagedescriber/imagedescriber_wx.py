@@ -187,9 +187,12 @@ except ImportError:
 
 # Phase 3: Import batch progress dialog
 try:
-    from batch_progress_dialog import BatchProgressDialog
+    from batch_progress_dialog import BatchProgressDialog, say_without_moving_focus
 except ImportError:
     BatchProgressDialog = None
+
+    def say_without_moving_focus(window, text):    # no progress window, nothing to say
+        pass
 
 # Workspace Statistics dialog
 try:
@@ -205,7 +208,7 @@ except ImportError:
 
 # Import chat feature components
 try:
-    from chat_window_wx import ChatDialog, ChatWindow
+    from chat_window_wx import ChatDialog, ChatWindow, chat_window_title
 except ImportError as e:
     import traceback
     # Write error to file for debugging frozen exe
@@ -222,6 +225,9 @@ except ImportError as e:
     print(traceback.format_exc())
     ChatDialog = None
     ChatWindow = None
+
+    def chat_window_title(name):
+        return f"Chat: {name}"
 
 # Import Viewer components
 try:
@@ -2155,7 +2161,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             providers = set(d.provider for d in image_item.descriptions if d.provider)
             models = set(_display_model(d.provider, d.model)
                          for d in image_item.descriptions if d.model)
-            info = f"Chat: {session_name}"
+            # "Chat: Chat - Ollama …" said Chat twice (#421).
+            info = chat_window_title(session_name)
             if turn_count:
                 exchanges = turn_count // 2
                 info += f" ({exchanges} exchange{'s' if exchanges != 1 else ''})"
@@ -6679,6 +6686,14 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             except Exception:
                 pass  # Don't let this break the main processing flow
 
+            # The progress window shows this on the next image's update; the
+            # batch's last image has none, so hand it over now (#475).
+            dlg = self.batch_progress_dialog
+            if (batch is not None and batch is self.batch_worker
+                    and dlg and not dlg.IsBeingDeleted()):
+                dlg.note_completed(Path(event.file_path).name, event.description,
+                                   self._compute_token_stats())
+
             # Phase 3: Set processing state to completed
             image_item.processing_state = "completed"
             image_item.processing_error = None  # Clear any previous error
@@ -7152,7 +7167,10 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 dlg.failed_count = max(
                     0, dlg.failed_count - len(getattr(event, 'halted_files', None) or ()))
             self.batch_progress_dialog.mark_complete(summary, stopped=bool(halted))
+            finished_dialog = self.batch_progress_dialog
             self.batch_progress_dialog = None  # detach ref; dialog stays visible until user closes it
+        else:
+            finished_dialog = None
 
         # Phase 3: Clear worker reference
         self.batch_worker = None
@@ -7189,15 +7207,37 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         else:
             self._auto_save_bundle()
 
-        # Return keyboard focus to image list
-        self._focus_current_mode()
-
         refusals_halt = bool(halted) and getattr(event, 'halted_refusals', False)
         self.SetStatusText("Batch stopped: the provider declined many images" if refusals_halt
                            else "Batch stopped: provider refused the request" if halted
                            else "Batch complete", 0)
         self._batch_active = False
+        # Rebuild the list before focus goes anywhere (#414): focusing first
+        # had a screen reader say the focused item, then say it again (at
+        # another tree level) when the rebuild replaced it.
         self.refresh_image_list()
+
+        # Where focus goes (#409). A clean finish goes to the completion window,
+        # so a screen reader says its "Batch Complete" title and the summary;
+        # closing it brings focus back to the image list. Moving focus straight
+        # to the image list left that window behind, never heard. Failures and
+        # stops get a message box below, which speaks for itself.
+        clean_finish = not halted and not failures and not video_failures
+        if finished_dialog and clean_finish and finished_dialog.IsShown():
+            # After this handler, so nothing later in it can take focus back.
+            wx.CallAfter(finished_dialog.focus_completion)
+        else:
+            if finished_dialog and clean_finish:
+                # The user hid the progress window to keep working here. It
+                # can't be shown again (Show Batch Progress is off now), so
+                # close it and say the result from this window instead (#409).
+                words = finished_dialog._completion_words()
+                finished_dialog.Destroy()
+                wx.CallAfter(say_without_moving_focus, self, words)
+            active = wx.GetActiveWindow()
+            if active is None or active is self:
+                # Not out of a window the user is in, such as the chat window.
+                self._focus_current_mode()
 
         if (failures or video_failures) and not halted:
             parts = []
@@ -8120,7 +8160,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # Show progress dialog (starting from resumed position)
         total = batch_state.get('total_queued', len(file_paths))
         if BatchProgressDialog:
-            self.batch_progress_dialog = BatchProgressDialog(self, total)
+            self.batch_progress_dialog = BatchProgressDialog(self, total, describing=True)
             self.batch_progress_dialog.Show()
             # Enable "Show Batch Progress" menu item
             if hasattr(self, 'show_batch_progress_item'):
@@ -8378,7 +8418,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
         # Show batch progress dialog
         if BatchProgressDialog:
-            self.batch_progress_dialog = BatchProgressDialog(self, total_images=len(to_process))
+            self.batch_progress_dialog = BatchProgressDialog(
+                self, total_images=len(to_process), describing=True)
             self.batch_progress_dialog.Show()
 
         # Get API key for the provider
@@ -8482,7 +8523,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
         # Show progress dialog
         if BatchProgressDialog:
-            self.batch_progress_dialog = BatchProgressDialog(self, len(frame_paths))
+            self.batch_progress_dialog = BatchProgressDialog(
+                self, len(frame_paths), describing=True)
             self.batch_progress_dialog.Show()
             # Enable "Show Batch Progress" menu item
             if hasattr(self, 'show_batch_progress_item'):
