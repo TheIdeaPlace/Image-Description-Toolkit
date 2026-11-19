@@ -129,8 +129,18 @@ def test_providers_without_keys_say_nothing(provider):
 
 # --- dialogs (VM) ------------------------------------------------------------
 
+@pytest.fixture(scope="module")
+def _app():
+    # Created and destroyed here, as the other dialog test modules do: an App
+    # left for the garbage collector was destroyed during the next module's
+    # tests, which then failed with "The wx.App object must be created first".
+    app = wx.App(False)
+    yield app
+    app.Destroy()
+
+
 @pytest.fixture
-def wx_app(monkeypatch):
+def wx_app(_app, monkeypatch):
     from idt_core.providers import catalog
     monkeypatch.setattr(catalog, "_api_key_for", lambda _p: "test-key")
     monkeypatch.setattr(
@@ -146,8 +156,7 @@ def wx_app(monkeypatch):
             if hasattr(module, name):
                 monkeypatch.setattr(module, name, _no_message)
     monkeypatch.setattr(wx, "MessageBox", _no_message)
-    app = wx.App.Get() or wx.App(False)
-    yield app
+    yield _app
     catalog.invalidate()
 
 
