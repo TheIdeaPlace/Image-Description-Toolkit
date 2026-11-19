@@ -190,11 +190,16 @@ def format_dollars(amount: float) -> str:
     "Average Cost per Image: 0.11 cents", which sounded as if they didn't add
     up (Kelly, 11/19/2026; it was 2.1 cents over 19 pictures).
     """
+    amount = max(amount, 0.0)              # a cost is never negative
     if amount == 0:
         return "0 cents"
-    if amount >= 0.995:                    # rounds to a dollar or more
+    # Decided on the rounded figure: 0.995 is stored as 0.99499..., which
+    # passed ">= 0.995" and then printed as "$0.99" (#495 review).
+    if round(amount, 2) >= 1:
         return f"${amount:,.2f}"
     cents = amount * 100
+    if cents < 0.0001:                     # :.2g would switch to "1e-05"
+        return "less than 0.0001 cents"
     text = f"{cents:.0f}" if cents >= 9.95 else f"{cents:.2g}"
     return "1 cent" if text == "1" else f"{text} cents"
 

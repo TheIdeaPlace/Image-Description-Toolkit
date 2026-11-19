@@ -98,6 +98,10 @@ def test_estimate_prices_tokens():
     (0.0011, "0.11 cents"), (0.00096, "0.096 cents"), (0.000005, "0.0005 cents"),
     (0.004999, "0.5 cents"), (0.01, "1 cent"), (0.009996, "1 cent"),
     (0.0996, "10 cents"), (0, "0 cents"),
+    # Edges (#495 review): exactly 0.995 rounds to a dollar; never negative
+    # or in scientific notation.
+    (0.995, "$1.00"), (0.99499, "99 cents"), (-5, "0 cents"),
+    (1e-7, "less than 0.0001 cents"), (1e-6, "0.0001 cents"),
 ])
 def test_format_dollars(amount, text):
     assert pricing.format_dollars(amount) == text
