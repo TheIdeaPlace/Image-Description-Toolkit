@@ -47,7 +47,8 @@ import prompt_editor_dialog  # noqa: E402
     ("default_prompt_style", "Default prompt style"),
     ("time_interval_seconds", "Time interval seconds"),
     ("html_report_title", "HTML report title"),
-    ("metadata_enabled", "Extract metadata"),
+    ("metadata_enabled", "Metadata (location and date)"),
+    ("extract_metadata", "Extract metadata"),
     ("Ollama top p", "Ollama top p"),          # Generation names are already plain
 ])
 def test_settings_have_plain_names(code, shown):
@@ -60,6 +61,26 @@ def test_no_setting_is_shown_with_an_underscore():
     for category, settings in meta.items():
         for code in settings:
             assert "_" not in configure_dialog.setting_label(code), (category, code)
+
+
+def _metadata():
+    return configure_dialog.ConfigureDialog.build_settings_metadata(
+        type("Stub", (), {"_get_ollama_models": lambda self: [], "configs": {}})())
+
+
+def test_no_two_settings_share_a_name():
+    labels = [configure_dialog.setting_label(code)
+              for settings in _metadata().values() for code in settings]
+    assert len(labels) == len(set(labels)), sorted(l for l in labels if labels.count(l) > 1)
+
+
+def test_choice_values_are_shown_without_underscores():
+    for _category, settings in _metadata().items():
+        for code, info in settings.items():
+            if code == "default_model":
+                continue                          # model ids are shown as they are
+            for value in info.get("choices", []):
+                assert "_" not in str(configure_dialog._display_value(info, value)), (code, value)
 
 
 def test_default_provider_values_are_plain_names():
@@ -189,7 +210,9 @@ def test_prompt_editor_names_its_boxes_and_has_no_key_field(wx_app):
         dlg.provider_combo.SetStringSelection("openai")
         dlg.on_provider_changed(None)
         assert dlg.key_note_text.IsShown()
-        assert "API Keys tab" in dlg.key_note_text.GetLabel().replace("\n", " ")
+        assert "API Keys tab" in dlg.key_note_text.GetValue()
+        assert dlg.key_note_text.AcceptsFocusFromKeyboard()     # Tab reaches it
+        assert _accessible_name(dlg.key_note_text) == "API key"
         dlg.provider_combo.SetStringSelection("ollama")
         dlg.on_provider_changed(None)
         assert not dlg.key_note_text.IsShown()
@@ -228,3 +251,26 @@ def test_processing_options_names_the_model_description(wx_app):
     finally:
         dlg.Destroy()
         frame.Destroy()
+
+
+@pytest.mark.parametrize("saved, shown", [("ollama", "Ollama"), ("claude-code", "Claude Code"),
+                                          ("openai", "OpenAI")])
+def test_change_setting_shows_the_provider_by_name_and_saves_the_key(wx_app, saved, shown):
+    info = _metadata()["AI Model Settings"]["default_provider"]
+    dlg = configure_dialog.SettingEditDialog(None, "default_provider", saved, info)
+    try:
+        assert dlg.GetTitle() == "Edit: Default provider"
+        assert dlg.editor.GetStringSelection() == shown
+        assert dlg.GetValue() == saved
+    finally:
+        dlg.Destroy()
+
+
+def test_change_setting_keeps_a_provider_the_list_does_not_offer(wx_app):
+    info = _metadata()["AI Model Settings"]["default_provider"]
+    dlg = configure_dialog.SettingEditDialog(None, "default_provider", "someday", info)
+    try:
+        assert dlg.editor.GetStringSelection() == "someday (current)"
+        assert dlg.GetValue() == "someday"
+    finally:
+        dlg.Destroy()

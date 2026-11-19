@@ -88,7 +88,9 @@ _SETTING_LABELS = {
     "max_image_size": "Maximum image size",
     "max_frames_per_video": "Maximum frames per video",
     "compression_enabled": "Compress images",
-    "metadata_enabled": "Extract metadata",
+    # Not "Extract metadata": that is extract_metadata, on Processing Options.
+    "metadata_enabled": "Metadata (location and date)",
+    "enable_html_generation": "Enable HTML generation",
 }
 
 
@@ -298,11 +300,11 @@ def default_provider_choices(system: Optional[str] = None):
     system = system or platform.system()
     choices = ["ollama", "openai", "claude", "claude-code"]
     description = ("Default AI provider to use when processing images. Ollama runs locally, "
-                   "OpenAI and Claude require API keys, and claude-code uses your Claude "
+                   "OpenAI and Claude require API keys, and Claude Code uses your Claude "
                    "subscription through the Claude Code app (sign in with 'claude auth login').")
     if system == "Darwin":
         choices.append("apple")
-        description += (" apple runs Apple Intelligence on this Mac (macOS 27; accept the terms "
+        description += (" Apple Intelligence runs on this Mac (macOS 27; accept the terms "
                         "once with 'sudo fm license').")
     elif system == "Windows":
         choices.append("windows-ai")
@@ -894,14 +896,15 @@ class ConfigureDialog(wx.Dialog):
                     "path": ["extraction_mode"],
                     "type": "choice",
                     "choices": ["time_interval", "scene_change"],
-                    "description": "How to extract frames from videos. 'time_interval' extracts at regular intervals. 'scene_change' detects scene changes and extracts key frames."
+                    "choice_labels": {"time_interval": "Time interval", "scene_change": "Scene change"},
+                    "description": "How to extract frames from videos. Time interval extracts at regular intervals. Scene change detects scene changes and extracts key frames."
                 },
                 "time_interval_seconds": {
                     "file": "video_extractor",
                     "path": ["time_interval_seconds"],
                     "type": "float",
                     "range": list(VIDEO_INTERVAL_RANGE),
-                    "description": "Seconds between frame extractions when using time_interval mode. Lower = more frames. Recommended: 3-5 seconds for most videos."
+                    "description": "Seconds between frame extractions when the extraction mode is Time interval. Lower = more frames. Recommended: 3-5 seconds for most videos."
                 },
                 "max_frames_per_video": {
                     "file": "video_extractor",
@@ -976,7 +979,7 @@ class ConfigureDialog(wx.Dialog):
                     "file": "image_describer",
                     "path": ["metadata", "include_location_prefix"],
                     "type": "bool",
-                    "description": "Include location and date as prefix in descriptions (e.g., 'Austin, TX Mar 25, 2025: ...'). Requires Extract metadata."
+                    "description": "Include location and date as prefix in descriptions (e.g., 'Austin, TX Mar 25, 2025: ...'). Requires Metadata (location and date)."
                 },
                 "geocoding_enabled": {
                     "file": "image_describer",

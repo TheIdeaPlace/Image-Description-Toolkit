@@ -250,7 +250,15 @@ class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
         # No API Key field: it saved a top-level api_key that nothing reads, in
         # plain text (#499). Keys are added in Configure, on the API Keys tab,
         # and kept where every part of IDT finds them (idt_core/keys.py). For a
-        # provider that needs one, a line below says so (on_provider_changed).
+        # provider that needs one, a note says so (on_provider_changed): a
+        # read-only box, created here so Tab reaches it right after AI provider.
+        # Not static text, which Tab skips and a screen reader user never hears.
+        self.key_note_text = wx.TextCtrl(
+            default_box, style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_WORDWRAP | wx.TE_NO_VSCROLL)
+        self.key_note_text.SetMinSize((-1, self.key_note_text.GetCharHeight() * 3 + 8))
+        set_screen_reader_name(self.key_note_text, "API key")
+        form_sizer.Add((0, 0))
+        form_sizer.Add(self.key_note_text, 1, wx.EXPAND)
 
         # Default model with refresh button
         form_sizer.Add(wx.StaticText(default_box, label="Default Model:"), 0, wx.ALIGN_CENTER_VERTICAL)
@@ -267,8 +275,6 @@ class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
         form_sizer.Add(model_panel, 1, wx.EXPAND)
         
         default_sizer.Add(form_sizer, 0, wx.EXPAND | wx.ALL, 5)
-        self.key_note_text = wx.StaticText(default_box, label="")
-        default_sizer.Add(self.key_note_text, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         sizer.Add(default_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         panel.SetSizer(sizer)
@@ -574,9 +580,7 @@ class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
         provider = self._selected_provider()
         # Say where a key goes, for a provider that needs one (#499)
         note = api_key_note(provider)
-        self.key_note_text.SetLabel(note)
-        if note:
-            self.key_note_text.Wrap(260)       # the left pane is about 300 wide
+        self.key_note_text.ChangeValue(note)
         self.key_note_text.Show(bool(note))
         self.Layout()
         
