@@ -38,6 +38,7 @@ from shared.wx_common import (
     save_file_dialog,
     number_field,
     refuse_bad_number,
+    set_screen_reader_name,
 )
 from shared.number_entry import (validate_number, VIDEO_INTERVAL_RANGE,
                                  SCENE_THRESHOLD_RANGE)
@@ -624,10 +625,14 @@ class FollowupQuestionDialog(wx.Dialog):
         self.model_desc_text = wx.TextCtrl(
             self,
             style=wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_WORDWRAP | wx.TE_NO_VSCROLL,
-            name="Model description and guidance"
+            name="Model description"
         )
         self.model_desc_text.SetMinSize((-1, 52))
-        set_accessible_name(self.model_desc_text, "Model description and guidance")
+        # set_accessible_name is SetName (plus macOS), which a Windows edit box
+        # ignores: NVDA said "edit read only multi line moondream..." with no
+        # name (#418). An accessible object gives it one there.
+        set_accessible_name(self.model_desc_text, "Model description")
+        set_screen_reader_name(self.model_desc_text, "Model description")
         model_sizer.Add(self.model_desc_text, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 5)
 
         main_sizer.Add(model_sizer, 0, wx.ALL | wx.EXPAND, 10)
@@ -1057,10 +1062,14 @@ class ProcessingOptionsDialog(wx.Dialog):
         self.model_desc_text = wx.TextCtrl(
             panel,
             style=wx.TE_READONLY | wx.TE_MULTILINE | wx.TE_WORDWRAP | wx.TE_NO_VSCROLL,
-            name="Model description and guidance"
+            name="Model description"
         )
         self.model_desc_text.SetMinSize((-1, 52))
-        set_accessible_name(self.model_desc_text, "Model description and guidance")
+        # set_accessible_name is SetName (plus macOS), which a Windows edit box
+        # ignores: NVDA said "edit read only multi line moondream..." with no
+        # name (#418). An accessible object gives it one there.
+        set_accessible_name(self.model_desc_text, "Model description")
+        set_screen_reader_name(self.model_desc_text, "Model description")
         model_sizer.Add(self.model_desc_text, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 5)
 
         sizer.Add(model_sizer, 0, wx.ALL | wx.EXPAND, 10)

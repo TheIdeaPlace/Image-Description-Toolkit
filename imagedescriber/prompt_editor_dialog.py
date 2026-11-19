@@ -49,6 +49,7 @@ try:
     from shared.wx_common import (
         ConfigManager,
         ModifiedStateMixin,
+        set_screen_reader_name,
         show_error,
         show_warning,
         show_info,
@@ -89,13 +90,29 @@ except ImportError as e:
 # frozen builds, so no try/except fallback is needed.
 from idt_core.providers.registry import display_name as _display_provider  # noqa: E402
 from idt_core.providers.registry import typed_name as _typed_provider  # noqa: E402
+from idt_core.providers.registry import capabilities_for as _provider_capabilities  # noqa: E402
+
+#: The dialog's title. No file name after it (#417).
+PROMPT_EDITOR_TITLE = "Prompt Editor"
+
+
+def api_key_note(provider: str) -> str:
+    """Where to add a key for ``provider``, or "" when it needs none (#499).
+
+    The Prompt Editor's own API Key field saved a value nothing read; keys are
+    added in Configure, on the API Keys tab, like everywhere else in IDT.
+    """
+    if not _provider_capabilities(provider).requires_api_key:
+        return ""
+    return (f"{_display_provider(provider)} needs an API key. To add one, use "
+            f"Add Key in Configure, on the API Keys tab.")
 
 
 class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
     """Dialog for editing image description prompts"""
-    
+
     def __init__(self, parent):
-        wx.Dialog.__init__(self, parent, title="Image Description Prompt Editor", size=(900, 650))
+        wx.Dialog.__init__(self, parent, title=PROMPT_EDITOR_TITLE, size=(900, 650))
         ModifiedStateMixin.__init__(self)
         
         # Find the config file using config_loader (same resolution as CLI/main window).
@@ -125,8 +142,9 @@ class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
         
         # Load initial data
         self.load_config()
-        # Initialize window title context (app name + current file)
-        self.update_window_title("Image Description Prompt Editor", self.config_file.name if self.config_file else "(No config)")
+        # The title is the dialog's name, not the settings file's: a screen
+        # reader read "image_describer_config.json" with every underscore (#417).
+        self.update_window_title(PROMPT_EDITOR_TITLE, "")
     
     def init_ui(self):
         """Initialize the user interface"""
@@ -199,14 +217,13 @@ class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
         
         # Default prompt style
         form_sizer.Add(wx.StaticText(default_box, label="Default Style:"), 0, wx.ALIGN_CENTER_VERTICAL)
-        self.default_prompt_combo = wx.Choice(default_box, name="Default prompt style")
+        self.default_prompt_combo = wx.Choice(default_box)
+        set_screen_reader_name(self.default_prompt_combo, "Default prompt style")
         self.default_prompt_combo.Bind(wx.EVT_CHOICE, self.on_default_changed)
         form_sizer.Add(self.default_prompt_combo, 1, wx.EXPAND)
         
         # AI Provider selection
         form_sizer.Add(wx.StaticText(default_box, label="AI Provider:"), 0, wx.ALIGN_CENTER_VERTICAL)
-        provider_panel = wx.Panel(default_box)
-        provider_sizer = wx.BoxSizer(wx.VERTICAL)
         # Same source as every other ImageDescriber provider picker (issue
         # #271). This list was hardcoded without MLX, so a Mac user who could
         # run it was never offered it here — the mirror image of the Windows
@@ -216,42 +233,31 @@ class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
         except ImportError:
             from imagedescriber.ai_providers import provider_picker_choices
         self.provider_combo = wx.Choice(
-            provider_panel,
-            name="AI provider",
+            default_box,
             # Keys as typed, not display labels: this is the default_provider
             # setting, which is a key. Windows-AI rather than windows-ai, which a
             # screen reader says with "ai" as a word; _selected_provider maps back.
             choices=[_typed_provider(key) for key, _ in provider_picker_choices()],
         )
+        # name= alone gives a combo box no name on Windows: NVDA said just
+        # "combo box ollama collapsed" (#417).
+        set_screen_reader_name(self.provider_combo, "AI provider")
         self.provider_combo.Bind(wx.EVT_CHOICE, self.on_provider_changed)
-        provider_sizer.Add(self.provider_combo, 0, wx.EXPAND)
-        provider_info = wx.StaticText(provider_panel, label="(Can be overridden with --provider flag)")
-        provider_info.SetForegroundColour(wx.Colour(128, 128, 128))
-        provider_sizer.Add(provider_info, 0, wx.TOP, 2)
-        provider_panel.SetSizer(provider_sizer)
-        form_sizer.Add(provider_panel, 1, wx.EXPAND)
-        
-        # API Key field
-        form_sizer.Add(wx.StaticText(default_box, label="API Key:"), 0, wx.ALIGN_CENTER_VERTICAL)
-        api_key_panel = wx.Panel(default_box)
-        api_key_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        self.api_key_text = wx.TextCtrl(api_key_panel, style=wx.TE_PASSWORD,
-                                        name="API key")
-        self.api_key_text.SetHint("Enter API key or leave empty to use environment variable")
-        self.api_key_text.Bind(wx.EVT_TEXT, self.on_default_changed)
-        api_key_sizer.Add(self.api_key_text, 1, wx.EXPAND)
-        self.show_api_key_btn = wx.ToggleButton(api_key_panel, label="Show", size=(60, -1))
-        self.show_api_key_btn.Bind(wx.EVT_TOGGLEBUTTON, self.toggle_api_key_visibility)
-        api_key_sizer.Add(self.show_api_key_btn, 0, wx.LEFT, 5)
-        api_key_panel.SetSizer(api_key_sizer)
-        self.api_key_panel = api_key_panel
-        form_sizer.Add(api_key_panel, 1, wx.EXPAND)
-        
+        # No "(Can be overridden with --provider flag)" note under it: static
+        # text read aloud on opening, about a command-line flag (#417).
+        form_sizer.Add(self.provider_combo, 1, wx.EXPAND)
+
+        # No API Key field: it saved a top-level api_key that nothing reads, in
+        # plain text (#499). Keys are added in Configure, on the API Keys tab,
+        # and kept where every part of IDT finds them (idt_core/keys.py). For a
+        # provider that needs one, a line below says so (on_provider_changed).
+
         # Default model with refresh button
         form_sizer.Add(wx.StaticText(default_box, label="Default Model:"), 0, wx.ALIGN_CENTER_VERTICAL)
         model_panel = wx.Panel(default_box)
         model_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        self.default_model_combo = wx.Choice(model_panel, name="Default model")
+        self.default_model_combo = wx.Choice(model_panel)
+        set_screen_reader_name(self.default_model_combo, "Default model")
         self.default_model_combo.Bind(wx.EVT_CHOICE, self.on_default_changed)
         model_sizer.Add(self.default_model_combo, 1, wx.EXPAND)
         self.refresh_models_btn = wx.Button(model_panel, label="Refresh", size=(60, -1))
@@ -261,6 +267,8 @@ class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
         form_sizer.Add(model_panel, 1, wx.EXPAND)
         
         default_sizer.Add(form_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        self.key_note_text = wx.StaticText(default_box, label="")
+        default_sizer.Add(self.key_note_text, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         sizer.Add(default_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         panel.SetSizer(sizer)
@@ -350,11 +358,8 @@ class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
             # offer — e.g. one written on a Mac with MLX, opened on Windows.
             if not self.provider_combo.SetStringSelection(_typed_provider(provider)):
                 self.provider_combo.SetSelection(0)
-            
-            api_key = self.config_data.get('api_key', '')
-            self.api_key_text.SetValue(api_key)
-            
-            # Update API key field visibility
+
+            # Update the API key note for the provider
             self.on_provider_changed(None)
             
             self.populate_prompt_list()
@@ -567,9 +572,12 @@ class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
     def on_provider_changed(self, event):
         """Handle AI provider change"""
         provider = self._selected_provider()
-        # Show/hide API key field based on provider
-        needs_api_key = provider in ["openai"]
-        self.api_key_panel.Show(needs_api_key)
+        # Say where a key goes, for a provider that needs one (#499)
+        note = api_key_note(provider)
+        self.key_note_text.SetLabel(note)
+        if note:
+            self.key_note_text.Wrap(260)       # the left pane is about 300 wide
+        self.key_note_text.Show(bool(note))
         self.Layout()
         
         # Refresh the model list for the new provider
@@ -578,16 +586,6 @@ class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
         # Mark as modified
         self.mark_modified()
     
-    def toggle_api_key_visibility(self, event):
-        """Toggle API key visibility between password and plain text"""
-        if self.show_api_key_btn.GetValue():
-            self.api_key_text.SetWindowStyle(wx.TE_LEFT)
-            self.show_api_key_btn.SetLabel("Hide")
-        else:
-            self.api_key_text.SetWindowStyle(wx.TE_PASSWORD)
-            self.show_api_key_btn.SetLabel("Show")
-        self.api_key_text.Refresh()
-    
     def update_char_count(self):
         """Update the character count label"""
         count = len(self.prompt_text_edit.GetValue())
@@ -595,7 +593,7 @@ class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
     
     def update_ui_state(self):
         """Update UI state based on current data"""
-        self.update_window_title("Image Description Prompt Editor", self.config_file.name)
+        self.update_window_title(PROMPT_EDITOR_TITLE, "")
         self.apply_btn.Enable(self.modified)
     
     def add_new_prompt(self, event):
@@ -725,15 +723,10 @@ class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
             
             # Update default provider
             self.config_data['default_provider'] = self._selected_provider()
-            
-            # Update API key (only if not empty)
-            api_key = self.api_key_text.GetValue().strip()
-            if api_key:
-                self.config_data['api_key'] = api_key
-            elif 'api_key' in self.config_data:
-                # Remove api_key if it's now empty
-                del self.config_data['api_key']
-            
+
+            # No api_key here: nothing read it (#499). One already in the file
+            # is left as it is, so saving never throws away a key someone typed.
+
             # Update default model
             selection = self.default_model_combo.GetSelection()
             if selection != wx.NOT_FOUND:

@@ -81,6 +81,48 @@ def name_for_screen_readers(box, label: str) -> None:
     set_screen_reader_name(box, label)
 
 
+#: Plain names for settings whose code name doesn't read well once its
+#: underscores become spaces.
+_SETTING_LABELS = {
+    "html_report_title": "HTML report title",
+    "max_image_size": "Maximum image size",
+    "max_frames_per_video": "Maximum frames per video",
+    "compression_enabled": "Compress images",
+    "metadata_enabled": "Extract metadata",
+}
+
+
+def setting_label(setting_name: str) -> str:
+    """What the settings list and the editor call a setting: a plain name.
+
+    The list showed the code name, so a screen reader said "default_provider:
+    ollama" (#422). Underscores become spaces and the first letter is
+    capitalised; a few names that still read badly have their own label.
+    """
+    if setting_name in _SETTING_LABELS:
+        return _SETTING_LABELS[setting_name]
+    text = setting_name.replace("_", " ").strip()
+    return text[:1].upper() + text[1:]
+
+
+#: The prompt styles offered when the settings file has none, which only a
+#: broken file does: these are the shipped prompts' names.
+_FALLBACK_PROMPT_STYLES = ["detailed", "concise", "narrative", "artistic",
+                           "technical", "colorful", "simple"]
+
+
+def prompt_style_choices(config: Optional[Dict[str, Any]]) -> List[str]:
+    """The prompt styles Configure offers: every prompt in the settings file.
+
+    A hard-coded list of seven missed accessibility, aialttext and every prompt
+    added in the Prompt Editor (#469). Same order as Processing Options.
+    """
+    variations = (config or {}).get("prompt_variations") if isinstance(config, dict) else None
+    if isinstance(variations, dict) and variations:
+        return [str(name) for name in variations]
+    return list(_FALLBACK_PROMPT_STYLES)
+
+
 def _choice_label(setting_info: Dict[str, Any], value: Any) -> Any:
     """What a choice setting shows for ``value``: its entry in "choice_labels", else itself."""
     return setting_info.get("choice_labels", {}).get(value, value)
@@ -463,13 +505,14 @@ from shared.number_entry import (NUMBER_TYPES, validate_number,  # noqa: E402
                                  spoken_range, VIDEO_INTERVAL_RANGE,
                                  SCENE_THRESHOLD_RANGE)
 from idt_core.providers.registry import typed_name as typed_provider_name  # noqa: E402
+from idt_core.providers.registry import display_name as provider_display_name  # noqa: E402
 
 
 class SettingEditDialog(wx.Dialog):
     """Dialog for editing a single setting value"""
     
     def __init__(self, parent, setting_name: str, current_value: Any, setting_info: Dict[str, Any]):
-        super().__init__(parent, title=f"Edit: {setting_name.replace('_', ' ')}", size=(450, 250))
+        super().__init__(parent, title=f"Edit: {setting_label(setting_name)}", size=(450, 250))
         
         logger.info("SettingEditDialog.__init__ started for: %s", setting_name)
         
@@ -670,7 +713,7 @@ class SettingEditDialog(wx.Dialog):
     
     def _spoken_name(self) -> str:
         """The setting's name as a screen reader should say it."""
-        return self.setting_name.replace("_", " ")
+        return setting_label(self.setting_name)
 
     def GetValue(self):
         """Get the new value from the editor"""
@@ -705,7 +748,10 @@ class ConfigureDialog(wx.Dialog):
     """Dialog for managing IDT configuration settings"""
     
     def __init__(self, parent, cached_ollama_models=None):
-        super().__init__(parent, title="IDT Configure - Configuration Manager", size=(900, 650))
+        # One short title, with no header repeating it inside: a screen reader
+        # said "IDT Configure - Configuration Manager dialog IDT Configuration
+        # Manager" on opening (#422).
+        super().__init__(parent, title="Configure", size=(900, 650))
 
         logger.info("Configure dialog opened")
         
@@ -724,16 +770,16 @@ class ConfigureDialog(wx.Dialog):
         
         # Current configuration data
         self.configs = {}
-        
+
+        # Load all configs first: the prompt style list is the file's prompts.
+        self.load_all_configs()
+
         # Settings metadata for each category
         self.settings_metadata = self.build_settings_metadata()
-        
+
         # Category tab widgets (for refreshing on changes)
         self.category_widgets = {}
-        
-        # Load all configs
-        self.load_all_configs()
-        
+
         # UI setup
         self.init_ui()
 
@@ -811,8 +857,11 @@ class ConfigureDialog(wx.Dialog):
                     "path": ["default_provider"],
                     "type": "choice",
                     "choices": provider_choices,
-                    # Shown as typed: a screen reader says a lowercase "ai" as a word.
-                    "choice_labels": {"windows-ai": typed_provider_name("windows-ai")},
+                    # Plain names ("Default provider: Ollama", #422); Windows-AI
+                    # as typed: a screen reader says a lowercase "ai" as a word.
+                    "choice_labels": {
+                        p: (typed_provider_name(p) if p == "windows-ai" else provider_display_name(p))
+                        for p in provider_choices},
                     "description": provider_description
                 },
                 "default_model": {
@@ -820,7 +869,7 @@ class ConfigureDialog(wx.Dialog):
                     "path": ["default_model"],
                     "type": "choice",
                     "choices": ollama_models,
-                    "description": "Default Ollama model to use for image descriptions. Select from detected models or refresh models from Process menu. This is used when default_provider is set to 'ollama'."
+                    "description": "Default Ollama model to use for image descriptions. Select from detected models or refresh models from Process menu. This is used when the default provider is Ollama."
                 },
             },
             # The old temperature/max_tokens/top_k/top_p/repeat_penalty entries
@@ -832,8 +881,10 @@ class ConfigureDialog(wx.Dialog):
                     "file": "image_describer",
                     "path": ["default_prompt_style"],
                     "type": "choice",
-                    # The prompts' real names; "Simple" (capitalised) matched none (guru bug bash S5).
-                    "choices": ["detailed", "concise", "narrative", "artistic", "technical", "colorful", "simple"],
+                    # Every prompt in the settings file, by its real name (#469;
+                    # "Simple" capitalised matched none, guru bug bash S5).
+                    "choices": prompt_style_choices(
+                        getattr(self, "configs", {}).get("image_describer")),
                     "description": "Default prompt style for image descriptions. 'narrative' provides objective, detailed descriptions. 'artistic' focuses on composition and mood. 'technical' analyzes photographic aspects."
                 }
             },
@@ -925,7 +976,7 @@ class ConfigureDialog(wx.Dialog):
                     "file": "image_describer",
                     "path": ["metadata", "include_location_prefix"],
                     "type": "bool",
-                    "description": "Include location and date as prefix in descriptions (e.g., 'Austin, TX Mar 25, 2025: ...'). Requires metadata_enabled."
+                    "description": "Include location and date as prefix in descriptions (e.g., 'Austin, TX Mar 25, 2025: ...'). Requires Extract metadata."
                 },
                 "geocoding_enabled": {
                     "file": "image_describer",
@@ -1043,12 +1094,8 @@ class ConfigureDialog(wx.Dialog):
         panel = wx.Panel(self)
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         
-        # Header label
-        header = wx.StaticText(panel, label="IDT Configuration Manager")
-        font = wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
-        header.SetFont(font)
-        main_sizer.Add(header, 0, wx.ALIGN_CENTER | wx.ALL, 10)
-        
+        # No header text: it repeated the title, and a screen reader read both (#422).
+
         # Create notebook with tabs for each category
         self.notebook = wx.Notebook(panel, style=wx.NB_TOP, name="Configuration categories")
 
@@ -1324,8 +1371,8 @@ class ConfigureDialog(wx.Dialog):
             # Get current value
             current_value = self.get_setting_value(setting_info)
             
-            # Format display text: "Setting Name: current_value"
-            display_text = f"{setting_name}: {_display_value(setting_info, current_value)}"
+            # "Default provider: Ollama", never the code name (#422)
+            display_text = f"{setting_label(setting_name)}: {_display_value(setting_info, current_value)}"
 
             settings_list.Append(display_text, setting_name)
         
@@ -1453,7 +1500,7 @@ class ConfigureDialog(wx.Dialog):
             self.set_setting_value(setting_info, new_value)
             
             # Update the list item text to show new value
-            display_text = f"{setting_name}: {_display_value(setting_info, new_value)}"
+            display_text = f"{setting_label(setting_name)}: {_display_value(setting_info, new_value)}"
             settings_list.SetString(selection, display_text)
             
             # Refresh the display
