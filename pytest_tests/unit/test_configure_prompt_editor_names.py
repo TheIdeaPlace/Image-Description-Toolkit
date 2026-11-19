@@ -137,6 +137,15 @@ def wx_app(monkeypatch):
         catalog, "_fetch",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no network in tests")))
     catalog.invalidate()
+
+    # A message box would wait for a click that never comes: fail instead.
+    def _no_message(*args, **_kwargs):
+        raise AssertionError(f"a message box opened: {args}")
+    for module in (prompt_editor_dialog, configure_dialog):
+        for name in ("show_error", "show_warning", "show_info"):
+            if hasattr(module, name):
+                monkeypatch.setattr(module, name, _no_message)
+    monkeypatch.setattr(wx, "MessageBox", _no_message)
     app = wx.App.Get() or wx.App(False)
     yield app
     catalog.invalidate()
