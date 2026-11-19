@@ -115,6 +115,7 @@ class BatchProgressDialog(wx.Dialog):
         # modal error box per image, which a large failing batch stacked by the
         # hundred over the dialog.
         self.failed_count = 0
+        self._failed_videos = 0     # the part of failed_count that is videos
         self.last_failure = ''
         # Set by mark_stopping: later stages and progress keep saying so.
         self._stopping = False
@@ -294,7 +295,8 @@ class BatchProgressDialog(wx.Dialog):
         if not self._is_describing():
             return None
         done = max(current - 1, 0) if on_an_image else current
-        described = max(done - self.failed_count, 0)
+        failed_images = max(self.failed_count - self._failed_videos, 0)
+        described = max(done - failed_images, 0)
         if (total <= 0 or self._extraction is not None
                 or "extracting" in self.stage_name.lower()):
             return f"{described:,} images described so far"
@@ -372,9 +374,14 @@ class BatchProgressDialog(wx.Dialog):
         if token_stats is not None:
             self._last_progress["token_stats"] = token_stats
 
-    def note_failure(self, image_name: str, error: str) -> None:
-        """Count a failed image; shown on the next progress update."""
+    def note_failure(self, image_name: str, error: str, video: bool = False) -> None:
+        """Count a failed image (or, with ``video``, a video whose frames
+        couldn't be extracted); shown on the next progress update. A failed
+        video counts in "Failed" but not against images described (#412):
+        it never took a place in the describe count."""
         self.failed_count += 1
+        if video:
+            self._failed_videos += 1
         self.last_failure = f"{image_name}: {error}"
 
     def update_progress(self, current: int, total: int,

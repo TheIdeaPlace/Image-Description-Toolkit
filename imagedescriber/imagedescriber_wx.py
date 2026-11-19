@@ -4293,7 +4293,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self._batch_video_failures.append((name, reason))
             dlg = self.batch_progress_dialog
             if dlg:
-                dlg.note_failure(name, reason)
+                dlg.note_failure(name, reason, video=True)
 
         def _after_extraction(results):
             if self._window_closing or not self or self.IsBeingDeleted():

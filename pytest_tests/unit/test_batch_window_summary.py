@@ -132,6 +132,16 @@ def test_a_failure_is_not_counted_as_described(dialog):
     assert dialog.GetTitle().startswith("25%, 1 of 4 images described — ")
 
 
+def test_a_failed_video_is_not_taken_off_images_described(dialog):
+    """A video whose frames couldn't be extracted never took a place in the
+    describe count, so it counts in Failed but not against the title."""
+    dialog.begin_stage("Describing", 4, can_interrupt=True)
+    dialog.note_failure("clip.mp4", "no frames", video=True)
+    dialog.update_progress(3, 4, file_path="c.jpg")
+    assert dialog.GetTitle().startswith("50%, 2 of 4 images described — ")
+    assert any(r.startswith("Failed:") and r.endswith("1") for r in _rows(dialog))
+
+
 def test_starting_to_describe_while_extracting_shows_no_percentage(dialog):
     """begin_stage runs before begin_extraction; the title must not flash a
     percentage in between (#412 review)."""
