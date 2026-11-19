@@ -574,6 +574,53 @@ def test_silent_policy_announces_nothing(frame):
     assert "Response complete" in statuses
 
 
+def test_announce_speaks_without_moving_focus(frame, monkeypatch):
+    """#439: the reply goes to the screen reader through shared.uia_notify,
+    and focus stays put. The focus bounce, all there was, said nothing under
+    NVDA in ImageDescriber's identical chat window (#410)."""
+    import chat_app_wx
+    from chat_app_wx import ANNOUNCE_FULL
+
+    said, focused = [], []
+    monkeypatch.setattr(chat_app_wx, "notify_screen_reader",
+                        lambda hwnd, text, **kw: said.append(text) or True)
+    monkeypatch.setattr(frame.history_list, "SetFocus",
+                        lambda: focused.append(True))
+    frame.announce_policy = ANNOUNCE_FULL
+    frame._announce("The picture shows a dog.")
+    assert said == ["The picture shows a dog."]
+    assert focused == []
+
+
+def test_announce_falls_back_to_the_focus_bounce(frame, monkeypatch):
+    """Where nothing can speak it (macOS, or no NVDA and no UIA), the old
+    bounce still runs, so VoiceOver keeps hearing replies."""
+    import chat_app_wx
+    from chat_app_wx import ANNOUNCE_FULL
+
+    focused = []
+    monkeypatch.setattr(chat_app_wx, "notify_screen_reader",
+                        lambda hwnd, text, **kw: False)
+    monkeypatch.setattr(frame.history_list, "SetFocus",
+                        lambda: focused.append(True))
+    frame.announce_policy = ANNOUNCE_FULL
+    frame._announce("Hello")
+    assert focused == [True]
+
+
+def test_summary_policy_announces_the_summary(frame, monkeypatch):
+    import chat_app_wx
+    from chat_app_wx import ANNOUNCE_SUMMARY
+
+    said = []
+    monkeypatch.setattr(chat_app_wx, "notify_screen_reader",
+                        lambda hwnd, text, **kw: said.append(text) or True)
+    frame.announce_policy = ANNOUNCE_SUMMARY
+    frame._announce("One two three. Four five.")
+    assert len(said) == 1
+    assert said[0].endswith("Response complete, 5 words.")
+
+
 def test_worker_delivering_to_a_destroyed_window_is_a_no_op(wx_app, tmp_path):
     """The old worker posted to deleted C++ objects after the window closed."""
     from chat_app_wx import ChatFrame

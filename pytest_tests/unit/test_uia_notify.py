@@ -103,6 +103,10 @@ def test_the_controller_client_is_shipped_for_each_build_architecture():
     assert (_ROOT / "shared" / "nvda" / "license.txt").is_file()
     spec = (_ROOT / "imagedescriber" / "imagedescriber_wx.spec").read_text(encoding="utf-8")
     assert "'shared/nvda/x64'" in spec and "'shared/nvda/arm64'" in spec
+    # IDT Chat announces replies the same way (#439).
+    chat_spec = (_ROOT / "chatapp" / "chatapp.spec").read_text(encoding="utf-8")
+    assert "'shared/nvda/x64'" in chat_spec and "'shared/nvda/arm64'" in chat_spec
+    assert "'shared.uia_notify'" in chat_spec
 
 
 def test_not_on_windows_there_is_no_api(monkeypatch):

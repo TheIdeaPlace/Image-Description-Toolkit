@@ -33,6 +33,11 @@ a = Analysis(
         # VoiceOver/say on macOS), run as detached processes by
         # shared/speech_engine.py.
         ('../shared/speech/*', 'shared/speech'),
+        # NVDA's controller client, so NVDA speaks replies without focus
+        # moving (#439); shared/uia_notify.py loads it from beside itself.
+        ('../shared/nvda/x64/nvdaControllerClient.dll', 'shared/nvda/x64'),
+        ('../shared/nvda/arm64/nvdaControllerClient.dll', 'shared/nvda/arm64'),
+        ('../shared/nvda/license.txt', 'shared/nvda'),
         ('../VERSION', '.'),
     ],
     hiddenimports=[
@@ -50,6 +55,7 @@ a = Analysis(
         'shared',
         'shared.chat_worker_wx',
         'shared.speech_engine',
+        'shared.uia_notify',        # reply announcements (#439)
         # Names controls for VoiceOver through NSAccessibility. ctypes only,
         # no PyObjC, but it still has to be in the bundle: without it every
         # text box and list in the macOS build goes back to being unlabelled.

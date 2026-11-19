@@ -696,6 +696,25 @@ def test_end_of_batch_reports_failures_once(frame):
     assert any("could not be described" in m and "bad image" in m for m in f.infos)
 
 
+def test_end_of_batch_rebuilds_the_list_before_focusing_it(frame, monkeypatch):
+    """#414: focus went to the image list and the list was rebuilt after it,
+    so NVDA said the focused item twice ("level 1 Europe trip collapsed",
+    then "level 0 Europe trip collapsed")."""
+    f = frame
+    w = _FakeWorker()
+    f.batch_worker = w
+    f._batch_failures, f._batch_first_failure = 0, None
+    order = []
+    monkeypatch.setattr(f, "refresh_image_list", lambda *a, **k: order.append("rebuild"))
+    monkeypatch.setattr(f, "_focus_current_mode", lambda: order.append("focus"))
+    monkeypatch.setattr(wx, "GetActiveWindow", lambda: None)
+    f.on_workflow_complete(SimpleNamespace(input_dir="1/1 images", output_dir="",
+                                           worker=w, halted=None, halted_files=[]))
+    assert "focus" in order
+    assert order.index("rebuild") < order.index("focus")
+    assert "rebuild" not in order[order.index("focus"):]
+
+
 def test_failed_start_keeps_a_halted_batchs_resume_state(frame, monkeypatch):
     f = frame
     halted_state = {"total_queued": 9, "provider": "claude-code"}

@@ -89,6 +89,7 @@ from shared.speech_engine import (  # noqa: E402
     list_speech_options,
     speaker,
 )
+from shared.uia_notify import notify as notify_screen_reader  # noqa: E402
 
 APP_NAME = "IDT Chat"
 
@@ -1166,19 +1167,28 @@ class ChatFrame(wx.Frame):
     def _announce(self, text):
         """Make a screen reader speak `text` without stealing the caret.
 
-        Writing into the detail pane and bouncing focus is what reliably
-        produces an announcement across NVDA, Narrator and VoiceOver; wx has no
-        portable live-region equivalent.
+        On Windows, shared.uia_notify speaks it through NVDA's controller
+        client, or raises a UI Automation notification (Narrator, JAWS), with
+        focus left where it is (#439). Moving focus to the history list and
+        back, all there was before, said nothing under NVDA in ImageDescriber's
+        chat window (#410), because NVDA cuts speech off when focus returns.
+        That bounce stays as the fallback where neither route exists (macOS,
+        where VoiceOver speaks it).
         """
         if self.announce_policy == ANNOUNCE_SILENT or not text:
             return
         if self.announce_policy == ANNOUNCE_SUMMARY:
             words = len(text.split())
             text = f"{_first_sentence(text)} Response complete, {words} words."
+        self._set_status(text[:120], 0)
+        try:
+            if notify_screen_reader(self.GetHandle(), text, activity_id="idt-chat"):
+                return
+        except RuntimeError:        # window already destroyed
+            return
         focused = wx.Window.FindFocus()
         self.history_list.SetFocus()
         wx.CallLater(120, lambda: focused.SetFocus() if focused else None)
-        self._set_status(text[:120], 0)
 
     # ---- sessions --------------------------------------------------------
 
