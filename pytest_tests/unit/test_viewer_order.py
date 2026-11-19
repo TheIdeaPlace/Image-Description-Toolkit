@@ -100,6 +100,15 @@ def test_equal_times_keep_path_order_and_chats_come_after_pictures(frame, tmp_pa
     assert panel.desc_list.GetSelection() == 1
 
 
+def test_picture_previews_are_not_tab_stops(frame):
+    """Tab stopped on an empty "panel" between Viewer mode's list and its
+    description (Kelly, 11/19/2026). Checked on the VM's desktop too: Tab now
+    goes list, description, Copy Text."""
+    for panel in (frame.viewer_panel.image_preview_panel, frame.image_preview_panel):
+        assert not panel.AcceptsFocusFromKeyboard()
+        assert not panel.AcceptsFocus()
+
+
 def test_switching_to_viewer_lands_on_the_newest(frame, tmp_path):
     """Kelly: the first thing heard should be the latest description."""
     panel = frame.viewer_panel
