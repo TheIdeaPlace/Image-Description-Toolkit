@@ -96,3 +96,13 @@ def test_equal_times_keep_path_order_and_chats_come_after_pictures(frame, tmp_pa
     panel = frame.viewer_panel
     panel.load_from_workspace(w)
     assert [e["description"] for e in panel.entries] == ["a.jpg", "b.jpg", "A chat turn."]
+    # Selected first: the newest picture description, not the chat after it.
+    assert panel.desc_list.GetSelection() == 1
+
+
+def test_switching_to_viewer_lands_on_the_newest(frame, tmp_path):
+    """Kelly: the first thing heard should be the latest description."""
+    panel = frame.viewer_panel
+    panel.load_from_workspace(_workspace(tmp_path))
+    assert panel.desc_list.GetSelection() == len(panel.entries) - 1
+    assert panel.selected_entry()["description"] == "a.jpg at 2026-11-19T08:00:00"

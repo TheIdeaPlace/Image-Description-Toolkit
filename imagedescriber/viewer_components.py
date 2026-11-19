@@ -406,11 +406,19 @@ class ViewerPanel(wx.Panel):
         self.entries.sort(key=lambda x: (str(x.get('file_path', '')).startswith('chat:'),
                                          _created_sort_key(x.get('created')),
                                          x.get('file_path', '')))
-        
-        self.refresh_list()
-        
-    def refresh_list(self):
-        """Update the UI list from self.entries"""
+
+        # Start on the newest picture description, the one End goes to: the
+        # first thing heard on switching to Viewer mode is what came in last
+        # (Kelly, 11/19/2026). Chats come after the pictures, so it's the last
+        # entry that isn't a chat, or the last entry if all are chats.
+        newest = next((i for i in range(len(self.entries) - 1, -1, -1)
+                       if not str(self.entries[i].get('file_path', '')).startswith('chat:')),
+                      len(self.entries) - 1)
+        self.refresh_list(select=newest)
+
+    def refresh_list(self, select: int = 0):
+        """Update the UI list from self.entries, selecting entry ``select``
+        (the first by default)."""
         # Prepare data for Accessible ListBox
         display_data = []
         for entry in self.entries:
@@ -433,7 +441,7 @@ class ViewerPanel(wx.Panel):
         self.desc_list.LoadDescriptions(display_data)
         
         if self.entries:
-            self.desc_list.SetSelection(0)
+            self.desc_list.SetSelection(min(max(select, 0), len(self.entries) - 1))
             self.on_selection_changed(None)
         else:
             self.clear_details()
