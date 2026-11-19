@@ -1859,7 +1859,7 @@ class VideoProcessingWorker(threading.Thread):
             # Create detector with config
             detector = EnhancedSceneDetector(
                 min_frames=self.extraction_config.get("min_frames_per_video", 5),
-                max_frames=self.extraction_config.get("max_frames_per_video", 50) or 50,
+                max_frames=self.extraction_config.get("max_frames_per_video"),
                 target_frames=self.extraction_config.get("target_frames_per_video", 15),
                 min_scene_duration=self.extraction_config.get("min_scene_duration_seconds", 1.0),
                 adaptive_threshold=True
@@ -1939,8 +1939,8 @@ class VideoProcessingWorker(threading.Thread):
         Reads frames sequentially — no seeking — so it works on MPEG and other
         containers that don't support random access.  Applied caps:
         - min_frame_gap: enforces at least min_scene_duration seconds between saves
-        - max_frames: hard stop at the configured maximum (default 50) so a
-          highly-dynamic video can't produce thousands of output frames
+        - max_frames: hard stop at Configure's Max frames per video, when one
+          is set; empty means no limit (#437)
         """
         import cv2
         import numpy as np
@@ -1949,8 +1949,10 @@ class VideoProcessingWorker(threading.Thread):
         # significantly.  Matches the metric in enhanced_scene_detector.
         threshold = self.extraction_config.get("scene_change_threshold", 30)  # 0-100
         min_duration = self.extraction_config.get("min_scene_duration_seconds", 1)
-        max_frames = self.extraction_config.get("max_frames_per_video", 50) or 50
-        
+        # Empty in Configure saves None, which means no limit. It used to be
+        # read as `or 50`, so "no limit" stopped at 50 frames (#437).
+        max_frames = self.extraction_config.get("max_frames_per_video")
+
         extracted_paths = []
         prev_frame = None
         last_extract_frame = -1
@@ -1966,7 +1968,7 @@ class VideoProcessingWorker(threading.Thread):
             if not ret:
                 break
             
-            if extract_count >= max_frames:
+            if max_frames and extract_count >= max_frames:
                 logger.info(f"Basic scene detection: reached max_frames cap ({max_frames})")
                 break
             

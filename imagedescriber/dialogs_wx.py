@@ -1494,27 +1494,58 @@ class VideoExtractionDialog(wx.Dialog):
     TIME_INFO = {"type": "float", "range": list(VIDEO_INTERVAL_RANGE)}
     SCENE_INFO = {"type": "float", "range": list(SCENE_THRESHOLD_RANGE)}
 
-    def __init__(self, parent=None, video_path: str = ""):
+    def __init__(self, parent=None, video_path: str = "", defaults: Optional[dict] = None):
         super().__init__(
             parent,
             title="Extract Video Frames",
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER
         )
-        
+
         self.video_path = video_path
-        
-        # Initialize settings with defaults
-        self.extraction_mode = "time_interval"
-        self.time_interval = 5.0
-        self.scene_threshold = 30.0
+
+        # Open at what Configure saved (video_frame_extractor_config.json),
+        # not at fixed values: accepting the dialog as it opened used to
+        # replace a saved 2-second interval with 5 (#437).
+        initial = self.initial_settings(defaults)
+        self.extraction_mode = initial["extraction_mode"]
+        self.time_interval = initial["time_interval_seconds"]
+        self.scene_threshold = initial["scene_change_threshold"]
         self.process_after_extraction = True
-        
+
         self.init_ui()
         self.SetSize((520, 450))
         self.Centre()
-        
-        # Set initial focus to extraction mode for accessibility
-        wx.CallAfter(self.time_radio.SetFocus)
+
+        # Set initial focus to the selected extraction mode for accessibility
+        focus = self.scene_radio if self.extraction_mode == "scene_change" else self.time_radio
+        wx.CallAfter(focus.SetFocus)
+
+    @staticmethod
+    def initial_settings(defaults: Optional[dict]) -> dict:
+        """The mode, interval and threshold the dialog opens at.
+
+        Saved values that aren't usable numbers fall back to the shipped
+        defaults rather than opening the dialog on something it would refuse.
+        """
+        defaults = defaults or {}
+        mode = defaults.get("extraction_mode")
+        if mode not in ("time_interval", "scene_change"):
+            mode = "time_interval"
+
+        def usable(key, info, fallback):
+            value = defaults.get(key)
+            if value is None or isinstance(value, bool):
+                return fallback
+            number, error = validate_number(info, str(value))
+            return fallback if error else float(number)
+
+        return {
+            "extraction_mode": mode,
+            "time_interval_seconds": usable("time_interval_seconds",
+                                            VideoExtractionDialog.TIME_INFO, 5.0),
+            "scene_change_threshold": usable("scene_change_threshold",
+                                             VideoExtractionDialog.SCENE_INFO, 30.0),
+        }
     
     def init_ui(self):
         """Initialize the dialog UI"""
@@ -1538,7 +1569,6 @@ class VideoExtractionDialog(wx.Dialog):
             style=wx.RB_GROUP,
             name="Time interval extraction mode"
         )
-        self.time_radio.SetValue(True)
         mode_sizer.Add(self.time_radio, 0, wx.ALL, 5)
         
         # Time interval input
@@ -1561,6 +1591,10 @@ class VideoExtractionDialog(wx.Dialog):
             name="Scene change detection mode"
         )
         mode_sizer.Add(self.scene_radio, 0, wx.ALL, 5)
+        if self.extraction_mode == "scene_change":
+            self.scene_radio.SetValue(True)
+        else:
+            self.time_radio.SetValue(True)
         
         # Scene threshold input
         scene_panel = wx.Panel(panel)

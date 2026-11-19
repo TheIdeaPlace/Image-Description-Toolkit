@@ -477,6 +477,9 @@ class TestCli:
 
         monkeypatch.setattr(oai.OpenAIProvider, "__init__", capture("openai"))
         monkeypatch.setattr(claude_mod.ClaudeProvider, "__init__", capture("claude"))
+        # _make_provider checks for a key first (#467)
+        import idt_core.keys as keys
+        monkeypatch.setattr(keys, "resolve_api_key", lambda name: "test-key")
         opts = GenerationOptions(effort="low")
         cli_main._make_provider("openai", "gpt-5.2", "http://x", options=opts)
         cli_main._make_provider("anthropic", "claude-opus-5-5", "http://x", options=opts)
@@ -498,8 +501,11 @@ class TestCli:
     def test_no_note_for_providers_that_take_settings(self, capsys, monkeypatch):
         from cli import main as cli_main
         import idt_core.providers.openai_provider as oai
+        import idt_core.keys as keys
         monkeypatch.setattr(oai.OpenAIProvider, "__init__",
-                            lambda self, model=None, options=None: None)
+                            lambda self, model=None, api_key=None, options=None: None)
+        # _make_provider checks for a key first (#467)
+        monkeypatch.setattr(keys, "resolve_api_key", lambda name: "test-key")
         cli_main._make_provider("openai", "gpt-5.2", "http://x",
                                 options=GenerationOptions(temperature=0.2))
         assert "Note:" not in capsys.readouterr().err

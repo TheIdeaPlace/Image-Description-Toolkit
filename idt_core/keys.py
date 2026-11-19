@@ -420,5 +420,5 @@ def missing_key_message(provider: str) -> str:
     var = ENV_VARS.get(name, "the provider's API key")
     return (
         f"No API key found for {provider}. Set the {var} environment variable, "
-        f"or add it under Tools -> Configure Settings in ImageDescriber."
+        f"or add it in ImageDescriber under Tools, Configure Settings, API Keys."
     )

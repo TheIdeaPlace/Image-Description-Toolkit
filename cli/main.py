@@ -136,9 +136,22 @@ def _make_provider(provider: str, model: Optional[str], ollama_host: str,
         print("Note: Windows-AI takes no generation settings; they were ignored.",
               file=sys.stderr)
 
+    if provider in ("anthropic", "openai"):
+        # Once, up front, as `idt chat` does. Without it Claude failed on every
+        # picture with the SDK's "Could not resolve authentication method"
+        # (#467), and OpenAI with its own SDK wording.
+        from idt_core.keys import missing_key_message, resolve_api_key
+        key_name = "claude" if provider == "anthropic" else "openai"
+        api_key = resolve_api_key(key_name)
+        if not api_key:
+            shown = "Claude" if provider == "anthropic" else "OpenAI"
+            print(f"Error: {missing_key_message(shown)}", file=sys.stderr)
+            sys.exit(1)
+
     if provider == "anthropic":
         from idt_core.providers.claude import ClaudeProvider, DEFAULT_MODEL
-        return ClaudeProvider(model=model or DEFAULT_MODEL, options=options)
+        return ClaudeProvider(model=model or DEFAULT_MODEL, api_key=api_key,
+                              options=options)
 
     if provider == "apple":
         from idt_core.providers.apple import AppleProvider, DEFAULT_MODEL
@@ -183,7 +196,8 @@ def _make_provider(provider: str, model: Optional[str], ollama_host: str,
 
     if provider == "openai":
         from idt_core.providers.openai_provider import OpenAIProvider, DEFAULT_MODEL
-        return OpenAIProvider(model=model or DEFAULT_MODEL, options=options)
+        return OpenAIProvider(model=model or DEFAULT_MODEL, api_key=api_key,
+                              options=options)
 
     print(f"Unknown provider: {provider!r}", file=sys.stderr)
     print(f"Valid providers: {', '.join(_PROVIDER_CHOICES_SHOWN)}", file=sys.stderr)
