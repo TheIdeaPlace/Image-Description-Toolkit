@@ -732,8 +732,12 @@ class PromptEditorDialog(wx.Dialog, ModifiedStateMixin):
             # is left as it is, so saving never throws away a key someone typed.
 
             # Update default model
+            # Not when the list is disabled: then it holds only "No models
+            # available" or an error, with no client data, and GetClientData
+            # raised -- so with Ollama not running, every save failed with
+            # "Failed to save configuration" (found testing #499).
             selection = self.default_model_combo.GetSelection()
-            if selection != wx.NOT_FOUND:
+            if selection != wx.NOT_FOUND and self.default_model_combo.IsEnabled():
                 model_data = self.default_model_combo.GetClientData(selection)
                 if model_data:
                     self.config_data['default_model'] = model_data

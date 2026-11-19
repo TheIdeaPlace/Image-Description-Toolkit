@@ -250,6 +250,25 @@ def test_saving_keeps_an_api_key_already_in_the_file(wx_app):
         frame.Destroy()
 
 
+def test_saving_works_with_no_models_listed(wx_app):
+    """With Ollama not running the model list holds only "No models available",
+    which has no client data; every save failed with "Failed to save configuration"."""
+    path = _user_config({})
+    frame = wx.Frame(None)
+    dlg = prompt_editor_dialog.PromptEditorDialog(frame)
+    try:
+        dlg.default_model_combo.Clear()
+        dlg.default_model_combo.Append("No models available")
+        dlg.default_model_combo.SetSelection(0)
+        dlg.default_model_combo.Enable(False)
+        before = json.loads(path.read_text(encoding="utf-8")).get("default_model")
+        assert dlg.save_config_internal() is True
+        assert json.loads(path.read_text(encoding="utf-8")).get("default_model") == before
+    finally:
+        dlg.Destroy()
+        frame.Destroy()
+
+
 def test_processing_options_names_the_model_description(wx_app):
     import dialogs_wx
     frame = wx.Frame(None)
