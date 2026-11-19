@@ -394,11 +394,17 @@ class ViewerPanel(wx.Panel):
                 self.entries.append(entry)
         
         # Oldest description first, newest last, so End is always the latest
-        # description: during a run, End says what just came in. Sorted by
-        # file path before, so Home and End never moved however many
-        # descriptions arrived (Kelly chose this order, 11/19/2026). Ties,
-        # and undated descriptions (first), keep path order.
-        self.entries.sort(key=lambda x: (_created_sort_key(x.get('created')),
+        # picture description: during a run, End says what just came in.
+        # Sorted by file path before, so Home and End never moved however many
+        # descriptions arrived (Kelly chose this order, 11/19/2026).
+        # - Chat turns stay grouped after the pictures, as before: mixed in by
+        #   time, a chat answer between two photo descriptions wouldn't be
+        #   recognisable as one (the list reads only the text).
+        # - Equal times keep path order. A description with no time is given
+        #   one when loaded (ImageDescription and the bundle reader use "now"),
+        #   so in practice every entry has a time.
+        self.entries.sort(key=lambda x: (str(x.get('file_path', '')).startswith('chat:'),
+                                         _created_sort_key(x.get('created')),
                                          x.get('file_path', '')))
         
         self.refresh_list()
