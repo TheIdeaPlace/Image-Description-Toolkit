@@ -1,5 +1,17 @@
 # IDT CLI Inventory: main vs v4.5 — Tested Results
 
+> **This is a historical test report from June 2026 (v4.5).** Much of it is no longer true. For how `idt` works today, read Part 2 of the [User Guide](USER_GUIDE.md) or run `idt <command> --help`. As of 4.9.0 (checked against the code on 11/18/2026):
+>
+> - `idt version` exists. It prints the version, the Python version and, for a built copy, the program's path. `idt --version` prints the version alone. `idt update` checks GitHub for a newer release.
+> - `idt/idt_cli.py` and the old `scripts/workflow.py` engine are gone from the repository. `scripts/` holds only the three default settings files.
+> - The CLI has 17 commands: `describe`, `download`, `video`, `status`, `show`, `embed`, `export`, `combine`, `models`, `chat`, `watch`, `prompts`, `stats`, `config`, `guideme`, `version` and `update`.
+> - `--provider` takes six providers: `anthropic`, `apple`, `claude-code`, `ollama`, `openai` and `Windows-AI`.
+> - Resuming works by passing the workspace: `idt describe 09.idtw`.
+> - API keys are no longer environment-only. IDT also reads the key saved in ImageDescriber's Configure (Windows Credential Manager or the macOS Keychain), the `api_keys` section of `image_describer_config.json`, and the legacy `claude.txt` / `openai.txt` files. See `idt_core/keys.py`.
+> - Workspaces reference originals in place by default; `--copy-originals` copies them in.
+> - Bugs 1 to 5 below are fixed: `combine --output` writes UTF-8, stdout and stderr are reconfigured to UTF-8, `show` finds a file inside a bundle and in a workspace under the workspace root, and the `IDT_CONFIG_DIR` INFO line is gone.
+> - `idt stats` reports token counts and estimated cost for every description.
+
 **Last Updated:** 2026-06-23  
 **Testing method:** Live execution against `BuildAndRelease\WinBuilds\dist_all\bin\idt.exe`  
 **Test data:** `C:\Users\kelly\Documents\idt\09.idtw` (222/1804 described), `test_cli\` (5 PNGs)  
@@ -357,7 +369,7 @@ This applies to `show`, `combine` stdout output, and any other command that prin
 ### Bug 6: `stats` Has No Replacement for Old Workflow Performance Metrics
 **Not a crash** — both old and new `stats` commands run successfully — but they measure completely different things:
 - **Old `idt stats`** (`analysis/stats_analysis.py`): Workflow run timing, images-per-hour throughput, per-step duration (video extraction, conversion, AI description, HTML generation). Wrote CSV/JSON/text to `analysis/results/`.  
-- **New `idt stats`** (`cli/main.py:1346`, `cmd_stats`): Token counts and estimated API cost per provider/model. Shows "n/a" for all local models (Ollama) since they don't report tokens.  
+- **New `idt stats`** (`cli/main.py:1346`, `cmd_stats`): Token counts and estimated API cost per provider/model, across every description (4.9). Local models show "no charge"; Ollama does report tokens.  
 **Impact:** Operations/performance monitoring is gone. API cost tracking is new. No overlap in purpose. `analysis/stats_analysis.py` still exists in source but is not reachable from the CLI.
 
 ### Architecture Gap: Resume Requires Source Directory, Not Workspace Path

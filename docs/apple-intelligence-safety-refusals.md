@@ -141,9 +141,12 @@ labels. Same vendor, same device, no refusal. Whatever guardrail configuration t
 Foundation Models endpoint applies is evidently not the one behind VoiceOver.
 
 A practical consequence: **EXIF metadata being enabled made the difference** on this
-image, because the pipeline prepends that `Capture metadata…` line to the prompt. Turning
-metadata off would have described it — at the cost of losing date and camera context on
-every other image, which is not a trade worth making for one photo in 520.
+image, because the pipeline prepends a location line to the prompt. (This was measured with
+the line's wording before 4.9.0, `Capture metadata (not visible in the image): …`; 4.9.0
+reworded it, see `metadata_preamble` in `idt_core/pipeline.py`, and the refusal hasn't been
+re-measured.) Turning metadata off would have described it, at the cost of losing the
+place name on every other image, which is not a trade worth making for one photo in 520.
+Only the place is sent; the date and camera never are.
 
 ### Retrying does not help; a different prompt does
 

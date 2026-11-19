@@ -17,6 +17,44 @@ from pathlib import Path
 from typing import Callable, Iterator, List, Optional
 
 
+#: The ranges ImageDescriber and `idt video` accept: seconds between frames, and
+#: the scene-change threshold. Outside them, extraction takes every frame.
+#: shared/number_entry.py re-exports these for the GUI's dialogs.
+VIDEO_INTERVAL_RANGE = (0.5, 60.0)
+SCENE_THRESHOLD_RANGE = (1.0, 100.0)
+
+
+class FrameWriteError(OSError):
+    """A video frame couldn't be encoded or written to disk."""
+
+
+def write_frame(dest, frame) -> Path:
+    """Write an OpenCV frame (a numpy image array) to ``dest``; return the path.
+
+    ``cv2.imwrite`` can't open a path with non-ASCII characters on Windows
+    (``C:\\Users\\José\\...``, a folder named "写真") and says so only by
+    returning False, so frames went missing without a word. Encoding in memory
+    and writing the bytes with Python works on every path. The format comes
+    from the file's extension (.jpg when it has none). Raises FrameWriteError
+    when the frame can't be encoded or the file can't be written.
+    """
+    import cv2
+
+    dest = Path(dest)
+    ext = dest.suffix.lower() or ".jpg"
+    try:
+        ok, buf = cv2.imencode(ext, frame)
+    except cv2.error as exc:
+        raise FrameWriteError(f"Could not encode video frame as {ext} for {dest}: {exc}") from exc
+    if not ok:
+        raise FrameWriteError(f"Could not encode video frame as {ext} for {dest}")
+    try:
+        dest.write_bytes(buf.tobytes())
+    except OSError as exc:
+        raise FrameWriteError(f"Could not write video frame {dest}: {exc}") from exc
+    return dest
+
+
 @dataclass
 class VideoExtractionOptions:
     mode: str = "interval"           # "interval" or "scene"
@@ -107,7 +145,11 @@ def extract_frames_to_dir(
             else:
                 filename = f"{video_path.stem}_{ts:.2f}s.jpg"
             dest = output_dir / filename
-            cv2.imwrite(str(dest), frame)
+            try:
+                write_frame(dest, frame)
+            except FrameWriteError:
+                cap.release()
+                raise
             frame_paths.append(dest)
             saved_count += 1
             if opts.on_progress:

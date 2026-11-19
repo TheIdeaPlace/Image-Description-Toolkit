@@ -1349,10 +1349,6 @@ class ClaudeProvider(AIProvider):
                 message="Claude API key not configured or SDK not installed")
         
         try:
-            # Read and encode image
-            with open(image_path, 'rb') as image_file:
-                image_data = base64.b64encode(image_file.read()).decode('utf-8')
-            
             # Determine media type from file extension
             ext = Path(image_path).suffix.lower()
             media_type_map = {
@@ -1360,9 +1356,25 @@ class ClaudeProvider(AIProvider):
                 '.jpeg': 'image/jpeg',
                 '.png': 'image/png',
                 '.gif': 'image/gif',
-                '.webp': 'image/webp'
+                '.webp': 'image/webp',
+                # Claude takes neither; named truly, fit_image converts them
+                # to JPEG. Labelled image/jpeg, they were sent as they were
+                # and refused (#487 review).
+                '.bmp': 'image/bmp',
+                '.tif': 'image/tiff',
+                '.tiff': 'image/tiff',
             }
-            media_type = media_type_map.get(ext, 'image/jpeg')
+            media_type = media_type_map.get(ext, 'application/octet-stream')
+
+            # Read the picture and fit it to Claude's limits, as `idt describe`
+            # does: under its byte limit and no side over 8,000 pixels. Sent as
+            # read, a panorama under the byte limit was refused for its width
+            # (Kelly's 4.9.0 test run, 11/18/2026).
+            with open(image_path, 'rb') as image_file:
+                raw = image_file.read()
+            from idt_core.providers.claude_code import fit_image as _claude_fit
+            raw, media_type = _claude_fit(raw, media_type)
+            image_data = base64.b64encode(raw).decode('utf-8')
             
             # The request's settings come from idt_core, shared with the CLI
             # (issue #392).
@@ -1370,6 +1382,7 @@ class ClaudeProvider(AIProvider):
             from idt_core.providers.claude import (
                 OPTIONAL_PARAMS as _CLAUDE_OPTIONAL, describe_request_params,
                 empty_answer_error as _claude_empty, response_text as _claude_text,
+                thinking_fallbacks as _claude_thinking_fallbacks,
             )
             request_params = describe_request_params(model, user_options("claude"))
             request_params["messages"] = [
@@ -1391,9 +1404,13 @@ class ClaudeProvider(AIProvider):
                     ]
                 }
             ]
-            message = send_with_fallback(self.client.messages.create, request_params,
-                                         with_extra_body(_CLAUDE_OPTIONAL, request_params),
-                                         "claude", model)
+            # The same budget fallback as idt describe and chat, so Thinking On
+            # works with Claude Haiku 4.5 here too (#441 review).
+            message = send_with_fallback(
+                self.client.messages.create, request_params,
+                with_extra_body(_CLAUDE_OPTIONAL, request_params), "claude", model,
+                fallback_values={"thinking": _claude_thinking_fallbacks(
+                    request_params["max_tokens"])})
 
             stop_reason = getattr(message, "stop_reason", None)
             # Store token usage for cost tracking and logging

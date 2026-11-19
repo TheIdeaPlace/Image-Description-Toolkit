@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from .workspace import Workspace, WorkspaceItem, WorkspaceDescription
+from .workspace import Workspace, WorkspaceItem, WorkspaceDescription, first_token_count
 
 logger = logging.getLogger(__name__)
 
@@ -51,14 +51,81 @@ _ITEM_CORE_GUI_KEYS = {
 # GUI description <-> WorkspaceDescription                                      #
 # --------------------------------------------------------------------------- #
 
-def _gui_desc_to_ws(d: dict) -> WorkspaceDescription:
-    token_usage = d.get("token_usage") or {}
-    input_tokens = token_usage.get("prompt_tokens")
-    output_tokens = token_usage.get("completion_tokens")
-    if output_tokens is None:
-        output_tokens = d.get("completion_tokens") or None
+def gui_token_counts(d: dict) -> tuple:
+    """(input_tokens, output_tokens) of a GUI description dict.
 
+    A described picture's counts are in ``metadata``; ``token_usage`` is set
+    only by chat turns and by a reload (#446: input_tokens was never saved for
+    ImageDescriber's descriptions, so `idt stats` left out the input cost).
+    The one rule for every path that saves a GUI description.
+    """
+    token_usage = d.get("token_usage") or {}
     metadata = d.get("metadata") or {}
+    input_tokens = first_token_count(token_usage.get("prompt_tokens"),
+                                     token_usage.get("input_tokens"),
+                                     metadata.get("input_tokens"))
+    output_tokens = first_token_count(token_usage.get("completion_tokens"),
+                                      token_usage.get("output_tokens"),
+                                      metadata.get("output_tokens"),
+                                      d.get("completion_tokens"))
+    return input_tokens, output_tokens
+
+
+def _named_prompt_text(name: str) -> Optional[str]:
+    """The text of the prompt style called ``name`` (the shipped and saved
+    styles, then the command line's own custom prompts), or None if there's
+    no such style. Matched case-insensitively when there's no exact match,
+    as Configure once offered "Simple" for "simple"."""
+    from idt_core.config import BUILT_IN_PROMPTS, UserConfig
+
+    def _lookup(prompts: dict) -> Optional[str]:
+        if name in prompts:
+            return prompts[name]
+        lowered = name.lower()
+        for key, text in prompts.items():
+            if key.lower() == lowered:
+                return text
+        return None
+
+    text = _lookup(BUILT_IN_PROMPTS)
+    if text is None:
+        try:
+            text = _lookup(UserConfig.load().custom_prompts or {})
+        except Exception:   # an unreadable ~/.idt/config.json only means "unknown"
+            text = None
+    return text
+
+
+def is_custom_prompt(prompt_name: str, prompt_text: str) -> bool:
+    """Whether a description was made with a prompt the user wrote, rather than a
+    named prompt style.
+
+    The command line stores the text it sent on every description, named style
+    or not, and the bridge hands that to ImageDescriber as ``custom_prompt``, so
+    "custom whenever there's text" called every CLI description custom. It's
+    custom when there's text and the name is "custom" or empty, or the text isn't
+    the named style's (including a name IDT doesn't know, whose text it can't
+    check)."""
+    text = (prompt_text or "").strip()
+    if not text:
+        return False
+    name = (prompt_name or "").strip()
+    if not name or name.lower() == "custom":
+        return True
+    named = _named_prompt_text(name)
+    return named is None or named.strip() != text
+
+
+def prompt_label(prompt_name: str, prompt_text: str) -> str:
+    """What ImageDescriber shows after "Prompt:": "custom" for a prompt the user
+    wrote (is_custom_prompt), else the style's name."""
+    return "custom" if is_custom_prompt(prompt_name, prompt_text) else (prompt_name or "")
+
+
+def _gui_desc_to_ws(d: dict) -> WorkspaceDescription:
+    metadata = d.get("metadata") or {}
+    input_tokens, output_tokens = gui_token_counts(d)
+
     metadata_context = metadata.get("prompt_context")
 
     # Everything GUI-specific not represented above is preserved verbatim.
@@ -105,6 +172,16 @@ def _ws_desc_to_gui(w: WorkspaceDescription) -> dict:
     if w.metadata_context and "prompt_context" not in out.get("metadata", {}):
         out.setdefault("metadata", {})
         out["metadata"]["prompt_context"] = w.metadata_context
+    # A token_usage saved before #446 can carry prompt_tokens 0 (synthesized
+    # by a reload when the real count was only in metadata). Repair it from
+    # the count we now have, so nothing reading it later sees the 0.
+    tu = out.get("token_usage")
+    if (isinstance(tu, dict) and "prompt_tokens" in tu
+            and not first_token_count(tu.get("prompt_tokens")) and w.input_tokens):
+        output = first_token_count(tu.get("completion_tokens"), w.output_tokens, default=0)
+        out["token_usage"] = {**tu, "prompt_tokens": w.input_tokens,
+                              "completion_tokens": output,
+                              "total_tokens": w.input_tokens + output}
     # If extra didn't carry token_usage but we have token counts, synthesize it
     if "token_usage" not in out and (w.input_tokens or w.output_tokens):
         out["token_usage"] = {
@@ -272,15 +349,17 @@ def _gui_chat_item_to_bundle(ws: Workspace, key: str, item: dict) -> None:
 # bundle  ->  GUI workspace dict                                                #
 # --------------------------------------------------------------------------- #
 
-def bundle_to_gui_workspace_dict(ws: Workspace) -> dict:
+def bundle_to_gui_workspace_dict(ws: Workspace, progress=None) -> dict:
     """
     Build a GUI ImageWorkspace.to_dict()-shaped document from a bundle so the GUI
     can load it. Item file paths point at the bundle's image copies so the GUI
     displays the workspace's own images.
+
+    ``progress(done, total, name)`` is passed to Workspace.items().
     """
     items: dict = {}
 
-    for wi in ws.items():
+    for wi in ws.items(progress=progress):
         # For reference-mode items, point the GUI at the original file so it
         # can display the image without requiring a copy inside the bundle.
         gui_path = str(ws.image_path(wi))

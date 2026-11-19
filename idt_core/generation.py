@@ -239,6 +239,11 @@ def note_dropped(provider: str, model: str, setting: str, reason: str) -> None:
 # (provider, model, parameter) the API has rejected in this process, so later
 # requests leave it out instead of failing once per image.
 _REJECTED: set = set()
+# (provider, model, parameter) -> (the value the API rejected, the fallback it
+# accepted instead), so a later request carrying that same rejected value sends
+# the fallback straight away instead of failing once per image (#441 review:
+# Haiku 4.5 refuses adaptive thinking and takes a budget).
+_ACCEPTED: dict = {}
 
 
 def _is_rejection_of(exc: BaseException, needles) -> bool:
@@ -299,9 +304,20 @@ def send_with_fallback(call, params: dict, optional, provider: str, model: str,
     for parameter in needles:
         if (provider, model, parameter) in _REJECTED and parameter in params:
             params.pop(parameter)
+        elif parameter in params and (provider, model, parameter) in _ACCEPTED:
+            rejected, accepted = _ACCEPTED[(provider, model, parameter)]
+            if params[parameter] == rejected:
+                params[parameter] = accepted
+    original = {p: params[p] for p in needles if p in params}
+    substituted = set()
     while True:
         try:
-            return call(**params)
+            result = call(**params)
+            for parameter in substituted:
+                if parameter in params:
+                    _ACCEPTED[(provider, model, parameter)] = (original[parameter],
+                                                               params[parameter])
+            return result
         except Exception as exc:                                 # noqa: BLE001
             culprit = next((p for p, words in needles.items()
                             if p in params and _is_rejection_of(exc, words)), None)
@@ -313,6 +329,7 @@ def send_with_fallback(call, params: dict, optional, provider: str, model: str,
                 _options_log.info("%s %s: %s=%r was rejected; trying %r",
                                   provider, model, culprit, params[culprit], alternatives[0])
                 params[culprit] = alternatives[0]
+                substituted.add(culprit)
                 continue
             text = str(exc).lower()
             if not any(word in text for word in _VALUE_PROBLEM_WORDS):

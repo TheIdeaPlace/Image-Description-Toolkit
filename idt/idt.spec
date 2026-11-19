@@ -86,12 +86,16 @@ a = Analysis(
         # imports (registry.model_limits, the pickers), which is exactly the
         # shape hiddenimports exists for.
         'idt_core.providers.catalog',
+        # Price table for idt stats.
+        'idt_core.pricing',
         'idt_core.providers.model_cache',
 
         # ---- idt_core new modules ----
         'idt_core.config_loader',
         'idt_core.updater',
         'idt_core.gallery_exporter',
+        # Takes ImageDescriber's usage line off text leaving the app.
+        'idt_core.description_text',
         'idt_core.keys',
         'idt_core.generation',
 

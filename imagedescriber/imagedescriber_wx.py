@@ -81,6 +81,7 @@ try:
         show_about_dialog,
         get_app_version,
         DescriptionListBox,  # NEW: Accessible listbox for descriptions with full text in screen readers
+        NoFocusPanel,
     )
     from shared.exif_utils import extract_exif_datetime
     # Names controls for VoiceOver. wx cannot do it on macOS -- SetAccessible()
@@ -125,6 +126,16 @@ except ImportError:
 # Saves each described image while a batch runs. Module scope: the frame
 # constructs one at startup.
 from idt_core.gui_bridge import BundleCheckpointWriter  # noqa: E402
+# "Prompt: custom" only for a prompt the user wrote: CLI descriptions store the
+# named style's text too (bug bash S7).
+from idt_core.gui_bridge import prompt_label as _prompt_label  # noqa: E402
+# The batch window's cost meter. Module scope: the frame makes one at startup.
+from idt_core.pricing import CostMeter  # noqa: E402
+# Writes video frames; cv2.imwrite fails silently on non-ASCII paths on Windows.
+from idt_core.video import write_frame  # noqa: E402
+# The "[Token Usage: ... | Time: ...]" line stays in ImageDescriber's own views
+# and comes off wherever a description leaves them (copy, export, embed, prompts).
+from idt_core.description_text import strip_usage_line  # noqa: E402
 
 
 class ExtractionCancelled(Exception):
@@ -401,6 +412,9 @@ ProcessingErrorEvent, EVT_PROCESSING_ERROR = wx.lib.newevent.NewEvent()
 # "claude-code" -> "Claude Code". idt_core imports the same way in dev and
 # frozen builds, so no try/except fallback is needed.
 from idt_core.providers.registry import display_name as _display_provider  # noqa: E402
+# "claude-haiku-5-5" -> "Claude Haiku 5.5" wherever a model is shown or spoken.
+# Exports keep the ID: they're data, and the viewer reads them back.
+from idt_core.providers.catalog import model_display_name as _display_model  # noqa: E402
 
 
 def _format_chat_name(provider: str, model: str, dt=None) -> str:
@@ -416,6 +430,20 @@ def _format_chat_name(provider: str, model: str, dt=None) -> str:
     ampm = "A" if dt.hour < 12 else "P"
     date_str = f"{dt.month}/{dt.day}/{dt.year} {hour}:{dt.minute:02d}{ampm}"
     return f"Chat - {_display_provider(provider)} {model} - {date_str}"
+
+
+def _added_text_head(added: str) -> str:
+    """The start of text the editor added for display, up to its first line
+    of substance: "\\n\\n---\\nProvider: Claude" for a details block, "Video
+    Metadata" for a video's details. Found in the editor without the whole,
+    it means the added text was edited (#484 review). A description may
+    contain a "---" of its own, so the rule alone isn't enough.
+    """
+    lines = added.split("\n")
+    for i, line in enumerate(lines):
+        if line.strip() and line.strip() != "---":
+            return "\n".join(lines[:i + 1])
+    return added
 
 
 def open_with_default_app(path: Path) -> None:
@@ -753,9 +781,6 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         self.preview_placeholder_text = ""  # Message shown when no preview image is available
         self.processing_items = {}  # Track items being processed: {file_path: {provider, model}}
         self.batch_progress = None  # Track batch processing: {current: N, total: M, file_path: "..."}
-        # Throttle list redraws during batch processing - only refresh every N seconds.
-        # Tune LIST_REFRESH_INTERVAL_SECS in on_worker_progress if you want faster/slower feedback.
-        self._last_list_refresh = 0.0
         # Suppress main-frame list rebuilds while a batch is running; do one full
         # rebuild when the batch ends (natural completion or user stop). This keeps
         # the UI fully responsive on large collections (1000+ images).
@@ -790,6 +815,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         self._refreshing_list = False
         # Per-batch token usage accumulation (reset each time a new batch starts)
         self._token_records = []   # list of {input, output, total, name} dicts
+        self._cost_meter = CostMeter()   # the batch's running cost
         # Batch settings shown in the progress dialog Job Settings section
         self._batch_provider = ''
         self._batch_model = ''
@@ -1231,7 +1257,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             frame_time = frame_num / fps if fps > 0 else 0.0
             frame_filename = f"{video_path_obj.stem}_{frame_time:.2f}s.jpg"
             frame_path = video_dir / frame_filename
-            cv2.imwrite(str(frame_path), frame)
+            write_frame(frame_path, frame)
             if video_source_metadata and ExifEmbedder is not None:
                 try:
                     ExifEmbedder().embed_metadata(
@@ -1293,7 +1319,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     frame_time = frame_num / fps if fps > 0 else 0.0
                     frame_filename = f"{video_path_obj.stem}_scene_{extract_count:04d}_{frame_time:.2f}s.jpg"
                     frame_path = video_dir / frame_filename
-                    cv2.imwrite(str(frame_path), frame)
+                    write_frame(frame_path, frame)
                     # Embed video GPS/date into frame EXIF if metadata is available
                     if video_source_metadata and ExifEmbedder is not None:
                         try:
@@ -1406,6 +1432,25 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self.editor_container.Show()
 
         self.main_content_panel.Layout()
+        self.SetStatusText("Viewer mode" if mode == 'viewer' else "Editor mode", 0)
+        # Move focus into the view now showing (#419). Hiding the other view
+        # left focus on a hidden control, so a screen reader said nothing and
+        # the switch sounded as if it hadn't happened (it took effect at once;
+        # Kelly heard nothing for over 30 seconds, 11/18/2026). After the menu
+        # closes, or focus returns to where the menu was opened from.
+        wx.CallAfter(self._focus_current_mode)
+
+    def _focus_current_mode(self):
+        """Put keyboard focus on the main list of the mode that's showing."""
+        if self.current_mode == 'viewer':
+            target = getattr(self.viewer_panel, 'desc_list', None)
+        else:
+            target = getattr(self, 'image_list', None)
+        try:
+            if target is not None and target.IsShownOnScreen():
+                target.SetFocus()
+        except RuntimeError:
+            pass  # window already destroyed (closing)
 
     def create_image_list_panel(self, parent):
         """Create the left panel with image list"""
@@ -1496,8 +1541,10 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # ===== TOP SECTION: PREVIEW + DESCRIPTION LIST (SIDE-BY-SIDE) =====
         top_row_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
-        # Left column: image preview section
-        self.preview_container = wx.Panel(panel)
+        # Left column: image preview section. Holds only a label and the
+        # preview, so it's a NoFocusPanel too: a plain panel with nothing
+        # focusable inside takes Tab itself.
+        self.preview_container = NoFocusPanel(panel)
         self.preview_container.SetCanFocus(False)
         preview_sizer = wx.BoxSizer(wx.VERTICAL)
 
@@ -1505,7 +1552,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         preview_sizer.Add(self.image_preview_label, 0, wx.ALL, 5)
 
         # Preview panel is centered and sized to current image aspect ratio.
-        self.image_preview_panel = wx.Panel(self.preview_container)
+        # Only painted on: never a Tab stop (see NoFocusPanel).
+        self.image_preview_panel = NoFocusPanel(self.preview_container)
         self.image_preview_panel.SetMinSize((250, 250))
         self.image_preview_panel.SetBackgroundColour(wx.Colour(200, 200, 200))
         self.image_preview_panel.SetName("Image preview panel")
@@ -2108,7 +2156,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             turn_count = len([d for d in image_item.descriptions
                                if d.prompt_style in ("user_question", "ai_response")])
             providers = set(d.provider for d in image_item.descriptions if d.provider)
-            models = set(d.model for d in image_item.descriptions if d.model)
+            models = set(_display_model(d.provider, d.model)
+                         for d in image_item.descriptions if d.model)
             info = f"Chat: {session_name}"
             if turn_count:
                 exchanges = turn_count // 2
@@ -2127,9 +2176,11 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 self.desc_list.Set(desc_texts)
                 self.desc_list.SetSelection(len(desc_texts) - 1)
                 self.description_text.SetValue(image_item.descriptions[-1].text)
+                self._note_editor_shows(image_item, len(image_item.descriptions) - 1, "")
             else:
                 self.desc_list.Set(["(no messages yet)"])
                 self.description_text.SetValue("")
+                self._note_editor_shows(image_item, None, "")
             return
 
         file_path = Path(image_item.file_path)
@@ -2179,14 +2230,11 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 if desc.provider:
                     metadata_lines.append(f"Provider: {_display_provider(desc.provider)}")
                 if desc.model:
-                    metadata_lines.append(f"Model: {desc.model}")
+                    metadata_lines.append(f"Model: {_display_model(desc.provider, desc.model)}")
                 if desc.prompt_style:
-                    # If custom prompt was used, show 'custom' instead of base style
-                    if desc.custom_prompt:
-                        prompt_display = "custom"
-                    else:
-                        prompt_display = desc.prompt_style
-                    metadata_lines.append(f"Prompt: {prompt_display}")
+                    # 'custom' only for a prompt the user wrote (see prompt_label)
+                    metadata_lines.append(
+                        f"Prompt: {_prompt_label(desc.prompt_style, desc.custom_prompt)}")
                 if desc.created:
                     created_date = desc.created.split('T')[0] if 'T' in desc.created else desc.created
                     metadata_lines.append(f"Created: {created_date}")
@@ -2231,13 +2279,10 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             if first_desc.provider:
                 metadata_lines.append(f"Provider: {_display_provider(first_desc.provider)}")
             if first_desc.model:
-                metadata_lines.append(f"Model: {first_desc.model}")
+                metadata_lines.append(f"Model: {_display_model(first_desc.provider, first_desc.model)}")
             if first_desc.prompt_style:
-                if first_desc.custom_prompt:
-                    prompt_display = "custom"
-                else:
-                    prompt_display = first_desc.prompt_style
-                metadata_lines.append(f"Prompt: {prompt_display}")
+                metadata_lines.append(
+                    f"Prompt: {_prompt_label(first_desc.prompt_style, first_desc.custom_prompt)}")
             if first_desc.created:
                 created_date = first_desc.created.split('T')[0] if 'T' in first_desc.created else first_desc.created
                 metadata_lines.append(f"Created: {created_date}")
@@ -2259,6 +2304,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
             first_text_with_metadata = first_text + "\n".join(metadata_lines)
             self.description_text.SetValue(first_text_with_metadata)
+            self._note_editor_shows(image_item, 0, "\n".join(metadata_lines))
 
             # Enable save button
             self.save_desc_btn.Enable(True)
@@ -2296,6 +2342,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     metadata_text += "No metadata available.\nUse Process > Extract Video Frames to extract frames from this video."
 
                 self.description_text.SetValue(metadata_text)
+                self._note_editor_shows(image_item, None, metadata_text)
 
                 # Also add to descriptions list for accessibility
                 desc_data = [{
@@ -2308,8 +2355,62 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 self.desc_list.LoadDescriptions(desc_data)
             else:
                 self.description_text.SetValue("")
+                self._note_editor_shows(image_item, None, "")
 
             self.save_desc_btn.Enable(False)
+
+    def _note_editor_shows(self, item, index, added):
+        """Record what the description editor is showing (#482, #449).
+
+        ``index`` is the description shown, or None when it shows none (a
+        video's details, or nothing). ``added`` is the text the app put there
+        that isn't the description: the details block after it, or the whole
+        of a video's details. Save, Copy, Edit and Delete act on that
+        description, and Save leaves ``added`` out.
+        """
+        self._editor_shown = (item, index, added)
+
+    def _shown_description_index(self):
+        """Index of the current image's description the editor shows.
+
+        Falls back to the latest when the record doesn't match the current
+        image, which keeps the old behaviour wherever this wasn't recorded.
+        """
+        item = self.current_image_item
+        if not item or not item.descriptions:
+            return None
+        shown_item, index, _added = getattr(self, '_editor_shown', (None, None, ""))
+        if shown_item is item and index is not None and 0 <= index < len(item.descriptions):
+            return index
+        return len(item.descriptions) - 1
+
+    def _editor_text_to_save(self):
+        """(text to save, problem): the editor's text without what the app
+        added for display (#449), or why it can't be saved as it is.
+
+        The added text -- the details block, or a video's details -- is
+        removed wherever it still is word for word, keeping everything typed
+        before and after it. If it was edited, nothing is guessed: dropping
+        it could lose what was typed, and keeping it stores the details in
+        the description, so the user is told instead. Deleted entirely, it's
+        simply not there.
+        """
+        text = self.description_text.GetValue()
+        shown_item, index, added = getattr(self, '_editor_shown', (None, None, ""))
+        if shown_item is not self.current_image_item or not added.strip():
+            return text.strip(), None
+        pos = text.rfind(added)
+        if pos != -1:
+            text = text[:pos] + text[pos + len(added):]
+        elif _added_text_head(added) in text:
+            return None, ("The details shown with the description were changed, so "
+                          "ImageDescriber can't tell them from the description. Undo "
+                          "that change, or delete the details, then save.")
+        text = text.strip()
+        if not text and index is None:
+            return None, ("The editor is showing this video's details, not a "
+                          "description. Type a description, then save.")
+        return text, None
 
     def on_description_selected(self, event):
         """Handle selection of a description from the descriptions list"""
@@ -2328,14 +2429,11 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 if selected_desc.provider:
                     metadata_lines.append(f"Provider: {_display_provider(selected_desc.provider)}")
                 if selected_desc.model:
-                    metadata_lines.append(f"Model: {selected_desc.model}")
+                    metadata_lines.append(f"Model: {_display_model(selected_desc.provider, selected_desc.model)}")
                 if selected_desc.prompt_style:
-                    # If custom prompt was used, show 'custom' instead of base style
-                    if selected_desc.custom_prompt:
-                        prompt_display = "custom"
-                    else:
-                        prompt_display = selected_desc.prompt_style
-                    metadata_lines.append(f"Prompt: {prompt_display}")
+                    # 'custom' only for a prompt the user wrote (see prompt_label)
+                    metadata_lines.append(
+                        f"Prompt: {_prompt_label(selected_desc.prompt_style, selected_desc.custom_prompt)}")
                 if selected_desc.created:
                     created_date = selected_desc.created.split('T')[0] if 'T' in selected_desc.created else selected_desc.created
                     metadata_lines.append(f"Created: {created_date}")
@@ -2357,6 +2455,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
                 full_text = desc_text + "\n".join(metadata_lines)
                 self.description_text.SetValue(full_text)
+                self._note_editor_shows(self.current_image_item, selection,
+                                        "\n".join(metadata_lines))
                 self.save_desc_btn.Enable(True)
 
     # Edit Menu Handlers
@@ -3118,6 +3218,9 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         avg_total = round(sum(r['total'] for r in self._token_records) / n)
         total = sum(r['total'] for r in self._token_records)
         peak = max(self._token_records, key=lambda r: r['total'])
+        # The cost meter: list prices from idt_core.pricing, the same table
+        # `idt stats` uses, totalled as each picture finished.
+        meter = self._cost_meter.reading()
         return {
             'avg_input': avg_in,
             'avg_output': avg_out,
@@ -3125,7 +3228,109 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             'total': total,
             'peak_total': peak['total'],
             'peak_name': peak['name'],
+            'cost': meter['cost'],
+            'avg_cost': meter['avg'],
+            'cost_note': meter['note'],
         }
+
+    def _tree_label(self, file_path, item):
+        """Return the label shown in the tree for a single item."""
+        # Chat items use their display_name directly — file_path is not a real filesystem path
+        if item.item_type == "chat":
+            return item.display_name or file_path
+        base_name = Path(file_path).name
+        prefix_parts = []
+
+        # 0. Missing file indicator (highest priority — shows before desc count)
+        if getattr(item, 'is_missing', False):
+            prefix_parts.append("[!]")
+
+        # 1. Description count
+        desc_count = len(item.descriptions)
+        if desc_count > 0:
+            prefix_parts.append(f"d{desc_count}")
+
+        # 2. Processing indicator (P)
+        if file_path in self.processing_items:
+            prefix_parts.append("P")
+        # Phase 6: Batch processing state indicators
+        elif hasattr(item, 'processing_state') and item.processing_state:
+            if item.processing_state == "paused":
+                prefix_parts.append("!")  # Paused
+            elif item.processing_state == "failed":
+                prefix_parts.append("X")  # Failed
+            elif item.processing_state == "pending":
+                prefix_parts.append(".")  # Pending
+
+        # 3. Video extraction status
+        if item.item_type == "video" and hasattr(item, 'extracted_frames') and item.extracted_frames:
+            frame_count = len(item.extracted_frames)
+            prefix_parts.append(f"E{frame_count}")
+
+        if prefix_parts:
+            return "".join(prefix_parts) + " " + base_name
+        return base_name
+
+    def refresh_image_label(self, file_path):
+        """Update one item's label in the image list, without a rebuild.
+
+        refresh_image_list rebuilds the whole tree: 10 seconds for a
+        12,906-item workspace, on the UI thread, so every P on one picture
+        froze the window ("Not Responding") as the Process dialog closed and
+        again when the description came back (Kelly, 11/18/2026). A change to
+        one item (its description count, the P while it's processing, failed)
+        only needs that item's label. The rebuild is kept for a change in
+        whether the item shows: under Undescribed Only, a picture that has
+        just been described has to leave the list; a picture that should show
+        and isn't in the tree has to arrive.
+        """
+        if not self.workspace or file_path not in self.workspace.items:
+            self.refresh_image_list()
+            return
+        item = self.workspace.items[file_path]
+        node = getattr(self, '_tree_nodes', {}).get(file_path)
+        should_show = self._passes_list_filters(item)
+        if not should_show and node is None:
+            return          # hidden before and after: nothing to update
+        if not (should_show and node is not None):
+            self.refresh_image_list()   # it appears or disappears
+            return
+        try:
+            label = self._tree_label(file_path, item)
+            if self.image_list.GetItemText(node) != label:
+                self.image_list.SetItemText(node, label)
+        except Exception:
+            # wx reports a bad item id with wx.wxAssertionError, an
+            # AssertionError; whatever went wrong, a rebuild is correct.
+            self.refresh_image_list()
+
+    def _passes_list_filters(self, item) -> bool:
+        """Whether the image list shows ``item`` under the View filter and
+        search, by the same rules refresh_image_list applies."""
+        if item.item_type == "chat":
+            shown = self.current_filter in ("all", "chats")
+        elif self.current_filter == "chats":
+            shown = False
+        elif self.current_filter == "described":
+            shown = bool(item.descriptions)
+        elif self.current_filter == "undescribed":
+            shown = not item.descriptions
+        elif self.current_filter == "videos":
+            shown = item.item_type in ("video", "extracted_frame")
+        else:
+            shown = True
+        if shown and self.search_filter_text:
+            shown = self._matches_search(item, self.search_filter_text)
+        return shown
+
+    def _tree_lacks_any(self, paths) -> bool:
+        """True if the tree may be missing one of ``paths`` (a rebuild is
+        needed to show it). An active search always counts: what it shows
+        depends on more than the paths."""
+        if self.search_filter_text:
+            return True
+        shown = getattr(self, '_tree_nodes', {})
+        return any(fp not in shown for fp in paths)
 
     def refresh_image_list(self):
         """Refresh the image list display with videos and extracted frames grouped"""
@@ -3144,6 +3349,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # Guard against no workspace
         if not self.workspace or not self.workspace.items:
             self.image_list.DeleteAllItems()
+            self._tree_nodes = {}   # node ids die with DeleteAllItems
             _get_or_create_root()
             return
 
@@ -3176,6 +3382,10 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # Rebuild tree from scratch
         self.image_list.DeleteAllItems()
         root = _get_or_create_root()
+        # file path -> its tree node, so refresh_image_label can relabel one
+        # item without rebuilding the tree. Node ids die with DeleteAllItems,
+        # so the map is rebuilt here every time.
+        self._tree_nodes = {}
 
         new_selection_item = None
 
@@ -3257,43 +3467,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # When filter is "chats", skip the entire mixed_items/subfolder section
         _show_mixed = (self.current_filter != "chats")
 
-        def _build_display_name(file_path, item):
-            """Return the label shown in the tree for a single item."""
-            # Chat items use their display_name directly — file_path is not a real filesystem path
-            if item.item_type == "chat":
-                return item.display_name or file_path
-            base_name = Path(file_path).name
-            prefix_parts = []
-
-            # 0. Missing file indicator (highest priority — shows before desc count)
-            if getattr(item, 'is_missing', False):
-                prefix_parts.append("[!]")
-
-            # 1. Description count
-            desc_count = len(item.descriptions)
-            if desc_count > 0:
-                prefix_parts.append(f"d{desc_count}")
-
-            # 2. Processing indicator (P)
-            if file_path in self.processing_items:
-                prefix_parts.append("P")
-            # Phase 6: Batch processing state indicators
-            elif hasattr(item, 'processing_state') and item.processing_state:
-                if item.processing_state == "paused":
-                    prefix_parts.append("!")  # Paused
-                elif item.processing_state == "failed":
-                    prefix_parts.append("X")  # Failed
-                elif item.processing_state == "pending":
-                    prefix_parts.append(".")  # Pending
-
-            # 3. Video extraction status
-            if item.item_type == "video" and hasattr(item, 'extracted_frames') and item.extracted_frames:
-                frame_count = len(item.extracted_frames)
-                prefix_parts.append(f"E{frame_count}")
-
-            if prefix_parts:
-                return "".join(prefix_parts) + " " + base_name
-            return base_name
+        _build_display_name = self._tree_label
 
         def _extract_timestamp(frame_path):
             """Extract numeric timestamp from a frame filename like 'video_10.00s.jpg'."""
@@ -3425,6 +3599,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 else:
                     tree_item = _append_leaf(parent_node, display_name)
                 self.image_list.SetItemData(tree_item, file_path)
+                self._tree_nodes[file_path] = tree_item
                 displayed_count += 1
 
                 if current_file_path and file_path == current_file_path:
@@ -3460,6 +3635,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                                                 self.image_list.AppendItem)
                         frame_node = _append_frame(tree_item, frame_display)
                         self.image_list.SetItemData(frame_node, frame_path)
+                        self._tree_nodes[frame_path] = frame_node
                         displayed_count += 1
                         frames_added += 1
 
@@ -3488,6 +3664,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 display_name = _build_display_name(file_path, item)
                 chat_node = _append_leaf_fn(chats_node, display_name)
                 self.image_list.SetItemData(chat_node, file_path)
+                self._tree_nodes[file_path] = chat_node
                 displayed_count += 1
                 type_filter_count += 1
                 if current_file_path and file_path == current_file_path:
@@ -3596,6 +3773,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_process_single(self, event):
         """Process single selected image or extract video frames"""
+        if self._refuse_in_viewer("Processing an image"):
+            return
         logger.info("on_process_single CALLED")
         try:
             self._on_process_single_impl(event)
@@ -3698,7 +3877,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             'model': options['model'],
             'embed_after_process': options.get('embed_after_process', False),
         }
-        self.refresh_image_list()
+        self.refresh_image_label(image_item.file_path)
 
         # Update window title to show processing status
         self.update_window_title("ImageDescriber", Path(self.workspace_file).name if self.workspace_file else "Untitled")
@@ -4244,7 +4423,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                         f"First failure: {name}: {reason}")
                 else:
                     show_info(self, "All images already have descriptions.")
-                self.image_list.SetFocus()
+                self._focus_current_mode()
                 return
 
             if worker is not None:
@@ -4474,6 +4653,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         self._stage_no = 0
         self._batch_active = True
         self._token_records = []
+        self._cost_meter = CostMeter()
         self._batch_provider = options.get('provider', '')
         self._batch_model = options.get('model', '')
         self._batch_prompt = options.get('prompt_style', '')
@@ -4630,7 +4810,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                  "Batch processing stopped before describing started.\n\n")
         show_info(self, first + "Videos whose frames were fully extracted keep them; "
                         "any video still being extracted will be extracted again next time.")
-        self.image_list.SetFocus()
+        self._focus_current_mode()
 
     def _close_progress_dialog(self):
         """Close the batch progress dialog and restore the menus it disabled."""
@@ -4680,8 +4860,13 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         else:
             wx.CallAfter(self.SetStatusText, f"{done} of {total}  {name}", 0)
 
-    def _run_with_progress(self, stage_name: str, total: int, work):
+    def _run_with_progress(self, stage_name: str, total: int, work,
+                           show_after: float = 0.0):
         """Run `work(progress_cb)` off the main thread while the dialog repaints.
+
+        ``show_after``: seconds to wait before showing the progress window. A
+        quick job (opening a small workspace) then finishes with no window
+        flashing up and a screen reader announcing a dialog for nothing.
 
         Saving a large workspace writes one sidecar per item — 7,674 items over a
         network share measured at ~2 minutes — and doing that inline froze the UI
@@ -4697,42 +4882,20 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         Returns whatever `work` returned; re-raises whatever it raised.
         """
         state = {}
-
-        # A batch owns the shared dialog: its stage counter, its labels, its
-        # describe progress. A save started mid-batch must not touch any of that
-        # — doing so relabelled the running batch and pushed the counter past its
-        # own total ("Saving workspace (step 4 of 3)"). Give this work its own
-        # throwaway dialog instead.
-        standalone = self._batch_worker_running()
-
-        if standalone:
-            dlg = BatchProgressDialog(self, total) if BatchProgressDialog else None
-            if dlg:
-                dlg.begin_stage(stage_name, total, can_interrupt=False)
-                dlg.Show()
-                dlg.Raise()
-            owns_dialog = False
-        else:
-            # stage_count 0 suppresses "step N of M" — a standalone save is not
-            # part of a multi-stage run.
-            owns_dialog = self.batch_progress_dialog is None
-            dlg = self._ensure_progress_dialog({}, 0)
-            # Its Close button only hides it; a save pumping events against a
-            # hidden dialog disables every window with nothing shown.
-            if dlg and not dlg.IsShown():
-                dlg.Show()
-            self._begin_stage(stage_name, total)
-
-        # Progress is bound to *this* dialog rather than going through
-        # _stage_progress, which always targets the shared batch dialog.
+        # The dialog, once there is one. progress_cb runs on the worker thread
+        # and may fire before the dialog exists (show_after): it keeps only
+        # the latest count, which is shown when the dialog appears.
+        shown = {'dlg': None, 'last': None}
         last_paint = [0.0]
 
         def progress_cb(done, tot, name=""):
+            shown['last'] = (done, tot, name)
             now = time.time()
             is_final = tot > 0 and done >= tot
             if not is_final and (now - last_paint[0]) < 0.125:
                 return
             last_paint[0] = now
+            dlg = shown['dlg']
             if dlg:
                 wx.CallAfter(dlg.update_progress, done, tot, image_name=name)
 
@@ -4744,6 +4907,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             finally:
                 state['done'] = True
 
+        standalone = owns_dialog = False
+        dlg = None
         # Every progress save (Save, Save As, a batch's own saves) pumps
         # events here; a batch completion arriving meanwhile is queued and
         # delivered once the outermost pump ends (see on_workflow_complete).
@@ -4752,7 +4917,47 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         try:
             threading.Thread(target=runner, daemon=True).start()
             try:
+                deadline = time.monotonic() + show_after
+                while not state.get('done') and time.monotonic() < deadline:
+                    wx.SafeYield(None, True)      # every window disabled, briefly
+                    time.sleep(0.02)
+                # Without show_after the dialog is always set up, even if the
+                # work already finished: a batch's own save advances the
+                # shared dialog's stage counter here ("step 2 of 3").
+                if show_after <= 0 or not state.get('done'):
+                    # A batch owns the shared dialog: its stage counter, its
+                    # labels, its describe progress. A save started mid-batch
+                    # must not touch any of that -- doing so relabelled the
+                    # running batch and pushed the counter past its own total
+                    # ("Saving workspace (step 4 of 3)"). Give this work its
+                    # own throwaway dialog instead.
+                    standalone = self._batch_worker_running()
+                    if standalone:
+                        dlg = BatchProgressDialog(self, total) if BatchProgressDialog else None
+                        if dlg:
+                            dlg.begin_stage(stage_name, total, can_interrupt=False)
+                            dlg.Show()
+                            dlg.Raise()
+                    else:
+                        # stage_count 0 suppresses "step N of M" -- a
+                        # standalone save is not part of a multi-stage run.
+                        owns_dialog = self.batch_progress_dialog is None
+                        dlg = self._ensure_progress_dialog({}, 0)
+                        if dlg and not dlg.IsShown():
+                            dlg.Show()
+                        self._begin_stage(stage_name, total)
+                    shown['dlg'] = dlg
+                    if dlg and shown['last']:
+                        done, tot, name = shown['last']
+                        dlg.update_progress(done, tot, image_name=name)
                 while not state.get('done'):
+                    # Its Close button and Escape only hide it, and SafeYield
+                    # keeps every other window disabled: hidden, the user is
+                    # left with no window that answers until the work ends
+                    # (#492 review). So it comes back.
+                    if dlg and not dlg.IsShown():
+                        dlg.Show()
+                        dlg.Raise()
                     wx.SafeYield(dlg, True)
                     time.sleep(0.02)
                 wx.SafeYield(dlg, True)           # drain queued progress CallAfters
@@ -4874,7 +5079,12 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # below, off the main thread with every other item. Writing them here
         # first, on the main thread, took seconds on a large library and froze
         # the window.
-        self.refresh_image_list()
+        #
+        # The rebuild is only to show frames just extracted. When every image
+        # in the batch is in the tree already it changed nothing and cost 10
+        # seconds on Kelly's 12,906-item workspace as the dialog closed.
+        if self._tree_lacks_any(to_process):
+            self.refresh_image_list()
         self.mark_modified()
 
         # A new batch's failure count (not in _ensure_progress_dialog: that
@@ -5081,15 +5291,19 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         if not self.current_image_item:
             return
 
-        new_text = self.description_text.GetValue().strip()
+        new_text, problem = self._editor_text_to_save()
+        if problem:
+            show_warning(self, problem)
+            return
         if not new_text:
             show_warning(self, "Description is empty")
             return
 
-        # Update the latest description or create new one
-        if self.current_image_item.descriptions:
-            # Update latest
-            self.current_image_item.descriptions[-1].text = new_text
+        # Update the description being shown (#482: it was always the latest,
+        # so editing an older one overwrote the newest), or create one.
+        index = self._shown_description_index()
+        if index is not None:
+            self.current_image_item.descriptions[index].text = new_text
         else:
             # Create new description
             desc = ImageDescription(
@@ -5117,6 +5331,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
         # Clear UI
         self.image_list.DeleteAllItems()
+        self._tree_nodes = {}   # node ids die with DeleteAllItems
         self._image_tree_root = self.image_list.AddRoot("Images")
         self.description_text.SetValue("")
         self.image_info_label.SetLabel("No image selected")
@@ -5180,8 +5395,27 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 show_error(self, f"Not a valid .idtw workspace bundle:\n{file_path}")
                 return
 
-            bundle = Workspace.open(Path(file_path))
-            data = bundle_to_gui_workspace_dict(bundle)
+            # Read off the UI thread, with a progress window. Every item is a
+            # sidecar file; on a cold start 12,906 of them in a OneDrive
+            # folder took 95 seconds, read here on the UI thread, and Windows
+            # called ImageDescriber "Not Responding" the whole time (Kelly,
+            # 11/19/2026). Warm, the same read takes about 3 seconds.
+            def _read(progress):
+                opened = Workspace.open(Path(file_path))
+                return opened, bundle_to_gui_workspace_dict(opened, progress=progress)
+
+            # A folder scan still running would share the progress window and
+            # keep adding its files to the workspace this replaces; stop it,
+            # as Load Directory does (#492 review).
+            if self.scan_worker:
+                self.scan_worker.stop()
+                self.scan_worker = None
+            bundle, data = self._run_with_progress("Opening workspace", 0, _read,
+                                                   show_after=0.5)
+            # The app may have started closing while the read ran (an update
+            # download, a logoff): don't build into a window on its way out.
+            if self._window_closing or not self or self.IsBeingDeleted():
+                return
 
             self.workspace = ImageWorkspace.from_dict(data)
             self.workspace_file = Path(file_path)
@@ -5672,6 +5906,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         try:
             from idt_core.project import Project
             from idt_core.image_item import ImageItem as IdtImageItem, Description as IdtDescription
+            from idt_core.gui_bridge import gui_token_counts
         except ImportError:
             show_error(self, "idt_core is not available in this build.\n"
                              "This feature requires idt_core to be installed.")
@@ -5733,7 +5968,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     # Map GUI descriptions → idt_core Description objects
                     import uuid as _uuid
                     for gui_desc in gui_item.descriptions:
-                        tu = gui_desc.token_usage or {}
+                        # The same rule as the .idtw save (#446).
+                        input_tokens, output_tokens = gui_token_counts(gui_desc.to_dict())
                         idt_desc = IdtDescription(
                             id=str(_uuid.uuid4()),
                             text=gui_desc.text,
@@ -5742,8 +5978,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                             timestamp=gui_desc.created or datetime.now().isoformat(),
                             prompt_name=gui_desc.prompt_style or "",
                             prompt_text=gui_desc.custom_prompt or "",
-                            input_tokens=tu.get("prompt_tokens") or tu.get("input_tokens"),
-                            output_tokens=tu.get("completion_tokens") or tu.get("output_tokens"),
+                            input_tokens=input_tokens,
+                            output_tokens=output_tokens,
                             metadata_context=gui_desc.metadata.get("prompt_context") if gui_desc.metadata else None,
                         )
                         # Avoid duplicating descriptions already in the sidecar
@@ -5826,12 +6062,15 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                         continue
 
                     # Pick which description text to embed
+                    # Each without its usage line, which stays in ImageDescriber
+                    # (embed_image_file would only catch the last one's).
                     if desc_selection == 'all':
                         desc_text = '\n\n---\n\n'.join(
-                            d.text for d in item.descriptions if d.text
+                            t for t in (strip_usage_line(d.text) for d in item.descriptions)
+                            if t
                         )
                     else:  # 'latest'
-                        desc_text = item.descriptions[-1].text
+                        desc_text = strip_usage_line(item.descriptions[-1].text)
 
                     if not desc_text:
                         continue
@@ -6053,7 +6292,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                             f.write(f"Tokens: {total_tokens:,} total ({prompt_tokens:,} prompt + {completion_tokens:,} completion)\n")
 
                     # Description text
-                    f.write(f"Description: {desc.text}\n")
+                    f.write(f"Description: {strip_usage_line(desc.text)}\n")
 
                     # Timestamp
                     f.write(f"Timestamp: {desc.created}\n")
@@ -6193,7 +6432,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 parts.append(f'<div class="{css_class}">')
                 if len(item.descriptions) > 1:
                     parts.append(f'<p class="desc-source">{html_module.escape(source_label)}</p>')
-                desc_html = html_module.escape(desc.text).replace('\n', '<br>\n')
+                desc_html = html_module.escape(strip_usage_line(desc.text)).replace('\n', '<br>\n')
                 parts.append(f'<p>{desc_html}</p>')
                 parts.append('</div>')
 
@@ -6328,15 +6567,11 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             existing = self.processing_items.get(event.file_path, {})
             self.processing_items[event.file_path] = {**existing, 'provider': '', 'model': ''}
 
-            # Throttle list redraws: rebuilding a large list on every event causes
-            # visible lag at scale. We refresh immediately on the first image (gives
-            # instant feedback), then at most every LIST_REFRESH_INTERVAL_SECS.
-            # To experiment with this value, search for LIST_REFRESH_INTERVAL_SECS.
-            LIST_REFRESH_INTERVAL_SECS = 5.0
-            _now = time.time()
-            if not self._batch_active and _now - self._last_list_refresh >= LIST_REFRESH_INTERVAL_SECS:
-                self.refresh_image_list()
-                self._last_list_refresh = _now
+            # Show the P on this image's entry. A relabel touches one entry, so
+            # there's no throttle: the 5-second one was for full rebuilds. In a
+            # batch the list isn't updated per image at all (_batch_active).
+            if not self._batch_active:
+                self.refresh_image_label(event.file_path)
 
             # Phase 3: Track processing time for this image
             if self.batch_start_time:
@@ -6415,8 +6650,10 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     'input': in_t,
                     'output': out_t,
                     'total': tot_t,
-                    'name': Path(event.file_path).name
+                    'name': Path(event.file_path).name,
                 })
+                # Priced once, here, and added to the running total.
+                self._cost_meter.add(event.provider, event.model, in_t, out_t)
             desc = ImageDescription(
                 text=event.description,
                 model=event.model,
@@ -6452,7 +6689,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self._checkpoint_item(event.file_path)
             self.mark_modified()
             if not self._batch_active:
-                self.refresh_image_list()
+                self.refresh_image_label(event.file_path)
 
             # Update window title to reflect processing status (removes "Processing" when done)
             self.update_window_title("ImageDescriber", Path(self.workspace_file).name if self.workspace_file else "Untitled")
@@ -6556,7 +6793,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self.mark_modified()
 
         if not self._batch_active:
-            self.refresh_image_list()
+            self.refresh_image_label(event.file_path)
 
         # Update window title to reflect processing status (removes "Processing" when failed)
         self.update_window_title("ImageDescriber", Path(self.workspace_file).name if self.workspace_file else "Untitled")
@@ -6633,7 +6870,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
     def _restore_focus_after_error(self):
         """Restore keyboard focus to image list after error dialog"""
         if self.image_list:
-            self.image_list.SetFocus()
+            self._focus_current_mode()
 
     def on_workflow_complete(self, event):
         """Handle workflow completion (including video extraction and downloads)"""
@@ -6826,7 +7063,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
                 show_info(self, f"Downloaded {len(downloaded_images)} images from URL.\n\n"
                                f"Images saved to: {output_dir}")
-                self.image_list.SetFocus()
+                self._focus_current_mode()
 
             self.SetStatusText(f"Download complete: {len(downloaded_images)} images added", 0)
             return
@@ -6872,7 +7109,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     else:
                         show_info(self, f"Extracted {len(extracted_frames)} frames from video.\n\nFrames have been added to the workspace.")
                         # Restore focus to image list after dialog
-                        self.image_list.SetFocus()
+                        self._focus_current_mode()
 
                 self.SetStatusText(f"Extracted {len(extracted_frames)} frames", 0)
 
@@ -6958,6 +7195,16 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         else:
             self._auto_save_bundle()
 
+        refusals_halt = bool(halted) and getattr(event, 'halted_refusals', False)
+        self.SetStatusText("Batch stopped: the provider declined many images" if refusals_halt
+                           else "Batch stopped: provider refused the request" if halted
+                           else "Batch complete", 0)
+        self._batch_active = False
+        # Rebuild the list before focus goes anywhere (#414): focusing first
+        # had a screen reader say the focused item, then say it again (at
+        # another tree level) when the rebuild replaced it.
+        self.refresh_image_list()
+
         # Where focus goes (#409). A clean finish goes to the completion window,
         # so a screen reader says its "Batch Complete" title and the summary;
         # closing it brings focus back to the image list. Moving focus straight
@@ -6965,7 +7212,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # stops get a message box below, which speaks for itself.
         clean_finish = not halted and not failures and not video_failures
         if finished_dialog and clean_finish and finished_dialog.IsShown():
-            # After this handler, so the image list rebuild below can't take it back.
+            # After this handler, so nothing later in it can take focus back.
             wx.CallAfter(finished_dialog.focus_completion)
         else:
             if finished_dialog and clean_finish:
@@ -6978,14 +7225,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             active = wx.GetActiveWindow()
             if active is None or active is self:
                 # Not out of a window the user is in, such as the chat window.
-                self.image_list.SetFocus()
-
-        refusals_halt = bool(halted) and getattr(event, 'halted_refusals', False)
-        self.SetStatusText("Batch stopped: the provider declined many images" if refusals_halt
-                           else "Batch stopped: provider refused the request" if halted
-                           else "Batch complete", 0)
-        self._batch_active = False
-        self.refresh_image_list()
+                self._focus_current_mode()
 
         if (failures or video_failures) and not halted:
             parts = []
@@ -6993,7 +7233,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 parts.append(
                     f"{failures} image(s) in this batch could not be described. "
                     "They are marked X in the image list, and "
-                    "Process > Describe All Undescribed tries them again.\n\n"
+                    "Process > Process Undescribed Images (Entire Workspace) tries them again.\n\n"
                     f"First failure: {first_failure}")
             if video_failures:
                 name, reason = video_failures[0]
@@ -7022,8 +7262,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 "Batch stopped: the provider declined many images in a row.\n\n"
                 f"{halted}\n\n"
                 "The declined images are marked X in the image list. Describing "
-                f"them again with {remedy} (Process > Describe All "
-                "Undescribed) may work.\n\n"
+                f"them again with {remedy} (Process > Process Undescribed "
+                "Images (Entire Workspace)) may work.\n\n"
                 # A halt skips the end-of-batch warning, so say it here.
                 + (f"Frames could not be extracted from {len(video_failures)} "
                    "video(s); the next batch tries them again.\n\n"
@@ -7085,7 +7325,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         self.SetFocus()
         show_error(self, f"Workflow failed:\n{event.error}")
         # Restore focus to image list after dialog
-        self.image_list.SetFocus()
+        self._focus_current_mode()
         self.SetStatusText("Workflow failed", 0)
 
     # Directory scan event handlers (for async file loading performance)
@@ -7663,7 +7903,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # Restore focus to image list after dialog
         self._batch_active = False
         self.refresh_image_list()
-        self.image_list.SetFocus()
+        self._focus_current_mode()
 
     def _end_close_stopped_batch(self, worker) -> None:
         """A cancelled close stopped this batch's worker: end the batch as a
@@ -7813,7 +8053,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             f"{progress}"
             f"Remaining: {remaining}\n\n"
             f"Provider: {_display_provider(batch_state.get('provider')) or 'Unknown'}\n"
-            f"Model: {batch_state.get('model', 'Unknown')}\n"
+            f"Model: {_display_model(batch_state.get('provider'), batch_state.get('model')) or 'Unknown'}\n"
             f"Prompt: {batch_state.get('prompt_style', 'Unknown')}"
         )
 
@@ -8381,6 +8621,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_rename_item(self, event):
         """Rename selected item (R key or F2)"""
+        if self._refuse_in_viewer("Renaming"):
+            return
         if not self.current_image_item:
             show_warning(self, "No image selected")
             return
@@ -8411,6 +8653,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_add_manual_description(self, event):
         """Add manual description (M key)"""
+        if self._refuse_in_viewer("Adding a description"):
+            return
         if not self.current_image_item:
             show_warning(self, "No image selected")
             return
@@ -8433,9 +8677,16 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                     model="manual",
                     prompt_style="manual"
                 )
-                self.current_image_item.add_description(desc)
+                item = self.current_image_item
+                item.add_description(desc)
                 self.mark_modified()
-                self.display_image_info(self.current_image_item)
+                # The list's "d" count changes too (#429: it didn't). Under
+                # Undescribed Only the picture leaves the list, and the rebuild
+                # may select another; the details stay on the one just
+                # described (#490 review).
+                self.refresh_image_label(item.file_path)
+                self.current_image_item = item
+                self.display_image_info(item)
                 self.SetStatusText("Manual description added", 0)
 
         dlg.Destroy()
@@ -8546,6 +8797,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_play_video(self, event):
         """Hand the selected video to the operating system's default player."""
+        if self._refuse_in_viewer("Playing a video"):
+            return
         item = self.current_image_item
         if item is None or item.item_type != "video":
             show_warning(self, "Select a video in the image list first.")
@@ -8607,6 +8860,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_followup_question(self, event):
         """Ask followup question (F key)"""
+        if self._refuse_in_viewer("Asking a follow-up question"):
+            return
         if not self.current_image_item:
             show_warning(self, "No image selected")
             return
@@ -8619,13 +8874,11 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             show_error(self, "Processing worker not available")
             return
 
-        # Get the description the user is currently viewing in the desc_list.
-        # Fall back to the most recently added description if nothing is selected.
-        sel = self.desc_list.GetSelection()
-        if sel != wx.NOT_FOUND and 0 <= sel < len(self.current_image_item.descriptions):
-            focused_description = self.current_image_item.descriptions[sel]
-        else:
-            focused_description = self.current_image_item.descriptions[-1]
+        # The description the editor shows, as Save, Copy, Edit and Delete
+        # use (#484 review): after opening an image the list has no
+        # selection, so this used to fall back to the latest.
+        focused_description = self.current_image_item.descriptions[
+            self._shown_description_index()]
         existing_desc = focused_description.text
 
         # Get original provider and model from the description
@@ -8668,7 +8921,9 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 # The model answers better when it's asked the question directly about what it sees.
                 custom_prompt = question
 
-                self.SetStatusText(f"Processing followup with {values['provider']}/{values['model']}...", 0)
+                self.SetStatusText(
+                    f"Processing followup with {_display_provider(values['provider'])}, "
+                    f"{_display_model(values['provider'], values['model'])}...", 0)
 
                 # Process with AI using selected model
                 api_key = self.get_api_key_for_provider(values['provider'])
@@ -8690,6 +8945,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def on_auto_rename(self, event):
         """Auto-rename using AI (Z key)"""
+        if self._refuse_in_viewer("Renaming"):
+            return
         if not self.current_image_item:
             show_warning(self, "No image selected")
             return
@@ -8938,8 +9195,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
             if models is not None:
                 count = len(models)
-                model_list = "\\n".join(models) if models else "No Ollama models found"
-                show_info(self, f"Successfully refreshed {count} Ollama model(s):\\n\\n{model_list}{extra}")
+                model_list = "\n".join(models) if models else "No Ollama models found"
+                show_info(self, f"Successfully refreshed {count} Ollama model(s):\n\n{model_list}{extra}")
                 self.SetStatusText(f"Refreshed {count} Ollama model(s)", 0)
             elif api_counts:
                 # Ollama is unreachable but the API providers refreshed, so this
@@ -9056,7 +9313,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             video_item.add_description(desc)
 
             self.mark_modified()
-            self.refresh_image_list()
+            self.refresh_image_label(video_item.file_path)
 
             # Update display if this is current item
             if self.current_image_item == video_item:
@@ -9065,7 +9322,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # Show completion message
         processing_time = result.get('processing_time', 0)
         num_frames = result.get('num_frames_used', 0)
-        model = result.get('model', 'unknown')
+        model = _display_model(result.get('provider', ''), result.get('model', '')) or 'unknown'
 
         show_info(self,
             f"Video description complete!\n\n"
@@ -9093,14 +9350,54 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         self.video_desc_worker = None
 
     # Descriptions menu handlers
+    #
+    # Viewer mode has its own list. current_image_item is the image selected in
+    # Editor mode, hidden while the viewer shows, so in Viewer mode the Copy
+    # items read the viewer's selection, and the items that change
+    # descriptions say to switch, rather than act on an image the user can't
+    # see (#480).
+
+    def _viewer_showing(self):
+        return self.current_mode == 'viewer' and self.viewer_panel is not None
+
+    def _viewer_entry(self):
+        """The viewer's selected entry in Viewer mode, else None."""
+        return self.viewer_panel.selected_entry() if self._viewer_showing() else None
+
+    def _refuse_in_viewer(self, action="Changing descriptions"):
+        """In Viewer mode, say where ``action`` is done instead; True if so.
+
+        A viewer showing a workflow folder isn't the workspace, so Editor
+        mode wouldn't have the description being read: that case points to
+        importing the folder. Otherwise it names the image to select, since
+        Editor mode keeps its own selection (#481 review).
+        """
+        if not self._viewer_showing():
+            return False
+        if getattr(self.viewer_panel, 'current_dir', None):
+            show_info(self, "Viewer mode is showing a workflow folder, which it "
+                            "can only read. To change its descriptions, import it "
+                            "with File, Import Workflow (to Workspace).")
+            return True
+        entry = self._viewer_entry() or {}
+        raw = entry.get('file_path') or ''
+        name = '' if raw.startswith('chat:') else Path(raw).name
+        select = f", then select {name}" if name else ""
+        show_info(self, f"{action} is done in Editor mode. To switch, choose View, "
+                        f"Application Mode, Editor Mode{select}.")
+        return True
+
     def on_edit_description(self, event):
         """Edit selected description"""
+        if self._refuse_in_viewer("Editing a description"):
+            return
         if not self.current_image_item or not self.current_image_item.descriptions:
             show_warning(self, "No description to edit")
             return
 
-        # Get the latest description
-        desc = self.current_image_item.descriptions[-1]
+        # The description being shown (#482), not always the latest.
+        index = self._shown_description_index()
+        desc = self.current_image_item.descriptions[index]
 
         dlg = wx.TextEntryDialog(
             self,
@@ -9117,35 +9414,95 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 desc.text = new_text
                 self.mark_modified()
                 self.display_image_info(self.current_image_item)
+                self._show_description(index)
                 self.SetStatusText("Description updated", 0)
 
         dlg.Destroy()
 
     def on_delete_description(self, event):
         """Delete selected description"""
+        if self._refuse_in_viewer("Deleting a description"):
+            return
         if not self.current_image_item or not self.current_image_item.descriptions:
             show_warning(self, "No description to delete")
             return
 
-        if ask_yes_no(self, "Delete the most recent description?"):
-            self.current_image_item.descriptions.pop()
+        # The description being shown (#482). The question says which one,
+        # since it used to be the latest whatever was on screen.
+        descriptions = self.current_image_item.descriptions
+        index = self._shown_description_index()
+        desc = descriptions[index]
+        is_chat = self.current_image_item.item_type == "chat"
+        words = " ".join(desc.text.split())
+        start = words if len(words) <= 80 else words[:80].rsplit(" ", 1)[0] + "…"
+        which = f"{'message' if is_chat else 'description'} {index + 1} of {len(descriptions)}"
+        if desc.model and desc.prompt_style != "user_question":
+            which += f", by {_display_model(desc.provider, desc.model)}"
+        if ask_yes_no(self, f"Delete {which}?\n\nIt begins: {start}"):
+            descriptions.pop(index)
             self.mark_modified()
-            self.refresh_image_list()  # Update "d" indicator in image list
+            self.refresh_image_label(self.current_image_item.file_path)  # the "d" indicator
             self.display_image_info(self.current_image_item)
+            self._show_description(min(index, len(descriptions) - 1))
             self.SetStatusText("Description deleted", 0)
+
+    def _show_description(self, index):
+        """Select description ``index`` in the editor's list and show it."""
+        item = self.current_image_item
+        if not item or index is None or not 0 <= index < len(item.descriptions):
+            return
+        self.desc_list.SetSelection(index)
+        if item.item_type == "chat":
+            # A chat shows each turn's text alone, no details block.
+            self.description_text.SetValue(item.descriptions[index].text)
+            self._note_editor_shows(item, index, "")
+        else:
+            self.on_description_selected(None)
 
     def on_copy_description(self, event):
         """Copy description to clipboard"""
-        if not self.current_image_item or not self.current_image_item.descriptions:
+        desc = self._description_to_copy()
+        if desc is None:
             show_warning(self, "No description to copy")
             return
-
-        desc = self.current_image_item.descriptions[-1].text
         if self._copy_text_to_clipboard(desc):
             self.SetStatusText("Description copied to clipboard", 0)
 
+    def _description_to_copy(self):
+        """The description text the Copy items use, or None.
+
+        Viewer mode: the description selected there. Editor mode: the
+        description the editor shows (#482). Either way without the
+        "[Token Usage: ...]" line: that stays in ImageDescriber.
+        """
+        if self._viewer_showing():
+            entry = self._viewer_entry()
+            text = (entry or {}).get('description') or ''
+        else:
+            index = self._shown_description_index()
+            if index is None:
+                return None
+            text = self.current_image_item.descriptions[index].text or ''
+        text = strip_usage_line(text)
+        return text if text.strip() else None
+
     def on_copy_image_path(self, event):
         """Copy image path to clipboard"""
+        if self._viewer_showing():
+            entry = self._viewer_entry()
+            if not entry:
+                show_warning(self, "No description selected")
+                return
+            raw = entry.get('file_path') or entry.get('relative_path') or ''
+            if not raw or raw.startswith('chat:'):
+                show_warning(self, "This description has no image path")
+                return
+            resolved = self.viewer_panel._get_current_image_path()
+            path = str(resolved) if resolved else raw
+            if self._copy_text_to_clipboard(path):
+                self.SetStatusText("Image path copied to clipboard", 0)
+            return
+
         if not self.current_image_item:
             show_warning(self, "No image selected")
             return
@@ -9188,16 +9545,29 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         For video items, returns the first extracted frame path.
         For regular images, returns the file_path resolved through the workspace.
         Returns None if no image is selected or path cannot be resolved.
+        In Viewer mode, the image of the description selected there (#480).
         """
-        if not self.current_image_item:
+        item = self.current_image_item
+        if self._viewer_showing():
+            entry = self._viewer_entry()
+            if not entry or (entry.get('file_path') or '').startswith('chat:'):
+                return None
+            # A workspace entry goes through its item, so a video gives its
+            # frame, as in Editor mode. A workflow folder's entry has no item.
+            item = None
+            if not getattr(self.viewer_panel, 'current_dir', None) and self.workspace:
+                item = self.workspace.items.get(entry.get('file_path'))
+            if item is None:
+                return self.viewer_panel._get_current_image_path()
+        if not item:
             return None
-        if self.current_image_item.item_type == "video":
-            frame_path = self._get_video_preview_frame(self.current_image_item)
+        if item.item_type == "video":
+            frame_path = self._get_video_preview_frame(item)
             if not frame_path:
                 return None
             resolved = self.resolve_image_path(frame_path)
         else:
-            resolved = self.resolve_image_path(self.current_image_item.file_path)
+            resolved = self.resolve_image_path(item.file_path)
         from pathlib import Path as _Path
         resolved = _Path(str(resolved))
         return resolved if resolved.exists() else None
@@ -9247,14 +9617,14 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         if not path:
             show_warning(self, "No image available to copy")
             return
-        if not self.current_image_item or not self.current_image_item.descriptions:
+        desc = self._description_to_copy()
+        if desc is None:
             show_warning(self, "No description to copy")
             return
         bmp = self._load_bitmap_for_clipboard(path)
         if not bmp:
             show_warning(self, "Could not load image for clipboard")
             return
-        desc = self.current_image_item.descriptions[-1].text
         import sys
         composite = wx.DataObjectComposite()
         composite.Add(wx.BitmapDataObject(bmp))
@@ -9461,7 +9831,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self.cached_ollama_models = None  # Force reload on next use
 
         except Exception as e:
-            show_error(self, f"Error launching Configure Settings:\\n{e}")
+            show_error(self, f"Error launching Configure Settings:\n{e}")
 
     def on_install_ollama(self, event):
         """Help user install Ollama if not already present"""
@@ -9843,6 +10213,13 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
     def _auto_check_updates(self):
         """Silent startup check. Says nothing at all unless there is an update."""
+        # An open or save is running with its progress window (opening a large
+        # workspace at startup can take a minute): "Update Available" over it,
+        # and Download closing the app mid-open, would be wrong. Try again
+        # once it's done (#492 review).
+        if self._progress_pump_depth > 0:
+            wx.CallLater(2000, self._auto_check_updates)
+            return
         try:
             from idt_core import updater
             from idt_core.config import UserConfig
@@ -10463,14 +10840,19 @@ def main():
     elif args.path:
         # Load directory or workspace normally
         path = Path(args.path)
-        if path.suffix == '.idt':
+        # A .idtw workspace is a folder too: check for it first, or it was loaded
+        # as a folder of pictures (only the old .idt file name was recognised;
+        # real-service check of the installed build, 11/16/2026).
+        from idt_core.workspace import Workspace
+        is_workspace = path.suffix.lower() == '.idt' or Workspace.is_bundle(path)
+        if is_workspace:
             wx.CallAfter(lambda: frame.load_workspace(path))
         elif path.is_dir():
             wx.CallAfter(lambda: frame.load_directory(path))
 
         # --autostart: begin the batch right after the directory loads. on_process_all
         # defers itself until the scan finishes, so this is safe to queue immediately.
-        if args.autostart and path.is_dir():
+        if args.autostart and path.is_dir() and not is_workspace:
             wx.CallAfter(lambda: frame.autostart_batch(
                 provider=args.provider,
                 model=args.model,

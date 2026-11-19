@@ -20,6 +20,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .description_text import strip_usage_line
 from .project import Project
 from .providers.registry import display_name
 
@@ -187,7 +188,7 @@ def export_html(project: Project, filename: str = "descriptions.html") -> Path:
     for i, item in enumerate(items, 1):
         slug = f"img-{i:04d}"
         desc = item.active_description
-        text = desc.text if desc else "(no description)"
+        text = strip_usage_line(desc.text) if desc else "(no description)"
 
         # Relative path from reports/ to the source image
         rel = item.source_path.relative_to(project.source_dir)
@@ -259,7 +260,7 @@ def export_csv(project: Project, filename: str = "descriptions.csv") -> Path:
                 item.display_name,
                 str(rel),
                 str(item.source_path),
-                desc.text if desc else "",
+                strip_usage_line(desc.text) if desc else "",
                 desc.model if desc else "",
                 desc.provider if desc else "",
                 desc.prompt_name if desc else "",
@@ -303,7 +304,7 @@ def export_txt(project: Project, filename: str = "descriptions.txt") -> Path:
                 f"Model: {desc.model}  ({display_name(desc.provider)})",
                 f"Date: {desc.timestamp[:10]}",
                 "",
-                desc.text,
+                strip_usage_line(desc.text),
             ]
         else:
             block_lines.append("(no description)")
@@ -381,7 +382,7 @@ def export_workspace_html(ws, filename: str = "descriptions.html") -> Path:
     for i, item in enumerate(items, 1):
         slug = f"img-{i:04d}"
         active = item.active_description
-        alt_text = active.text if active else "(no description)"
+        alt_text = strip_usage_line(active.text) if active else "(no description)"
         img_src = _ws_img_src(ws, item, reports_dir)
         multi = len(item.descriptions) > 1
         a(f'    <article id="{slug}">')
@@ -398,7 +399,7 @@ def export_workspace_html(ws, filename: str = "descriptions.html") -> Path:
             a('      <div class="desc-block">')
             if multi:
                 a(f'        <h4>{_h(label)}</h4>')
-            text_html = _h(desc.text).replace("\n", "<br>\n")
+            text_html = _h(strip_usage_line(desc.text)).replace("\n", "<br>\n")
             a(f"        <p>{text_html}</p>")
             a("      </div>")
         if item.metadata:
@@ -438,7 +439,7 @@ def export_workspace_csv(ws, filename: str = "descriptions.csv") -> Path:
                 item.image,
                 item.subfolder or "",
                 item.source_path,
-                desc.text if desc else "",
+                strip_usage_line(desc.text) if desc else "",
                 desc.model if desc else "",
                 desc.provider if desc else "",
                 desc.prompt_name if desc else "",
@@ -472,7 +473,7 @@ def export_workspace_txt(ws, filename: str = "descriptions.txt") -> Path:
                 f"Model: {desc.model}  ({display_name(desc.provider)})",
                 f"Date: {_ws_when(desc)[:10]}",
                 "",
-                desc.text,
+                strip_usage_line(desc.text),
             ]
             blocks.append("\n".join(block_lines))
     out_path.write_text("\n\n".join(blocks) + "\n", encoding="utf-8")

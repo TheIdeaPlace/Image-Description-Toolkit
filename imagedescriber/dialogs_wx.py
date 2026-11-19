@@ -70,6 +70,8 @@ except ImportError:
 # "claude-code" -> "Claude Code". idt_core imports the same way in dev and
 # frozen builds, so no try/except fallback is needed.
 from idt_core.providers.registry import display_name as _display_provider  # noqa: E402
+# "claude-haiku-5-5" -> "Claude Haiku 5.5": the name is what's spoken.
+from idt_core.providers.catalog import model_display_name as _display_model  # noqa: E402
 
 
 # Picker label -> provider key ("Claude Code" -> "claude-code"). Not
@@ -572,17 +574,9 @@ class FollowupQuestionDialog(wx.Dialog):
         model_box = wx.StaticBox(self, label="AI Model for Follow-up")
         model_sizer = wx.StaticBoxSizer(model_box, wx.VERTICAL)
         
-        # Show original model with friendly display name for Claude models
+        # Show the original model by its name, for every provider.
         made_with_provider, made_with_model = self._made_with
-        try:
-            from ai_providers import format_claude_model_for_display
-            original_model_display = (
-                format_claude_model_for_display(made_with_model)
-                if (made_with_provider or '').lower() == 'claude'
-                else made_with_model
-            )
-        except Exception:
-            original_model_display = made_with_model
+        original_model_display = _display_model(made_with_provider, made_with_model)
         original_label = wx.StaticText(
             self,
             label=f"Original: {_display_provider(made_with_provider)} - {original_model_display}"
@@ -1471,7 +1465,8 @@ class ImageDetailDialog(wx.Dialog):
                 desc_sizer = wx.StaticBoxSizer(desc_box, wx.VERTICAL)
                 
                 # Metadata
-                meta_text = f"Model: {desc.model}\nPrompt: {desc.prompt_style}\nCreated: {desc.created}"
+                meta_text = (f"Model: {_display_model(desc.provider, desc.model)}\n"
+                             f"Prompt: {desc.prompt_style}\nCreated: {desc.created}")
                 meta_label = wx.StaticText(panel, label=meta_text)
                 desc_sizer.Add(meta_label, 0, wx.ALL, 5)
                 

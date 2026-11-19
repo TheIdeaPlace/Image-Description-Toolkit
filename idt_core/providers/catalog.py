@@ -43,6 +43,7 @@ from . import model_cache
 
 __all__ = [
     "ModelEntry",
+    "model_display_name",
     "CACHE_TTL_SECONDS",
     "cached_models",
     "model_entry",
@@ -240,7 +241,7 @@ def merge(provider: str, live: Sequence[dict], *,
     #    real enough that the user selected it, so it must remain selectable.
     for model_id in keep_ids:
         if model_id not in seen:
-            out.append(_unknown_entry(canonical, model_id, live_by_id.get(model_id)))
+            out.append(_live_entry(canonical, model_id, metadata, live_by_id))
             seen.add(model_id)
 
     # 3. Live-only, newest first. Newest first because the entire point is that
@@ -248,9 +249,38 @@ def merge(provider: str, live: Sequence[dict], *,
     fresh = [m for m in live_ids if m not in seen]
     fresh.sort(key=lambda m: live_by_id[m].get("created") or 0, reverse=True)
     for model_id in fresh:
-        out.append(_unknown_entry(canonical, model_id, live_by_id[model_id]))
+        out.append(_live_entry(canonical, model_id, metadata, live_by_id))
 
     return out
+
+
+def _live_entry(provider: str, model_id: str, metadata: dict,
+                live_by_id: dict) -> ModelEntry:
+    """An entry for a listed id that isn't in the offered list.
+
+    Some have metadata although we don't offer them offline -- Claude's Mythos
+    models, which only verified organizations get -- and an account that has
+    them should see their name and description, not "new — details unknown".
+    """
+    if model_id in live_by_id and metadata.get(model_id):
+        return _entry_from_metadata(model_id, provider, metadata[model_id])
+    return _unknown_entry(provider, model_id, live_by_id.get(model_id))
+
+
+def model_display_name(provider: str, model_id: str) -> str:
+    """The name to show or speak for a model: "Claude Haiku 5.5", not
+    "claude-haiku-5-5".
+
+    For details shown after the fact (a description's Model line, a batch's
+    progress). A model IDT has no name for -- an Ollama tag, say -- shows its
+    ID, which is its name. No I/O; never raises.
+    """
+    if not model_id:
+        return ""
+    try:
+        return model_entry(provider or "", model_id).name or model_id
+    except Exception:  # noqa: BLE001 - a label must never break a window
+        return model_id
 
 
 def _unknown_entry(provider: str, model_id: str,

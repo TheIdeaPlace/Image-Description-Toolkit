@@ -313,9 +313,9 @@ class OllamaChatProvider(ChatProvider):
         An explicit False is also gated on the capability: ``--no-think``
         against a model that cannot think is already satisfied, and sending
         the field would fail the very turn the flag exists to speed up. An
-        explicit True is passed through unprobed — the user asked for
-        thinking, and if the model cannot do it the API error saying so is
-        the honest answer.
+        explicit True is gated the same way: sent to a thinking model, and
+        dropped (logged once) for one that can't think, rather than sent to
+        fail the turn with a 400.
         """
         # One policy for chat and descriptions (issue #392): see resolve_think.
         from ..generation import thinking_mode
@@ -539,7 +539,7 @@ class ClaudeChatProvider(ChatProvider):
         import anthropic
 
         from .. import generation
-        from ..providers.claude import OPTIONAL_PARAMS
+        from ..providers.claude import OPTIONAL_PARAMS, thinking_fallbacks
 
         client = (
             anthropic.Anthropic(api_key=self._api_key)
@@ -555,6 +555,16 @@ class ClaudeChatProvider(ChatProvider):
         for parameter in OPTIONAL_PARAMS:
             if ("claude", model, parameter) in generation._REJECTED:
                 kwargs.pop(parameter, None)
+        # A model that refused adaptive thinking before (describing or an earlier
+        # turn) gets a budget straight away, sized for this turn's output limit.
+        if (kwargs.get("thinking", {}).get("type") == "adaptive"
+                and ("claude", model, "thinking") in generation._ACCEPTED):
+            budget = thinking_fallbacks(kwargs["max_tokens"])
+            if budget:
+                kwargs["thinking"] = budget[0]
+            else:
+                kwargs.pop("thinking")
+        switched_to_budget = False
 
         final = None
         while True:
@@ -566,6 +576,9 @@ class ClaudeChatProvider(ChatProvider):
                             started = True
                             yield ChatDelta(text)
                     final = stream.get_final_message()
+                if switched_to_budget and "thinking" in kwargs:
+                    generation._ACCEPTED[("claude", model, "thinking")] = (
+                        {"type": "adaptive"}, kwargs["thinking"])
                 break
             except Exception as exc:                             # noqa: BLE001
                 # The request is made when the stream opens, so a rejected
@@ -575,6 +588,12 @@ class ClaudeChatProvider(ChatProvider):
                      if p in kwargs and generation._is_rejection_of(exc, words)), None)
                 if culprit is None:
                     raise
+                if (culprit == "thinking" and kwargs["thinking"].get("type") == "adaptive"
+                        and thinking_fallbacks(kwargs["max_tokens"])):
+                    # Older models (Claude Haiku 4.5) think only with a budget.
+                    kwargs["thinking"] = thinking_fallbacks(kwargs["max_tokens"])[0]
+                    switched_to_budget = True
+                    continue
                 if not any(w in str(exc).lower() for w in generation._VALUE_PROBLEM_WORDS):
                     generation._REJECTED.add(("claude", model, culprit))
                 generation.note_dropped("claude", model, culprit,

@@ -26,6 +26,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
+from .description_text import strip_usage_line
+
 logger = logging.getLogger(__name__)
 
 
@@ -189,7 +191,7 @@ def _get_primary_description(item) -> str:
     """Return the text of the most-recently-added description, or ''."""
     if not item.descriptions:
         return ''
-    return item.descriptions[-1].text
+    return strip_usage_line(item.descriptions[-1].text)
 
 
 def _desc_label(desc) -> str:
@@ -217,12 +219,13 @@ def _get_descriptions(item, selection: str) -> List[dict]:
         return [{'text': '', 'label': ''}]
     if selection == 'oldest':
         d = item.descriptions[0]
-        return [{'text': d.text, 'label': ''}]
+        return [{'text': strip_usage_line(d.text), 'label': ''}]
     if selection == 'all':
-        return [{'text': d.text, 'label': _desc_label(d)} for d in item.descriptions]
+        return [{'text': strip_usage_line(d.text), 'label': _desc_label(d)}
+                for d in item.descriptions]
     # Default: newest
     d = item.descriptions[-1]
-    return [{'text': d.text, 'label': ''}]
+    return [{'text': strip_usage_line(d.text), 'label': ''}]
 
 
 def _render_descriptions_html(descriptions: List[dict], text_class: str) -> str:

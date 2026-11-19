@@ -113,6 +113,8 @@ a = Analysis(
         'idt_core.progress',
         'idt_core.downloader',
         'idt_core.gallery_exporter',
+        # Takes ImageDescriber's usage line off text leaving the app.
+        'idt_core.description_text',
         'idt_core.video',
         'idt_core.providers',
         'idt_core.providers.base',
@@ -126,10 +128,13 @@ a = Analysis(
         # chat_window_wx imports it at module scope for the Attach Files button,
         # so a missing entry here breaks chat in frozen builds only.
         'idt_core.providers.registry',
-        # Model catalog + its disk cache. Reached only through function-level
-        # imports (registry.model_limits, ai_providers, the model pickers),
-        # which is exactly the shape hiddenimports exists for.
+        # Model catalog + its disk cache. Reached through function-level
+        # imports (registry.model_limits, ai_providers, the model pickers) and,
+        # for model_display_name, module-level ones in the windows; listed so
+        # the function-level paths are collected either way.
         'idt_core.providers.catalog',
+        # Price table for the batch window's cost meter.
+        'idt_core.pricing',
         'idt_core.providers.model_cache',
         # Chat engine — chat_window_wx runs on this now that
         # ChatProcessingWorker is gone. Enumerated one by one to match this
@@ -149,6 +154,7 @@ a = Analysis(
         'idt_core.chat.tokens',
         'idt_core.chat.tools',
         'idt_core.keys',
+        'idt_core.key_check',   # Configure > API Keys > Test Key
         'idt_core.generation',
         # Shared wx bridge between the engine and the UI thread, used by both
         # this app and the standalone chat client.

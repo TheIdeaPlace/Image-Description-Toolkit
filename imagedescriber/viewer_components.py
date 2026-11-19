@@ -16,6 +16,10 @@ from typing import List, Dict, Optional, Any
 import wx
 import wx.lib.newevent
 
+# "claude-haiku-5-5" -> "Claude Haiku 5.5" for what's shown; entries keep the ID.
+from idt_core.providers.catalog import model_display_name as _display_model
+from idt_core.description_text import strip_usage_line
+
 # Custom events for live updates
 LiveUpdateEvent, EVT_LIVE_UPDATE = wx.lib.newevent.NewEvent()
 
@@ -23,6 +27,7 @@ LiveUpdateEvent, EVT_LIVE_UPDATE = wx.lib.newevent.NewEvent()
 try:
     from shared.wx_common import (
         DescriptionListBox,
+        NoFocusPanel,
         show_warning,
         show_info,
         ask_yes_no
@@ -32,12 +37,30 @@ try:
 except ImportError:
     # Fallback for dev/frozen paths
     DescriptionListBox = wx.ListBox # Fallback
+    NoFocusPanel = wx.Panel  # Fallback
     show_warning = wx.MessageBox
     show_info = wx.MessageBox
     def ask_yes_no(parent, message, caption):
         return wx.MessageBox(message, caption, wx.YES_NO) == wx.YES
     def apply_accessible_names(root):
         return 0
+
+
+def _created_sort_key(created) -> float:
+    """Seconds since the epoch for a description's ``created`` ISO timestamp,
+    for sorting; 0 (first) when missing or unreadable. Parsed rather than
+    compared as text: a timestamp with a time zone ("…Z", "+00:00") and one
+    without don't sort correctly as strings."""
+    from datetime import datetime
+
+    if not created:
+        return 0.0
+    try:
+        stamp = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
+        return stamp.timestamp()   # naive is taken as local time
+    except (ValueError, OverflowError, OSError):
+        return 0.0
+
 
 class WorkflowMonitor(threading.Thread):
     """Background thread for monitoring workflow progress"""
@@ -235,8 +258,14 @@ class ViewerPanel(wx.Panel):
         left_sizer.Add(desc_list_label, 0, wx.ALL, 5)
         
         # Description ListBox (Accessible)
-        self.desc_list = DescriptionListBox(left_panel, name="Descriptions",
+        self.desc_list = DescriptionListBox(left_panel, name="Viewer, all descriptions",
                                             style=wx.LB_SINGLE)
+        # What a screen reader says when switching to Viewer mode lands here
+        # (#419): it has to make clear the view changed.
+        self.desc_list.accessible_name = "Viewer, all descriptions"
+        # Attaches the accessible that speaks that name now, not on the first
+        # load: switching to an empty Viewer must say it too (#452 review).
+        self.desc_list.LoadDescriptions([])
         left_sizer.Add(self.desc_list, 1, wx.EXPAND | wx.ALL, 5)
         
         left_panel.SetSizer(left_sizer)
@@ -247,7 +276,10 @@ class ViewerPanel(wx.Panel):
         right_sizer = wx.BoxSizer(wx.VERTICAL)
         
         # Image Preview (Top Right)
-        self.image_preview_panel = wx.Panel(right_panel, size=(-1, 300))
+        # Only painted on, never a Tab stop: as a plain wx.Panel, Tab stopped
+        # on an empty "panel" between the list and the description (Kelly,
+        # 11/19/2026). SetCanFocus(False) alone didn't stop it.
+        self.image_preview_panel = NoFocusPanel(right_panel, size=(-1, 300))
         self.image_preview_panel.SetBackgroundColour(wx.Colour(200, 200, 200)) # Placeholder gray
         self.image_preview_bitmap = None
         self.image_preview_panel.Bind(wx.EVT_PAINT, self.on_paint_preview)
@@ -366,14 +398,32 @@ class ViewerPanel(wx.Panel):
                 }
                 self.entries.append(entry)
         
-        # Sort by creation time if possible, or filename
-        # Workspace is usually unsorted dict, so sorting helps consistency
-        self.entries.sort(key=lambda x: x.get('file_path', ''))
-        
-        self.refresh_list()
-        
-    def refresh_list(self):
-        """Update the UI list from self.entries"""
+        # Oldest description first, newest last, so End is always the latest
+        # picture description: during a run, End says what just came in.
+        # Sorted by file path before, so Home and End never moved however many
+        # descriptions arrived (Kelly chose this order, 11/19/2026).
+        # - Chat turns stay grouped after the pictures, as before: mixed in by
+        #   time, a chat answer between two photo descriptions wouldn't be
+        #   recognisable as one (the list reads only the text).
+        # - Equal times keep path order. A description with no time is given
+        #   one when loaded (ImageDescription and the bundle reader use "now"),
+        #   so in practice every entry has a time.
+        self.entries.sort(key=lambda x: (str(x.get('file_path', '')).startswith('chat:'),
+                                         _created_sort_key(x.get('created')),
+                                         x.get('file_path', '')))
+
+        # Start on the newest picture description, the one End goes to: the
+        # first thing heard on switching to Viewer mode is what came in last
+        # (Kelly, 11/19/2026). Chats come after the pictures, so it's the last
+        # entry that isn't a chat, or the last entry if all are chats.
+        newest = next((i for i in range(len(self.entries) - 1, -1, -1)
+                       if not str(self.entries[i].get('file_path', '')).startswith('chat:')),
+                      len(self.entries) - 1)
+        self.refresh_list(select=newest)
+
+    def refresh_list(self, select: int = 0):
+        """Update the UI list from self.entries, selecting entry ``select``
+        (the first by default)."""
         # Prepare data for Accessible ListBox
         display_data = []
         for entry in self.entries:
@@ -382,7 +432,8 @@ class ViewerPanel(wx.Panel):
             truncated = (full_text[:100] + "...") if len(full_text) > 100 else full_text
             
             # Format metadata for accessibility
-            meta_str = f"Model: {entry.get('model','')}, Prompt: {entry.get('prompt_style','')}"
+            meta_str = (f"Model: {_display_model(entry.get('provider', ''), entry.get('model', ''))}, "
+                        f"Prompt: {entry.get('prompt_style','')}")
             
             display_data.append({
                 'description': full_text, # Screen reader reads this
@@ -395,7 +446,7 @@ class ViewerPanel(wx.Panel):
         self.desc_list.LoadDescriptions(display_data)
         
         if self.entries:
-            self.desc_list.SetSelection(0)
+            self.desc_list.SetSelection(min(max(select, 0), len(self.entries) - 1))
             self.on_selection_changed(None)
         else:
             self.clear_details()
@@ -410,33 +461,30 @@ class ViewerPanel(wx.Panel):
             entry = self.entries[sel]
             self.show_details(entry)
 
-    def show_details(self, entry):
-        """Display details for an entry"""
-        # Reconstruct full description with metadata like original format
-        description = entry.get('description', '')
-        
-        # Build metadata footer
+    @staticmethod
+    def _details_text(entry, description):
+        """*description* followed by the entry's details footer, as shown."""
         metadata_parts = []
         if entry.get('camera'):
             metadata_parts.append(f"Camera: {entry['camera']}")
         if entry.get('photo_date'):
             metadata_parts.append(f"Photo Date: {entry['photo_date']}")
         if entry.get('model'):
-            metadata_parts.append(f"Model: {entry['model']}")
+            metadata_parts.append(f"Model: {_display_model(entry.get('provider', ''), entry['model'])}")
         if entry.get('prompt_style'):
             metadata_parts.append(f"Prompt Style: {entry['prompt_style']}")
-        
-        # Add metadata footer if available
         if metadata_parts:
-            full_text = description + "\n\n" + " | ".join(metadata_parts)
-        else:
-            full_text = description
-        
-        self.desc_text.SetValue(full_text)
-        
+            return description + "\n\n" + " | ".join(metadata_parts)
+        return description
+
+    def show_details(self, entry):
+        """Display details for an entry"""
+        # The description as stored, usage line and all: this is a reading view.
+        self.desc_text.SetValue(self._details_text(entry, entry.get('description', '')))
+
         # Header metadata (filename and model info)
         fname = Path(entry.get('file_path', '')).name
-        model = entry.get('model', 'Unknown')
+        model = _display_model(entry.get('provider', ''), entry.get('model', '')) or 'Unknown'
         prompt = entry.get('prompt_style', 'Unknown')
         self.metadata_label.SetLabel(f"{fname}\nModel: {model} | Prompt: {prompt}")
         
@@ -602,6 +650,9 @@ class ViewerPanel(wx.Panel):
             self.load_from_directory(self.current_dir)
             if sel != wx.NOT_FOUND and sel < self.desc_list.GetCount():
                 self.desc_list.SetSelection(sel)
+                # SetSelection fires no event: without this the details kept
+                # showing entry 0 while the list was back on the user's entry.
+                self.on_selection_changed(None)
             # Title is updated in load_from_directory via refresh_list
 
     def on_list_key(self, event):
@@ -623,9 +674,17 @@ class ViewerPanel(wx.Panel):
         self.image_preview_bitmap = None
         self.image_preview_panel.Refresh()
     
+    def _text_to_copy(self):
+        """What Copy Text puts on the clipboard: what the box shows, without
+        the "[Token Usage: ...]" line, which stays in ImageDescriber."""
+        entry = self.selected_entry()
+        if entry is None:
+            return self.desc_text.GetValue()
+        return self._details_text(entry, strip_usage_line(entry.get('description', '')))
+
     def on_copy_text(self, event):
         """Copy description to clipboard"""
-        text = self.desc_text.GetValue()
+        text = self._text_to_copy()
         if text:
             import sys
             if sys.platform == 'darwin':
@@ -639,12 +698,23 @@ class ViewerPanel(wx.Panel):
                 wx.TheClipboard.SetData(wx.TextDataObject(text))
                 wx.TheClipboard.Close()
 
-    def _get_current_image_path(self):
-        """Return resolved Path for the currently selected entry's image, or None."""
+    def selected_entry(self):
+        """The entry (dict) of the selected description, or None.
+
+        The main window's Descriptions menu reads this in Viewer mode, so its
+        Copy items act on the description being read here (#480).
+        """
         sel = self.desc_list.GetSelection()
         if sel == wx.NOT_FOUND or sel >= len(self.entries):
             return None
-        file_path = self.entries[sel].get('file_path', '')
+        return self.entries[sel]
+
+    def _get_current_image_path(self):
+        """Return resolved Path for the currently selected entry's image, or None."""
+        entry = self.selected_entry()
+        if entry is None:
+            return None
+        file_path = entry.get('file_path', '')
         if not file_path:
             return None
         resolved = self.resolve_image_path(file_path)

@@ -15,109 +15,156 @@ from .base import BaseProvider, DescriptionResult
 # context_window / max_output / cost / recommended, and for display order, none
 # of which the API reports.
 #
-# All Claude models support vision natively. Updated July 2026.
+# All Claude models support vision natively. Updated November 2026: the 5.5
+# models and Fable 5.1/5.2 added, limits and prices checked against
+# GET /v1/models and Anthropic's price list. The Mythos models (verified
+# organizations only) and Opus 4.1 (retired) are no longer offered offline,
+# but keep their metadata below so workspaces that used them still show a name.
 CLAUDE_MODELS = [
-    # Current generation — 5.x
+    # Current generation — 5.5, the default first, then by price
+    "claude-haiku-5-5",
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
+    "claude-fable-5-2",
+    # Earlier 5.x
     "claude-opus-5",
     "claude-sonnet-5",
+    "claude-fable-5-1",
     "claude-fable-5",
-    "claude-mythos-5",
-    "claude-mythos-preview",
-    # Current generation — 4.x (still supported)
+    # 4.x (still supported)
     "claude-opus-4-8",
     "claude-opus-4-7",
     "claude-opus-4-6",
     "claude-sonnet-4-6",
     "claude-haiku-4-5-20251001",
-    # Legacy (still in SDK, users may have old descriptions referencing them)
+    # Legacy (users may have old descriptions referencing them)
     "claude-opus-4-5-20251101",
     "claude-sonnet-4-5-20250929",
-    "claude-opus-4-1-20250805",
 ]
 
-DEFAULT_MODEL = "claude-opus-4-8"
+#: Haiku 5.5: in a side-by-side test of the Detailed prompt (11/17/2026) it
+#: cost about $1 per 1,000 images against $30 for Opus 5.5, and its
+#: descriptions were close enough on everyday pictures not to justify the
+#: difference. Opus, Sonnet and Fable are a choice away for pictures that need them.
+DEFAULT_MODEL = "claude-haiku-5-5"
 
+#: Cost buckets, from the input price per million tokens: $ under $1,
+#: $$ under $3, $$$ under $6, $$$$ above.
 CLAUDE_MODEL_METADATA: dict = {
-    # --- Generation 5 ---
+    # --- Generation 5.5 / Fable 5.2 ---
+    "claude-opus-5-5": {
+        "name": "Claude Opus 5.5",
+        "description": "Most capable Opus; detailed, accurate descriptions",
+        "generation": "5.5", "context_window": 1000000, "max_output": 128000,
+        "supports_vision": True, "cost": "$$$", "recommended": True,
+    },
+    "claude-sonnet-5-5": {
+        "name": "Claude Sonnet 5.5",
+        "description": "Best balance of speed, quality and price",
+        "generation": "5.5", "context_window": 1000000, "max_output": 128000,
+        "supports_vision": True, "cost": "$$", "recommended": True,
+    },
+    "claude-haiku-5-5": {
+        "name": "Claude Haiku 5.5",
+        "description": "Fastest and cheapest; good for large batches",
+        "generation": "5.5", "context_window": 1000000, "max_output": 128000,
+        "supports_vision": True, "cost": "$", "recommended": True,
+    },
+    "claude-fable-5-2": {
+        "name": "Claude Fable 5.2",
+        "description": "Anthropic's most capable model; slowest and most expensive",
+        "generation": "5.2", "context_window": 1000000, "max_output": 128000,
+        "supports_vision": True, "cost": "$$$$", "recommended": False,
+    },
+    # --- Earlier generation 5 ---
     "claude-opus-5": {
         "name": "Claude Opus 5",
-        "description": "Flagship — highest intelligence and description depth",
-        "generation": "5.0", "context_window": 200000, "max_output": 128000,
-        "supports_vision": True, "cost": "$$$$", "recommended": True,
+        "description": "Previous Opus; prefer Opus 5.5, which costs less",
+        "generation": "5.0", "context_window": 1000000, "max_output": 128000,
+        "supports_vision": True, "cost": "$$$", "recommended": False,
     },
     "claude-sonnet-5": {
         "name": "Claude Sonnet 5",
-        "description": "Best balance of speed and intelligence",
-        "generation": "5.0", "context_window": 200000, "max_output": 64000,
-        "supports_vision": True, "cost": "$$$", "recommended": True,
+        "description": "Previous Sonnet; prefer Sonnet 5.5",
+        "generation": "5.0", "context_window": 1000000, "max_output": 128000,
+        "supports_vision": True, "cost": "$$", "recommended": False,
+    },
+    "claude-fable-5-1": {
+        "name": "Claude Fable 5.1",
+        "description": "Previous Fable; prefer Fable 5.2, which costs less",
+        "generation": "5.1", "context_window": 1000000, "max_output": 128000,
+        "supports_vision": True, "cost": "$$$$", "recommended": False,
     },
     "claude-fable-5": {
         "name": "Claude Fable 5",
-        "description": "Creative model with strong visual storytelling",
-        "generation": "5.0", "context_window": 200000, "max_output": 64000,
-        "supports_vision": True, "cost": "$$", "recommended": False,
+        "description": "First Fable; prefer Fable 5.2, which costs less",
+        "generation": "5.0", "context_window": 1000000, "max_output": 128000,
+        "supports_vision": True, "cost": "$$$$", "recommended": False,
     },
+    # Not in the offline list (verified organizations only); kept so a
+    # workspace described with one still shows its name.
     "claude-mythos-5": {
         "name": "Claude Mythos 5",
-        "description": "Specialized model for complex visual analysis",
-        "generation": "5.0", "context_window": 200000, "max_output": 128000,
-        "supports_vision": True, "cost": "$$$", "recommended": False,
+        "description": "Verified organizations only",
+        "generation": "5.0", "context_window": 1000000, "max_output": 128000,
+        "supports_vision": True, "cost": "$$$$", "recommended": False,
     },
     "claude-mythos-preview": {
         "name": "Claude Mythos (Preview)",
-        "description": "Preview model — experimental, may change",
-        "generation": "5.0", "context_window": 200000, "max_output": 128000,
-        "supports_vision": True, "cost": "$$$", "recommended": False,
+        "description": "Verified organizations only",
+        "generation": "5.0", "context_window": 1000000, "max_output": 128000,
+        "supports_vision": True, "cost": "$$$$", "recommended": False,
     },
-    # --- Generation 4.x (current, still supported) ---
+    # --- Generation 4.x (still supported) ---
     "claude-opus-4-8": {
         "name": "Claude Opus 4.8",
-        "description": "Most intelligent 4.x model for complex coding and analysis",
-        "generation": "4.8", "context_window": 200000, "max_output": 128000,
-        "supports_vision": True, "cost": "$$$", "recommended": True,
+        "description": "Most capable 4.x model",
+        "generation": "4.8", "context_window": 1000000, "max_output": 128000,
+        "supports_vision": True, "cost": "$$$", "recommended": False,
     },
     "claude-opus-4-7": {
         "name": "Claude Opus 4.7",
         "description": "High intelligence, strong value",
-        "generation": "4.7", "context_window": 200000, "max_output": 128000,
+        "generation": "4.7", "context_window": 1000000, "max_output": 128000,
         "supports_vision": True, "cost": "$$$", "recommended": False,
     },
     "claude-opus-4-6": {
         "name": "Claude Opus 4.6",
         "description": "Intelligent model for agents and complex coding",
-        "generation": "4.6", "context_window": 200000, "max_output": 128000,
+        "generation": "4.6", "context_window": 1000000, "max_output": 128000,
         "supports_vision": True, "cost": "$$$", "recommended": False,
     },
     "claude-sonnet-4-6": {
         "name": "Claude Sonnet 4.6",
         "description": "Best combination of speed and intelligence (4.x)",
-        "generation": "4.6", "context_window": 200000, "max_output": 64000,
-        "supports_vision": True, "cost": "$$", "recommended": False,
+        "generation": "4.6", "context_window": 1000000, "max_output": 128000,
+        "supports_vision": True, "cost": "$$$", "recommended": False,
     },
     "claude-haiku-4-5-20251001": {
         "name": "Claude Haiku 4.5",
-        "description": "Fastest model with near-frontier intelligence",
+        "description": "Previous Haiku; prefer Haiku 5.5, which costs less",
         "generation": "4.5", "context_window": 200000, "max_output": 64000,
-        "supports_vision": True, "cost": "$", "recommended": True,
+        "supports_vision": True, "cost": "$$", "recommended": False,
     },
-    # --- Legacy (still in SDK, not recommended for new work) ---
+    # --- Legacy (not recommended for new work) ---
     "claude-opus-4-5-20251101": {
         "name": "Claude Opus 4.5",
-        "description": "Legacy — prefer claude-opus-4-8 or claude-opus-5",
-        "generation": "4.5", "context_window": 200000, "max_output": 32000,
+        "description": "Legacy — prefer Claude Opus 5.5",
+        "generation": "4.5", "context_window": 200000, "max_output": 64000,
         "supports_vision": True, "cost": "$$$", "recommended": False,
     },
     "claude-sonnet-4-5-20250929": {
         "name": "Claude Sonnet 4.5",
-        "description": "Legacy — prefer claude-sonnet-5 or claude-sonnet-4-6",
+        "description": "Legacy — prefer Claude Sonnet 5.5",
         "generation": "4.5", "context_window": 200000, "max_output": 64000,
-        "supports_vision": True, "cost": "$$", "recommended": False,
+        "supports_vision": True, "cost": "$$$", "recommended": False,
     },
+    # Retired; not in the offline list, kept for old workspaces.
     "claude-opus-4-1-20250805": {
         "name": "Claude Opus 4.1",
-        "description": "Legacy — prefer claude-opus-4-8 or claude-opus-5",
+        "description": "Retired — prefer Claude Opus 5.5",
         "generation": "4.1", "context_window": 200000, "max_output": 32000,
-        "supports_vision": True, "cost": "$$$", "recommended": False,
+        "supports_vision": True, "cost": "$$$$", "recommended": False,
     },
 }
 
@@ -256,6 +303,26 @@ OPTIONAL_PARAMS = {"output_config": ("effort", "output_config"),
 
 _EFFORT_MAP = {"minimal": "low", "low": "low", "medium": "medium", "high": "high"}
 
+#: The smallest thinking budget the API takes.
+_MIN_THINKING_BUDGET = 1024
+
+
+def thinking_fallbacks(max_tokens: int) -> tuple:
+    """Thinking settings to try when a model refuses ``{"type": "adaptive"}``.
+
+    Older models, Claude Haiku 4.5 among them, think only with a token budget,
+    so Thinking On came back as "sent again without thinking" and no thinking
+    happened (real-service check of the installed build, 11/16/2026). Half the
+    output limit goes to thinking, leaving the other half for the answer; the
+    API's smallest budget is 1,024, so below a 2,048 limit there's no room for
+    both and thinking is dropped as before (a 1,024 budget under a 1,100 limit
+    left nothing for the description).
+    """
+    budget = max_tokens // 2
+    if budget < _MIN_THINKING_BUDGET:
+        return ()
+    return ({"type": "enabled", "budget_tokens": budget},)
+
 
 def describe_request_params(model: str, opts) -> dict:
     """Messages-API keyword arguments (all but ``messages``) for a description.
@@ -345,7 +412,13 @@ class ClaudeProvider(BaseProvider):
         self._model = model
         #: GenerationOptions; None means automatic.
         self._options = options
-        # api_key=None → SDK reads ANTHROPIC_API_KEY from environment
+        # No key given: the shared lookup (environment, then the credential store
+        # Configure saves to, then the config file). Leaving it to the SDK read
+        # only ANTHROPIC_API_KEY, so `idt describe` failed with "Missing
+        # credentials" for a key saved in Configure (real-service check, 11/16/2026).
+        if not api_key:
+            from ..keys import resolve_api_key
+            api_key = resolve_api_key("claude")
         self._client = __import__("anthropic").Anthropic(api_key=api_key)
 
     @property
@@ -383,7 +456,9 @@ class ClaudeProvider(BaseProvider):
         ]
         message = send_with_fallback(self._client.messages.create, params,
                                      with_extra_body(OPTIONAL_PARAMS, params),
-                                     "claude", self._model)
+                                     "claude", self._model,
+                                     fallback_values={"thinking":
+                                                      thinking_fallbacks(params["max_tokens"])})
         text = response_text(message)
         stop_reason = getattr(message, "stop_reason", None)
         truncated = stop_reason == "max_tokens"

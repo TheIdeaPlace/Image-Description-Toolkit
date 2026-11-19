@@ -342,7 +342,7 @@ def store_api_key(provider: str, value: str) -> str:
         # file holding only api_keys is fine: the rest is filled in on read.
         path = writable_config_path("image_describer_config.json")
         try:
-            config = json.loads(path.read_text(encoding="utf-8"))
+            config = json.loads(path.read_text(encoding="utf-8-sig"))
         except (OSError, ValueError):
             config = {}
         if not isinstance(config, dict):
@@ -386,7 +386,9 @@ def _from_legacy_file(name: str) -> Optional[str]:
             path = directory / filename
             try:
                 if path.is_file():
-                    value = path.read_text(encoding="utf-8").strip()
+                    # utf-8-sig: a key file saved by PowerShell 5 starts with a
+                    # byte-order mark, which strip() keeps, and the API refuses.
+                    value = path.read_text(encoding="utf-8-sig").strip()
                     if value:
                         return value
             except OSError:

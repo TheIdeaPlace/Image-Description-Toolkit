@@ -65,6 +65,7 @@ from idt_core.chat import (
     ChatUsage,
 )
 from idt_core.chat.attachments import prepare_attachments
+from idt_core.description_text import strip_usage_line
 from idt_core.chat.messages import Attachment as ChatAttachment
 from idt_core.chat.providers import create_chat_provider
 from idt_core.keys import resolve_api_key
@@ -87,6 +88,8 @@ from idt_core.providers.registry import (
 # "claude-code" -> "Claude Code". idt_core imports the same way in dev and
 # frozen builds, so no try/except fallback is needed.
 from idt_core.providers.registry import display_name as _display_provider  # noqa: E402
+# "claude-haiku-5-5" -> "Claude Haiku 5.5": the name is what's spoken.
+from idt_core.providers.catalog import model_display_name as _display_model  # noqa: E402
 
 
 # Picker label -> provider key ("Claude Code" -> "claude-code"). Not
@@ -282,7 +285,10 @@ class ChatDialog(wx.Dialog):
                 self.model_combo.Append('llava:latest', 'llava:latest')
                 self.model_combo.SetSelection(0)
             elif provider == 'openai':
-                self.model_combo.Append('gpt-4o', 'gpt-4o')
+                # The provider's default, not a hard-coded id: 'gpt-4o' here
+                # outlived its model's place at the top of OpenAI's list.
+                from idt_core.providers.openai_provider import DEFAULT_MODEL as _OPENAI_DEFAULT
+                self.model_combo.Append(_display_model('openai', _OPENAI_DEFAULT), _OPENAI_DEFAULT)
                 self.model_combo.SetSelection(0)
             elif provider == 'claude':
                 # Use first model from the curated list with its friendly name.
@@ -343,7 +349,7 @@ class ChatWindow(wx.Dialog):
         elif image_item:
             title = f"Chat: {Path(image_item.file_path).name}"
         else:
-            title = f"Chat with AI: {_display_provider(provider)} ({model})"
+            title = f"Chat with AI: {_display_provider(provider)} ({_display_model(provider, model)})"
         
         super().__init__(parent, title=title,
                         size=(800, 700), 
@@ -429,7 +435,11 @@ class ChatWindow(wx.Dialog):
             elif desc.prompt_style == 'ai_response':
                 messages.append({
                     'role': 'assistant',
-                    'content': desc.text,
+                    # A guard only: chat replies are stored as the model wrote
+                    # them and never get the usage line (only image
+                    # descriptions do, in workers_wx). If that ever changes,
+                    # the line still doesn't go back to the model.
+                    'content': strip_usage_line(desc.text),
                     'timestamp': desc.created,
                     'metadata': desc.metadata
                 })
@@ -442,7 +452,7 @@ class ChatWindow(wx.Dialog):
             name = f"Chat: {Path(self.image_item.file_path).name}"
             image_path = str(self.image_item.file_path)
         else:
-            name = f"Chat: {_display_provider(self.provider)} ({self.model})"
+            name = f"Chat: {_display_provider(self.provider)} ({_display_model(self.provider, self.model)})"
             image_path = None
         
         return {
@@ -607,7 +617,8 @@ class ChatWindow(wx.Dialog):
         # Session info
         info_sizer = wx.BoxSizer(wx.VERTICAL)
         
-        provider_text = f"Provider: {self.session['provider']} ({self.session['model']})"
+        provider_text = (f"Provider: {_display_provider(self.session['provider'])} "
+                         f"({_display_model(self.session['provider'], self.session['model'])})")
         self.provider_label = wx.StaticText(parent, label=provider_text)
         info_sizer.Add(self.provider_label, 0, wx.ALL, 2)
         
@@ -1214,7 +1225,8 @@ class ChatWindow(wx.Dialog):
             self.session['model'] = self.model
             
             # Update UI
-            provider_text = f"Provider: {self.provider} ({self.model})"
+            provider_text = (f"Provider: {_display_provider(self.provider)} "
+                             f"({_display_model(self.provider, self.model)})")
             self.provider_label.SetLabel(provider_text)
             
             # Clear pending attachments — they may not be valid for the new provider
@@ -1225,7 +1237,8 @@ class ChatWindow(wx.Dialog):
             # Add system message to history
             timestamp = datetime.now().isoformat()
             time_str = datetime.fromisoformat(timestamp).strftime("%I:%M %p")
-            sys_msg = f"System ({time_str}): Switched to {self.provider} - {self.model}"
+            sys_msg = (f"System ({time_str}): Switched to {_display_provider(self.provider)} - "
+                       f"{_display_model(self.provider, self.model)}")
             self.history_list.Append(sys_msg)
             self.history_list.SetSelection(self.history_list.GetCount() - 1)
             self.workspace.mark_modified()
@@ -1493,6 +1506,14 @@ class ChatWindow(wx.Dialog):
         self._thinking = value
         ChatWindow._last_thinking = value
         self.status_text.SetLabel(status)
+        if value is True:
+            # On is dropped for a model that can't think (resolve_think); say so
+            # now rather than leave an answer that just came back unthinking.
+            from idt_core.providers.ollama import thinking_on_note
+            note = thinking_on_note(self.provider, self.model)
+            if note:
+                self.status_text.SetLabel(note)
+                wx.MessageBox(note, "Thinking", wx.OK | wx.ICON_INFORMATION, self)
 
     def on_commands_menu(self, event):
         """Show the Session commands popup menu."""

@@ -113,8 +113,13 @@ RUN_FATAL_KINDS = frozenset({ErrorKind.AUTH, ErrorKind.UNAVAILABLE})
 from idt_core.pipeline import (  # noqa: E402
     REFUSAL_STREAK, SAME_FAILURE_STREAK, FailureStreak, frame_video,
     is_per_image_failure as _is_per_image_failure,
+    metadata_preamble,
     normalise_failure_text as _normalise_failure_text,
 )
+from idt_core.providers.registry import display_name as _display_provider  # noqa: E402
+from idt_core.providers.catalog import model_display_name as _display_model  # noqa: E402
+# Writes video frames; cv2.imwrite fails silently on non-ASCII paths on Windows.
+from idt_core.video import FrameWriteError, write_frame  # noqa: E402
 
 
 _TIMESTAMP_TAIL = re.compile(r"\s*-\s*\(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(,\d+)?\)\s*$")
@@ -422,7 +427,8 @@ class ProcessingWorker(threading.Thread):
                 self._post_progress("Getting Windows AI's model ready. The first time, "
                                     "this can take a few minutes.")
             else:
-                self._post_progress(f"Processing with {self.provider} {self.model}...")
+                self._post_progress(f"Processing with {_display_provider(self.provider)}, "
+                                    f"{_display_model(self.provider, self.model)}...")
 
             # Extract metadata from image
             metadata = self._extract_metadata(self.file_path)
@@ -789,12 +795,14 @@ class ProcessingWorker(threading.Thread):
     def _resize_image_data(self, image_data: bytes, max_size: int) -> bytes:
         """Resize image data if it's too large"""
         try:
-            from PIL import Image
+            from PIL import Image, ImageOps
             import io
-            
-            # Load image
-            image = Image.open(io.BytesIO(image_data))
-            
+
+            # Load image, turned upright: the copy is saved without EXIF, so
+            # a phone photo's orientation tag was lost and every provider got
+            # it on its side (#487 review).
+            image = ImageOps.exif_transpose(Image.open(io.BytesIO(image_data)))
+
             # Calculate new size - iteratively reduce quality
             quality = 85
             while True:
@@ -1014,11 +1022,9 @@ class ProcessingWorker(threading.Thread):
             ctx = meta.prompt_context()
             if ctx:
                 logging.info(f"EXIF context injected into prompt: {ctx}")
-                try:
-                    from idt_core.pipeline import META_PREFIX
-                except ImportError:
-                    from pipeline import META_PREFIX  # frozen mode
-                return f"{META_PREFIX}{ctx}\n\n{prompt_text}", ctx
+                # name_place=False: _add_location_byline starts the
+                # description with the place already.
+                return metadata_preamble(ctx, name_place=False) + prompt_text, ctx
 
         except Exception as exc:
             logging.warning(f"EXIF context injection failed for {self.file_path}: {exc}")
@@ -1745,13 +1751,15 @@ class VideoProcessingWorker(threading.Thread):
 
         # Extract based on mode
         extraction_mode = self.extraction_config.get("extraction_mode", "time_interval")
-        if extraction_mode == "scene_change":
-            extracted_paths = self._extract_by_scene_detection(cap, fps, video_dir, video_source_metadata)
-        else:
-            # Default to time_interval if mode not recognized
-            extracted_paths = self._extract_by_time_interval(cap, fps, video_dir, video_source_metadata)
-        
-        cap.release()
+        try:
+            if extraction_mode == "scene_change":
+                extracted_paths = self._extract_by_scene_detection(cap, fps, video_dir, video_source_metadata)
+            else:
+                # Default to time_interval if mode not recognized
+                extracted_paths = self._extract_by_time_interval(cap, fps, video_dir, video_source_metadata)
+        finally:
+            # Also when a frame can't be written (FrameWriteError): don't leak the capture.
+            cap.release()
         return extracted_paths, video_metadata
     
     def _extract_by_time_interval(self, cap, fps: float, output_dir: Path, video_source_metadata: dict = None) -> list:
@@ -1812,7 +1820,7 @@ class VideoProcessingWorker(threading.Thread):
             # Save frame with timestamp in filename (matches CLI: video_0.00s.jpg)
             frame_filename = f"{video_stem}_{timestamp:.2f}s.jpg"
             frame_path = output_dir / frame_filename
-            cv2.imwrite(str(frame_path), frame)
+            write_frame(frame_path, frame)
 
             # Embed video GPS/date into frame EXIF if metadata is available
             if video_source_metadata and ExifEmbedder is not None:
@@ -1894,7 +1902,7 @@ class VideoProcessingWorker(threading.Thread):
                 # Save frame with scene number and timestamp
                 frame_filename = f"{video_stem}_scene_{i+1:04d}_{frame_info.timestamp:.2f}s.jpg"
                 frame_path = output_dir / frame_filename
-                cv2.imwrite(str(frame_path), frame)
+                write_frame(frame_path, frame)
                 
                 # Embed metadata
                 if video_source_metadata and ExifEmbedder is not None:
@@ -1910,7 +1918,12 @@ class VideoProcessingWorker(threading.Thread):
                 extracted_paths.append(str(frame_path))
             
             return extracted_paths
-            
+
+        except FrameWriteError:
+            # Not a detector crash: the basic fallback would fail to write too.
+            # Release the capture reopened above and report the real error.
+            cap.release()
+            raise
         except Exception as e:
             logger.warning(f"Enhanced scene detection failed: {e}, using basic detection")
             self._post_progress("Using basic scene detection...")
@@ -1968,7 +1981,7 @@ class VideoProcessingWorker(threading.Thread):
                     timestamp = frame_num / fps if fps > 0 else 0.0
                     frame_filename = f"{video_stem}_scene_{extract_count:04d}_{timestamp:.2f}s.jpg"
                     frame_path = output_dir / frame_filename
-                    cv2.imwrite(str(frame_path), frame)
+                    write_frame(frame_path, frame)
                     
                     if video_source_metadata and ExifEmbedder is not None:
                         try:

@@ -14,19 +14,25 @@ from .messages import Attachment, ChatMessage
 
 def encode_attachment_claude(att: Attachment) -> dict:
     """Image or document content block for the Anthropic messages API."""
-    payload = base64.b64encode(att.read_bytes()).decode("utf-8")
+    raw = att.read_bytes()
     if att.media_type == "application/pdf":
         return {
             "type": "document",
             "source": {
                 "type": "base64",
                 "media_type": "application/pdf",
-                "data": payload,
+                "data": base64.b64encode(raw).decode("utf-8"),
             },
         }
+    # Fitted to Claude's limits as descriptions are: a phone photo over 5 MB,
+    # or a panorama over 8,000 pixels on a side, was refused (11/18/2026).
+    from ..providers.claude_code import fit_image
+
+    raw, media_type = fit_image(raw, att.media_type)
     return {
         "type": "image",
-        "source": {"type": "base64", "media_type": att.media_type, "data": payload},
+        "source": {"type": "base64", "media_type": media_type,
+                   "data": base64.b64encode(raw).decode("utf-8")},
     }
 
 

@@ -464,7 +464,53 @@ class ModifiedStateMixin:
             return False
 
 
+class NoFocusPanel(wx.Panel):
+    """A panel that is only drawn on, and never a Tab stop.
+
+    A wx.Panel with no focusable children takes focus itself, and on Windows
+    SetCanFocus(False) doesn't stop that, so JAWS and NVDA landed on an empty
+    "panel" (ImageDescriber's picture preview, between Viewer mode's list and
+    its description; Kelly, 11/19/2026). Saying it accepts no focus does.
+    """
+
+    def AcceptsFocus(self):
+        return False
+
+    def AcceptsFocusFromKeyboard(self):
+        return False
+
+
 # ==================== NUMBER FIELDS ====================
+
+class _AccessibleName(wx.Accessible):
+    """Gives a control the name a screen reader reads (childId 0 only, so its
+    value or text is still read normally)."""
+
+    def __init__(self, win, label: str):
+        super().__init__(win)
+        self._label = label
+
+    def GetName(self, childId):
+        if childId:
+            return (wx.ACC_NOT_IMPLEMENTED, None)
+        return (wx.ACC_OK, self._label)
+
+
+def set_screen_reader_name(window, label: str) -> None:
+    """Make ``label`` what JAWS, NVDA and VoiceOver call ``window``.
+
+    SetName alone isn't enough on Windows: a native edit box takes its name
+    from the static label just before it, so a field after "Value:" was read
+    as "Value:" whatever SetName said (installed-build settings check,
+    11/16/2026). A wx.Accessible answers for it there; macOS has no
+    wx.Accessible and uses the name (shared/mac_accessibility publishes it).
+    """
+    window.SetName(label)
+    try:
+        window.SetAccessible(_AccessibleName(window, label))
+    except (NotImplementedError, AttributeError):
+        pass
+
 
 def number_field(parent, info: Dict[str, Any], value: Any, name: str) -> wx.TextCtrl:
     """A text field for a number, named with its range for screen readers.
@@ -475,7 +521,9 @@ def number_field(parent, info: Dict[str, Any], value: Any, name: str) -> wx.Text
     """
     from shared.number_entry import spoken_range
     text = "" if value is None else str(value)
-    return wx.TextCtrl(parent, value=text, name=f"{name}{spoken_range(info)}")
+    field = wx.TextCtrl(parent, value=text)
+    set_screen_reader_name(field, f"{name}{spoken_range(info)}")
+    return field
 
 
 def refuse_bad_number(parent, control: wx.TextCtrl, info: Dict[str, Any], title: str):
@@ -906,8 +954,10 @@ class AccessibleDescriptionListBox(wx.Accessible):
     def GetName(self, childId):
         """Return full description text for screen readers"""
         if childId == wx.ACC_SELF:
-            return wx.ACC_OK, "Descriptions"
-        
+            # A list can say what it is ("Viewer, all descriptions"); the
+            # editor's keeps the name it has always had.
+            return wx.ACC_OK, getattr(self.listbox, "accessible_name", None) or "Descriptions"
+
         # childId is 1-based for list items
         if childId > 0 and childId <= len(self.descriptions_data):
             idx = childId - 1

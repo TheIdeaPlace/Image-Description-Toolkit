@@ -306,6 +306,10 @@ class WorkspaceDescription:
 
     @classmethod
     def from_dict(cls, d: dict) -> "WorkspaceDescription":
+        # ImageDescriber before #446 saved token counts only in extra.metadata,
+        # leaving input_tokens null or 0, so `idt stats` left out the input
+        # cost. Read them from there when the field itself has nothing.
+        gui_metadata = (d.get("extra") or {}).get("metadata") or {}
         return cls(
             id=d.get("id") or str(uuid.uuid4()),
             text=d.get("text", ""),
@@ -314,14 +318,35 @@ class WorkspaceDescription:
             prompt_name=d.get("prompt_name", d.get("prompt_style", "")),
             prompt_text=d.get("prompt_text", d.get("custom_prompt", "")),
             created=d.get("created", d.get("timestamp", _now())),
-            input_tokens=d.get("input_tokens"),
-            output_tokens=d.get("output_tokens"),
+            input_tokens=first_token_count(d.get("input_tokens"),
+                                           gui_metadata.get("input_tokens"),
+                                           default=d.get("input_tokens")),
+            output_tokens=first_token_count(d.get("output_tokens"),
+                                            gui_metadata.get("output_tokens"),
+                                            default=d.get("output_tokens")),
             metadata_context=d.get("metadata_context"),
             detection_data=d.get("detection_data", []),
             finish_reason=d.get("finish_reason", ""),
             response_id=d.get("response_id", ""),
             extra=d.get("extra", {}),
         )
+
+
+def first_token_count(*candidates, default=None):
+    """The first candidate that is a positive token count, else ``default``.
+
+    A count of 0 is treated as missing: no request that describes an image
+    or answers a chat turn uses no tokens, and the GUI wrote 0 where it had
+    no figure.
+    """
+    for value in candidates:
+        try:
+            count = int(value)
+        except (TypeError, ValueError):
+            continue
+        if count > 0:
+            return count
+    return default
 
 
 # --------------------------------------------------------------------------- #
@@ -714,15 +739,26 @@ class Workspace:
                     continue
         return None
 
-    def items(self) -> list[WorkspaceItem]:
+    def items(self, progress=None) -> list[WorkspaceItem]:
+        """Every item, read from its sidecar.
+
+        ``progress(done, total, name)``, if given, is called as each sidecar is
+        read. On a cold start a large bundle can take minutes here (12,906
+        sidecars in a OneDrive folder took 95 seconds), so ImageDescriber reads
+        it off the UI thread and shows the count.
+        """
         if not self.descriptions_dir.is_dir():
             return []
         out: list[WorkspaceItem] = []
-        for p in sorted(self.descriptions_dir.glob("**/*.json")):
+        paths = sorted(self.descriptions_dir.glob("**/*.json"))
+        total = len(paths)
+        for done, p in enumerate(paths, start=1):
             try:
                 out.append(WorkspaceItem.from_dict(json.loads(p.read_text(encoding="utf-8"))))
             except Exception:
-                continue
+                pass
+            if progress is not None:
+                progress(done, total, p.stem)
         return out
 
     def image_path(self, item: WorkspaceItem) -> Path:

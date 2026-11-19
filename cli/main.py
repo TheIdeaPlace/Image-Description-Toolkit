@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shlex
 import sys
 from pathlib import Path
@@ -227,17 +228,37 @@ def _resolve_prompt(args, project_config, provider: Optional[str] = None) -> tup
             getattr(project_config, "prompt_name", None)
             or getattr(project_config, "default_prompt_name", None)
         )
-    name = (
-        getattr(args, "prompt", None)
-        or cfg_default
-        or user_cfg.default_prompt_name
-    )
-    text = (
-        user_cfg.get_prompt_text(name)
-        or BUILT_IN_PROMPTS.get(DEFAULT_PROMPT_NAME, "")
-        or next(iter(BUILT_IN_PROMPTS.values()), "")
-    )
-    return (name, text)
+    explicit = getattr(args, "prompt", None)
+    name = explicit or cfg_default or user_cfg.default_prompt_name
+
+    # Names match regardless of case ("Simple" is simple: Configure offered it
+    # capitalised). An unknown name used to be accepted silently, the default
+    # prompt's text sent, and the typo saved as the prompt (4.9.0 guru bug
+    # bash, S5). Asked for with --prompt, that's an error; inherited from a
+    # workspace or the config, it's a warning and the default prompt.
+    known = user_cfg.list_prompts()
+    canonical = _match_prompt_name(name, known)
+    if canonical is None:
+        names = ", ".join(sorted(known))
+        if explicit:
+            print(f"Error: there's no prompt called {explicit!r}. The prompts are: {names}. "
+                  "`idt prompts` shows them with their text.", file=sys.stderr)
+            sys.exit(2)
+        fallback = DEFAULT_PROMPT_NAME if DEFAULT_PROMPT_NAME in known else next(iter(known), "")
+        print(f"Warning: the saved prompt {name!r} doesn't exist; using {fallback!r}. "
+              f"The prompts are: {names}.", file=sys.stderr)
+        canonical = fallback
+    return (canonical, known.get(canonical, ""))
+
+
+def _match_prompt_name(name: Optional[str], known: dict) -> Optional[str]:
+    """The prompt's real name for ``name`` (any case), or None."""
+    if not name:
+        return None
+    if name in known:
+        return name
+    lowered = name.strip().lower()
+    return next((k for k in known if k.lower() == lowered), None)
 
 
 _PROVIDER_CHOICES = ("anthropic", "apple", "claude-code", "ollama", "openai", "windows-ai")
@@ -253,23 +274,138 @@ _PROVIDER_CHOICES_SHOWN = _provider_choices_shown()
 _PROVIDER_METAVAR = "{" + ",".join(_PROVIDER_CHOICES_SHOWN) + "}"
 
 
-def _provider_arg(value: str) -> str:
-    """``--provider``'s type: the provider key for any spelling of it.
+def _cli_provider(name: Optional[str]) -> Optional[str]:
+    """The command line's key for any name of a provider, or None if unknown.
 
-    Case is ignored, and Windows AI answers to Windows-AI, WindowsAI and "Windows
-    AI" as well as its key -- the help shows Windows-AI, since a screen reader
-    says a lowercase "ai" as a word. This replaces argparse's ``choices``, whose
-    error message would list the keys rather than the names shown.
+    ImageDescriber and Configure save Claude as "claude"; the command line's
+    key is "anthropic". Before 4.9 the CLI took a workspace's or config's
+    provider as it was, so `idt describe` on any workspace ImageDescriber had
+    described with Claude stopped with "Unknown provider: 'claude'" (4.9.0
+    guru bug bash, B1). Every provider name reaching the CLI goes through here.
     """
     from idt_core.providers.registry import capabilities_for
 
-    key = value.strip().lower()
-    if capabilities_for(key).provider == "windows-ai":
-        key = "windows-ai"
-    if key not in _PROVIDER_CHOICES:
+    key = (name or "").strip().lower()
+    if not key:
+        return None
+    canonical = capabilities_for(key).provider
+    if canonical == "claude":
+        return "anthropic"
+    if canonical in _PROVIDER_CHOICES:
+        return canonical
+    return key if key in _PROVIDER_CHOICES else None
+
+
+def _provider_arg(value: str) -> str:
+    """``--provider``'s type: the provider key for any spelling of it.
+
+    Case is ignored; Claude answers to claude as well as anthropic; Windows AI
+    answers to Windows-AI, WindowsAI and "Windows AI" as well as its key -- the
+    help shows Windows-AI, since a screen reader says a lowercase "ai" as a
+    word. This replaces argparse's ``choices``, whose error message would list
+    the keys rather than the names shown.
+    """
+    key = _cli_provider(value)
+    if key is None:
         raise argparse.ArgumentTypeError(
             f"invalid choice: {value!r} (choose from {', '.join(_PROVIDER_CHOICES_SHOWN)})")
     return key
+
+
+def _model_belongs_to(provider: str, model: Optional[str]) -> bool:
+    """True when IDT knows ``model`` as one of ``provider``'s (its built-in list)."""
+    if not model:
+        return False
+    try:
+        from idt_core.providers.catalog import model_entry
+
+        return model_entry(provider, model).source == "curated"
+    except Exception:  # noqa: BLE001 - a guess must never stop a run
+        return False
+
+
+def _model_owner(model: Optional[str]) -> str:
+    """The provider IDT knows ``model`` as one of; "ollama" when none claims it."""
+    for provider in ("anthropic", "openai", "claude-code", "apple", "windows-ai"):
+        if _model_belongs_to(provider, model):
+            return provider
+    return "ollama"
+
+
+def _choose_provider_and_model(args, ws, user_cfg) -> tuple:
+    """(provider key, model or None) for a describing run.
+
+    Provider: --provider, else the workspace's (once it has descriptions), else
+    the configured default. A model saved for one provider is never sent to
+    another (4.9.0 guru bug bash, B2: `--provider anthropic` sent the Ollama
+    default, and Anthropic answered 404 for every picture). So an inherited
+    model is used only when it came with the same provider, or IDT knows it as
+    one of that provider's; otherwise the provider's own default applies.
+    """
+    ws_raw = ws.defaults.provider if ws.has_any_descriptions else ""
+    ws_model = ws.defaults.model if ws.has_any_descriptions else ""
+    ws_provider = _cli_provider(ws_raw)
+    cfg_provider = _cli_provider(user_cfg.default_provider)
+    provider_set_here = "default_provider" in user_cfg.user_set
+    shown = ", ".join(_PROVIDER_CHOICES_SHOWN)
+    if ws_raw and ws_provider is None and not args.provider:
+        print(f"Error: this workspace was described with {ws_raw!r}, which the command line "
+              f"can't use. Choose one with --provider ({shown}).", file=sys.stderr)
+        sys.exit(1)   # a run that can't start; 2 is kept for usage errors
+    if user_cfg.default_provider and cfg_provider is None and not (args.provider or ws_provider):
+        if provider_set_here:
+            print(f"Error: the default provider {user_cfg.default_provider!r} isn't one the "
+                  f"command line can use. Set another with `idt config --set "
+                  f"default_provider=...` ({shown}), or choose with --provider.", file=sys.stderr)
+            sys.exit(1)
+        # Configure's default can be one only ImageDescriber runs (MLX): the
+        # command line carries on with Ollama rather than refuse every run
+        # (#455 review).
+        print(f"Note: Configure's default provider, {user_cfg.default_provider!r}, works only "
+              f"in ImageDescriber; using Ollama. Choose another with --provider.",
+              file=sys.stderr)
+    provider = args.provider or ws_provider or cfg_provider or "ollama"
+
+    # Whose model is the configured one? Configure's default_model is the
+    # Ollama model ("used when default_provider is ollama"), never another
+    # provider's: pairing it with Configure's Claude default sent an Ollama
+    # name to Anthropic (#455 review). A model set with `idt config` goes with
+    # the provider set there too, else with whichever provider IDT knows it
+    # as one of; failing that, it's an Ollama model (Ollama's are open-ended).
+    cfg_model = user_cfg.default_model
+    if "default_model" not in user_cfg.user_set:
+        cfg_owner = "ollama"
+    elif getattr(user_cfg, "default_model_provider", None):
+        # Recorded when the model was set, so a later provider change doesn't
+        # carry it to the wrong provider (#455 re-review).
+        cfg_owner = _cli_provider(user_cfg.default_model_provider) or _model_owner(cfg_model)
+    else:
+        cfg_owner = _model_owner(cfg_model)
+
+    model = args.model
+    if not model:
+        for candidate, owner in ((ws_model, ws_provider), (cfg_model, cfg_owner)):
+            if candidate and (owner == provider or _model_belongs_to(provider, candidate)):
+                model = candidate
+                break
+    model = _resolve_model(provider, model, explicit=args.model)
+    # Named now rather than left to the provider, so the run's header says which.
+    return provider, model or _provider_default_model(provider)
+
+
+def _provider_default_model(provider: str) -> Optional[str]:
+    """A provider's own default model (what it uses when given none)."""
+    modules = {"anthropic": "claude", "openai": "openai_provider", "ollama": "ollama",
+               "claude-code": "claude_code", "apple": "apple", "windows-ai": "windows_ai"}
+    name = modules.get(provider)
+    if not name:
+        return None
+    try:
+        import importlib
+
+        return getattr(importlib.import_module(f"idt_core.providers.{name}"), "DEFAULT_MODEL", None)
+    except ImportError:
+        return None
 
 
 def _provider_args(p: argparse.ArgumentParser) -> None:
@@ -331,6 +467,55 @@ def _non_negative_float(value: str) -> float:
     return number
 
 
+def _float_in_range(low: float, high: float):
+    """An argparse type: a number from low to high. The ranges are ImageDescriber's
+    (idt_core.video), so the two tools take the same values; outside them video
+    extraction quietly took every frame."""
+    def _check(value: str) -> float:
+        try:
+            number = float(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"expected a number, got {value!r}")
+        if not (low <= number <= high):   # also refuses nan
+            raise argparse.ArgumentTypeError(
+                f"must be from {low:g} to {high:g}, got {number:g}")
+        return number
+    return _check
+
+
+def _size_arg(value: str) -> str:
+    """An argparse type for --min-size: WIDTHxHEIGHT, both whole numbers of 0 or
+    more. Anything else was ignored without a word ("wide", "200")."""
+    parts = value.lower().split("x")
+    try:
+        ok = len(parts) == 2 and all(int(p) >= 0 for p in parts)
+    except ValueError:
+        ok = False
+    if not ok:
+        raise argparse.ArgumentTypeError(
+            f"use WIDTHxHEIGHT in pixels, e.g. 200x200; got {value!r}")
+    return value
+
+
+class _KeepLinesFormatter(argparse.HelpFormatter):
+    """Wraps a one-line description as usual, but prints text that has its own
+    line breaks (the exit codes epilog) as written."""
+    def _fill_text(self, text, width, indent):
+        if "\n" in text:
+            return "".join(indent + line for line in text.splitlines(keepends=True))
+        return super()._fill_text(text, width, indent)
+
+
+def _video_interval(value: str) -> float:
+    from idt_core.video import VIDEO_INTERVAL_RANGE
+    return _float_in_range(*VIDEO_INTERVAL_RANGE)(value)
+
+
+def _scene_threshold(value: str) -> float:
+    from idt_core.video import SCENE_THRESHOLD_RANGE
+    return _float_in_range(*SCENE_THRESHOLD_RANGE)(value)
+
+
 def _generation_options(args, provider_name: str):
     """Saved settings for the provider, with this command's flags on top."""
     from idt_core.generation import GenerationOptions, user_options
@@ -356,11 +541,14 @@ def _metadata_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--no-metadata", dest="extract_metadata", action="store_false",
         default=True,
-        help="Disable EXIF metadata extraction (don't inject date/location context into prompt)",
+        help="Don't read EXIF data (date, camera, GPS) from the images; --geocode then "
+             "has nothing to work with",
     )
     p.add_argument(
         "--geocode", action="store_true",
-        help="Reverse-geocode GPS coordinates to city/state (requires internet; adds 1s/photo delay)",
+        help="Turn GPS coordinates into a place name and add it to the prompt (requires "
+             "internet; about 1s per new location). Without it, nothing from EXIF is "
+             "added to the prompt",
     )
 
 
@@ -545,15 +733,44 @@ def _launch_gui_describe(source: Path, args) -> None:
     sys.exit(result.returncode)
 
 
+#: Exit codes of the describing commands (describe, download --describe,
+#: video --describe, watch). A script can tell a clean run from a partial one.
+EXIT_OK = 0        # everything tried was described, or there was nothing to do
+EXIT_FAILED = 1    # nothing was described and something failed, or the run couldn't start
+EXIT_USAGE = 2     # an invalid option (argparse's own code), refused before anything runs
+EXIT_PARTIAL = 3   # some pictures were described and some failed
+
+#: The --help text for those codes, shared so the commands can't drift apart.
+EXIT_CODES_HELP = (
+    "exit codes:\n"
+    "  0  every picture tried was described, or there was nothing to describe\n"
+    "  1  nothing was described and at least one picture failed, or the run\n"
+    "     couldn't start (no API key, provider not reachable)\n"
+    "  2  an option was wrong (--limit 0, say); nothing was run\n"
+    "  3  some pictures were described and some failed"
+)
+
+
+def _describe_exit_code(described: int, failed: int) -> int:
+    """The exit code for a describing run: 0, 1 or 3 (see EXIT_CODES_HELP).
+    Pictures skipped on purpose (declined before, missing originals in a
+    folder run) are neither."""
+    if failed <= 0:
+        return EXIT_OK
+    return EXIT_PARTIAL if described > 0 else EXIT_FAILED
+
+
 def cmd_describe(args):
+    """Describe a folder, workspace or stdin list. Returns the exit code
+    (_describe_exit_code); main() exits with it. Called from guideme too,
+    which carries on afterwards, hence a return rather than sys.exit."""
     from idt_core.pipeline import WorkspacePipeline, RunOptions
     from idt_core.progress import Progress
     from idt_core.config import UserConfig
 
     stdin_mode = getattr(args, "stdin", False) or args.source == "-"
     if stdin_mode:
-        _cmd_describe_stdin(args)
-        return
+        return _cmd_describe_stdin(args)
 
     source = Path(args.source).resolve()
 
@@ -563,7 +780,17 @@ def cmd_describe(args):
     if getattr(args, "showgui", False):
         if not source.is_dir():
             print("Error: --showgui requires a source directory.", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
+        from idt_core.workspace import Workspace
+        if Workspace.is_bundle(source):
+            # ImageDescriber opens a workspace but doesn't start describing it,
+            # so --showgui with one would open a window that does nothing.
+            print("Error: --showgui takes a folder of pictures, not a workspace.\n"
+                  f"To carry on with this workspace, run without --showgui:\n"
+                  f"  idt describe \"{source}\"\n"
+                  "or open it in ImageDescriber and choose Process > Process "
+                  "Undescribed Images (Entire Workspace).", file=sys.stderr)
+            sys.exit(EXIT_USAGE)
         _launch_gui_describe(source, args)
         return
 
@@ -584,13 +811,8 @@ def cmd_describe(args):
     # has previously had at least one successful description.  Without this guard,
     # a completely-failed run that already saved its provider would override the
     # user's default on every subsequent run — even after changing the default.
-    _ws_provider = ws.defaults.provider if ws.has_any_descriptions else ""
-    _ws_model    = ws.defaults.model    if ws.has_any_descriptions else ""
-    provider_name = args.provider or _ws_provider or user_cfg.default_provider
-    model         = _resolve_model(provider_name,
-                                   args.model or _ws_model or user_cfg.default_model,
-                                   explicit=args.model)
-    prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
+    provider_name, model = _choose_provider_and_model(args, ws, user_cfg)
+    prompt_name, prompt_text = _resolve_prompt(args, ws.defaults if ws.has_any_descriptions else None, provider_name)
 
     # Resolve the effective copy setting: explicit --copy-originals/--no-copy-originals
     # flag for this run overrides the workspace's stored preference.
@@ -606,12 +828,14 @@ def cmd_describe(args):
             print(f"Source:     {source}")
         print(f"Workspace:  {ws.path}")
         print(f"Copy mode:  {'copy originals into workspace' if ws.copy_originals else 'reference in place'}")
+    # Videos whose frames couldn't be extracted: failures, for the exit code.
+    videos_failed = 0
     if source is not None:
         added = ws.add_source_folder(source, recursive=True, copy=ws.copy_originals)
 
         # Extract video frames and add them to the workspace (opt out with --no-video)
         if not getattr(args, "no_video", False):
-            _extract_videos_into_workspace(ws, source, args)
+            videos_failed = _extract_videos_into_workspace(ws, source, args)
 
     if not args.quiet:
         total_items = len(ws.media_items())
@@ -689,7 +913,9 @@ def cmd_describe(args):
             else:
                 print(f"All {n} image{'s are' if n != 1 else ' is'} already described.")
             print("Use --redescribe to generate additional descriptions.")
-        return
+        # A folder of videos whose frames couldn't be written has nothing to
+        # describe, and that's a failure, not "nothing to do".
+        return _describe_exit_code(0, videos_failed)
 
     progress = Progress(total=len(queue), quiet=args.quiet)
     progress.start(f"{provider_name} / {model}")
@@ -745,6 +971,8 @@ def cmd_describe(args):
     # Auto-export HTML report (default on; opt out with --no-export)
     if not getattr(args, "no_export", False) and described > 0:
         _auto_export_workspace(ws, args.quiet)
+
+    return _describe_exit_code(described, errors + videos_failed)
 
 
 def _ask_again_hint(provider_name: str) -> str:
@@ -973,12 +1201,15 @@ def _previous_frames_rel(ws, video_wi, video: Path):
     return None
 
 
-def _extract_videos_into_workspace(ws, source: Path, args) -> None:
-    """Scan source for videos, extract frames, and add them to the workspace."""
+def _extract_videos_into_workspace(ws, source: Path, args) -> int:
+    """Scan source for videos, extract frames, and add them to the workspace.
+    Returns how many videos failed, which count towards the exit code. With
+    opencv-python not installed, videos are skipped, not failed."""
     from idt_core.video import scan_videos, VideoExtractionOptions
     videos = list(scan_videos(source))
     if not videos:
-        return
+        return 0
+    failed = 0
     if not args.quiet:
         print(f"Videos:     {len(videos)} file(s) found — extracting frames")
     interval = getattr(args, "video_interval", 5.0)
@@ -1009,8 +1240,10 @@ def _extract_videos_into_workspace(ws, source: Path, args) -> None:
             cv_missing = True
             break
         except Exception as exc:
-            if not args.quiet:
-                print(f"  {video.name}: skipped ({exc})")
+            # To stderr even with --quiet: a video whose frames can't be
+            # written (a full disk, say) mustn't vanish from the run unnoticed.
+            failed += 1
+            print(f"  {video.name}: skipped ({exc})", file=sys.stderr)
     if cv_missing and not args.quiet:
         print("  Skipping video extraction: opencv-python not installed")
         print("  Install with: pip install opencv-python")
@@ -1022,6 +1255,7 @@ def _extract_videos_into_workspace(ws, source: Path, args) -> None:
             print(f"  {total_frames} frames added to workspace")
     if not args.quiet:
         print()
+    return failed
 
 
 def _auto_export_workspace(ws, quiet: bool) -> None:
@@ -1064,19 +1298,14 @@ def _cmd_describe_stdin(args):
         print(f"Warning: not found: {p}", file=sys.stderr)
     paths = [p for p in paths if p.exists()]
     if not paths:
-        sys.exit(1)
+        sys.exit(EXIT_FAILED)
 
     source = Path(getattr(args, "project", None) or "").resolve() if getattr(args, "project", None) else _common_ancestor(paths)
     ws = _open_or_create_workspace(source, getattr(args, "workspace", None))
     user_cfg = UserConfig.load()
 
-    _ws_provider = ws.defaults.provider if ws.has_any_descriptions else ""
-    _ws_model    = ws.defaults.model    if ws.has_any_descriptions else ""
-    provider_name = args.provider or _ws_provider or user_cfg.default_provider
-    model         = _resolve_model(provider_name,
-                                   args.model or _ws_model or user_cfg.default_model,
-                                   explicit=args.model)
-    prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
+    provider_name, model = _choose_provider_and_model(args, ws, user_cfg)
+    prompt_name, prompt_text = _resolve_prompt(args, ws.defaults if ws.has_any_descriptions else None, provider_name)
     provider = _make_provider(provider_name, model, args.ollama_host,
                               options=_generation_options(args, provider_name))
 
@@ -1136,6 +1365,11 @@ def _cmd_describe_stdin(args):
         ws.has_any_descriptions = True
         ws.save_manifest()
 
+    # A path piped in that doesn't exist was asked for and not described, so it
+    # counts as a failure (unlike a folder run's missing originals, which the
+    # user never named).
+    return _describe_exit_code(described, errors + len(missing))
+
 
 def _common_ancestor(paths: list[Path]) -> Path:
     if not paths:
@@ -1177,8 +1411,8 @@ def cmd_download(args):
             try:
                 min_w, min_h = int(parts[0]), int(parts[1])
             except ValueError:
-                print(f"Invalid --min-size format (use WIDTHxHEIGHT, e.g. 200x200)", file=sys.stderr)
-                sys.exit(1)
+                print("Invalid --min-size format (use WIDTHxHEIGHT, e.g. 200x200)", file=sys.stderr)
+                sys.exit(EXIT_USAGE)
 
     def _on_progress(i: int, total: int, url: str) -> None:
         if not args.quiet:
@@ -1234,13 +1468,8 @@ def cmd_download(args):
 
         # Only inherit provider/model from the workspace once it has a real
         # description history (same guard cmd_describe uses).
-        _ws_provider = ws.defaults.provider if ws.has_any_descriptions else ""
-        _ws_model = ws.defaults.model if ws.has_any_descriptions else ""
-        provider_name = args.provider or _ws_provider or cfg.default_provider
-        model = _resolve_model(provider_name,
-                               args.model or _ws_model or cfg.default_model,
-                               explicit=args.model)
-        prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
+        provider_name, model = _choose_provider_and_model(args, ws, cfg)
+        prompt_name, prompt_text = _resolve_prompt(args, ws.defaults if ws.has_any_descriptions else None, provider_name)
         provider = _make_provider(provider_name, model, args.ollama_host,
                               options=_generation_options(args, provider_name))
 
@@ -1288,9 +1517,8 @@ def cmd_download(args):
             print()
             _do_embed_workspace(ws, force=False, dry_run=False, quiet=args.quiet)
 
-        if described > 0 and args.embed:
-            print()
-            _do_embed(dl_project, force=False, dry_run=False, quiet=args.quiet)
+        return _describe_exit_code(described, errors)
+    return EXIT_OK
 
 
 # ------------------------------------------------------------------ #
@@ -1346,12 +1574,14 @@ def cmd_video(args):
         print()
 
     all_frame_items = []
+    videos_ok = videos_failed = 0
     for video in videos:
         if not args.quiet:
             print(f"  Extracting frames: {video.name}")
         try:
             frame_items = _extract_one_video_into_workspace(ws, video, opts, source)
             all_frame_items.extend(frame_items)
+            videos_ok += 1
             if not args.quiet:
                 where = (Path(frame_items[0].source_path).parent if frame_items
                          else ws.derived_dir("frames"))
@@ -1362,6 +1592,7 @@ def cmd_video(args):
             print("Install with: pip install opencv-python", file=sys.stderr)
             sys.exit(1)
         except Exception as e:
+            videos_failed += 1
             print(f"  Error processing {video.name}: {e}", file=sys.stderr)
 
     total_frames = len(all_frame_items)
@@ -1375,13 +1606,8 @@ def cmd_video(args):
         from idt_core.config import UserConfig
 
         user_cfg = UserConfig.load()
-        _ws_provider = ws.defaults.provider if ws.has_any_descriptions else ""
-        _ws_model    = ws.defaults.model    if ws.has_any_descriptions else ""
-        provider_name = args.provider or _ws_provider or user_cfg.default_provider
-        model         = _resolve_model(provider_name,
-                                   args.model or _ws_model or user_cfg.default_model,
-                                   explicit=args.model)
-        prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
+        provider_name, model = _choose_provider_and_model(args, ws, user_cfg)
+        prompt_name, prompt_text = _resolve_prompt(args, ws.defaults if ws.has_any_descriptions else None, provider_name)
         provider = _make_provider(provider_name, model, args.ollama_host,
                               options=_generation_options(args, provider_name))
 
@@ -1420,6 +1646,13 @@ def cmd_video(args):
             ws.defaults.model = model
             ws.has_any_descriptions = True
             ws.save_manifest()
+
+        # A video whose frames couldn't be extracted is a failure too.
+        return _describe_exit_code(described, errors + videos_failed)
+    if args.describe:
+        # Nothing to describe: fails only if a video couldn't be read.
+        return _describe_exit_code(0, videos_failed)
+    return _describe_exit_code(videos_ok, videos_failed)
 
 
 # ------------------------------------------------------------------ #
@@ -1547,7 +1780,7 @@ def _show_file(target: Path, args):
     # 1. Whether candidate itself is a bundle (target is inside the bundle's images/)
     # 2. Whether a sibling bundle exists whose items reference this file as source_path
     candidate = target.parent
-    target_str = str(target)
+    keys = _original_keys(target, getattr(args, "target", None))
     while True:
         # Case 1: target lives inside a bundle (e.g. 09.idtw/images/photo.jpg)
         if Workspace.is_bundle(candidate):
@@ -1558,12 +1791,13 @@ def _show_file(target: Path, args):
                     return
         # Case 2: sibling bundle whose workspace was created from the same source folder
         sibling = candidate.parent / (candidate.name + ".idtw")
+        # Matched on the original's path only: the same file name in another of
+        # the folder's subfolders is a different picture.
         if Workspace.is_bundle(sibling):
-            ws = Workspace.open(sibling)
-            for item in ws.items():
-                if item.source_path == target_str or item.image == target.name:
-                    _print_item(item, args)
-                    return
+            item = _item_for_original(Workspace.open(sibling), keys)
+            if item is not None:
+                _print_item(item, args)
+                return
         # Legacy sibling .idt/ project
         idt_dir = candidate.parent / (candidate.name + ".idt")
         if idt_dir.is_dir():
@@ -1576,18 +1810,66 @@ def _show_file(target: Path, args):
             break
         candidate = candidate.parent
 
-    # Last resort: the workspace may be at a mirrored location (e.g. ~/Documents/idt/).
-    # _find_workspace walks workspace directories that reference the same source.
-    ws = _find_workspace(str(target.parent))
-    if ws is not None:
-        for item in ws.items():
-            if item.source_path == target_str or item.image == target.name:
-                _print_item(item, args)
-                return
+    # Last resort: the workspace is at a mirrored location under the workspace root
+    # (~/Documents/idt/<folder>.idtw), named after the folder that was described,
+    # which may be any ancestor of the picture: describing Photos takes in
+    # Photos/nested/outdoor.png. Try each ancestor's workspace, and match on the
+    # picture's original path only. A workspace is named after a folder's leaf
+    # name alone, so the one found for "nested" may be another folder's entirely;
+    # matching on file name too printed a different picture's description.
+    item = _find_in_mirrored_workspaces(target, keys)
+    if item is not None:
+        _print_item(item, args)
+        return
 
     if not args.quiet:
         print(f"No description found for: {target.name}", file=sys.stderr)
     sys.exit(1)
+
+
+def _path_key(p) -> str:
+    """A path as a workspace records an original (absolute, links not resolved),
+    in the case the OS compares in."""
+    import os
+    return os.path.normcase(os.path.abspath(str(p)))
+
+
+def _original_keys(target: Path, typed: Optional[str] = None) -> set:
+    """The ways a workspace may have recorded ``target`` as an original.
+
+    ``typed`` is the path as the user gave it: originals are recorded by absolute
+    path without resolving links, so a mapped drive (which resolves to its UNC
+    path) still matches the way it was described."""
+    keys = {_path_key(target)}
+    if typed:
+        keys.add(_path_key(Path(typed).expanduser()))
+    return keys
+
+
+def _item_for_original(ws, keys: set):
+    """The item in ``ws`` whose original is one of ``keys`` (_original_keys), or None."""
+    for item in ws.items():
+        if item.source_path and _path_key(item.source_path) in keys:
+            return item
+    return None
+
+
+def _find_in_mirrored_workspaces(target: Path, keys: set):
+    """The workspace item whose original is ``target`` (``keys``, from
+    _original_keys), from the workspace of ``target``'s folder or of any folder
+    above it; None if there's none."""
+    seen = set()
+    folder = target.parent
+    while True:
+        ws = _find_workspace(str(folder))
+        if ws is not None and _path_key(ws.path) not in seen:
+            seen.add(_path_key(ws.path))
+            item = _item_for_original(ws, keys)
+            if item is not None:
+                return item
+        if folder == folder.parent:
+            return None
+        folder = folder.parent
 
 
 def _show_directory(target: Path, args):
@@ -1629,13 +1911,18 @@ def _desc_when(desc) -> str:
 
 
 def _print_item(item, args):
+    from idt_core.description_text import strip_usage_line
+
     desc = item.active_description
+    # ImageDescriber appends a "[Token Usage: ... | Time: ...]" line to the
+    # text it stores; it stays in ImageDescriber, not in what idt shows.
+    text = strip_usage_line(desc.text) if desc else None
     if args.json_out:
         out = {
             "file": item.display_name,
             "source": str(item.source_path),
             "described": item.described,
-            "description": desc.text if desc else None,
+            "description": text,
             "model": desc.model if desc else None,
             "provider": desc.provider if desc else None,
             "timestamp": _desc_when(desc) if desc else None,
@@ -1666,7 +1953,7 @@ def _print_item(item, args):
     if desc.output_tokens:
         print(f"Tokens:    {desc.output_tokens} out")
     print()
-    print(desc.text)
+    print(text)
 
 
 # ------------------------------------------------------------------ #
@@ -1807,6 +2094,7 @@ def cmd_combine(args):
     idt combine ~/Pictures/ --format tsv | sort -k3 > sorted.tsv
     """
     import csv
+    from idt_core.description_text import strip_usage_line
     from idt_core.project import Project
     from idt_core.workspace import Workspace
 
@@ -1822,7 +2110,7 @@ def cmd_combine(args):
             "file": item.display_name,
             "source_path": str(item.source_path),
             "workspace": str(container),
-            "description": desc.text,
+            "description": strip_usage_line(desc.text),
             "model": desc.model,
             "provider": desc.provider,
             "prompt_name": desc.prompt_name,
@@ -2378,13 +2666,8 @@ def cmd_watch(args):
     ws = _open_or_create_workspace(source, getattr(args, "workspace", None))
     user_cfg = UserConfig.load()
 
-    _ws_provider = ws.defaults.provider if ws.has_any_descriptions else ""
-    _ws_model    = ws.defaults.model    if ws.has_any_descriptions else ""
-    provider_name = args.provider or _ws_provider or user_cfg.default_provider
-    model         = _resolve_model(provider_name,
-                                   args.model or _ws_model or user_cfg.default_model,
-                                   explicit=args.model)
-    prompt_name, prompt_text = _resolve_prompt(args, ws.defaults, provider_name)
+    provider_name, model = _choose_provider_and_model(args, ws, user_cfg)
+    prompt_name, prompt_text = _resolve_prompt(args, ws.defaults if ws.has_any_descriptions else None, provider_name)
     provider = _make_provider(provider_name, model, args.ollama_host,
                               options=_generation_options(args, provider_name))
 
@@ -2405,6 +2688,9 @@ def cmd_watch(args):
         geocode=getattr(args, "geocode", False),
     )
 
+    # Every picture described or failed since the watch started, for the exit code.
+    totals = {"described": 0, "failed": 0}
+
     def _describe(new_items) -> None:
         pipeline = WorkspacePipeline(ws, provider)
         for event in pipeline.run_items(new_items, options):
@@ -2412,6 +2698,7 @@ def cmd_watch(args):
                 if not args.quiet:
                     print(f"Skipped: {event.item.display_name} ({event.error})")
             elif event.success:
+                totals["described"] += 1
                 desc = event.item.active_description
                 if not args.quiet:
                     print(f"Described: {event.item.display_name}")
@@ -2421,6 +2708,7 @@ def cmd_watch(args):
                 elif desc:
                     print(f"{event.item.source_path}\t{desc.text}")
             else:
+                totals["failed"] += 1
                 print(f"Error: {event.item.display_name}: {event.error}", file=sys.stderr)
         _report_halt(pipeline, ws, redescribe=False, watching=True)
         if any(i.described for i in new_items):
@@ -2465,6 +2753,8 @@ def cmd_watch(args):
     except KeyboardInterrupt:
         if not args.quiet:
             print("\nWatcher stopped.")
+    # Stopping with Ctrl+C is how a watch ends, so the code reports what it did.
+    return _describe_exit_code(totals["described"], totals["failed"])
 
 
 # ------------------------------------------------------------------ #
@@ -2493,6 +2783,101 @@ def cmd_prompts(args):
 # config                                                               #
 # ------------------------------------------------------------------ #
 
+#: Prices for `idt stats`, {model: (input, output)} in USD per million tokens.
+#: The table itself lives in idt_core/pricing.py, shared with ImageDescriber
+#: and checked weekly against the providers' pricing pages.
+from idt_core import pricing as _pricing  # noqa: E402
+
+#: Read-only view of idt_core.pricing for tests and scripts; `idt stats`
+#: prices through _pricing.rates_for, so changing this changes nothing.
+STATS_COST_TABLE = _pricing.flat_prices()
+
+#: Descriptions that aren't AI output and cost nothing: a web page's alt text,
+#: saved as a description by `idt download` and ImageDescriber's download.
+_STATS_NOT_AI_PROVIDERS = {"website"}
+
+#: Providers that never report token counts, so a description without them
+#: isn't missing anything.
+_STATS_NO_TOKEN_PROVIDERS = {"windows-ai"}
+
+def _stats_rates(model: str):
+    """List price for a model; a dated snapshot ("gpt-5-mini-2025-08-07") is
+    priced as its model."""
+    return _pricing.rates_for(model)
+
+
+def stats_token_rows(items) -> list:
+    """Tokens and cost per (provider, model), across EVERY description.
+
+    Not only each picture's current description: a picture described twice,
+    say with Haiku 5.5 and then Haiku 4.5, was paid for twice, and counting
+    just the latest left the first run's cost out entirely (11/17/2026).
+    Providers are grouped by their canonical name, so "anthropic" from the
+    command line and "claude" from ImageDescriber are one row.
+
+    Web-page alt text saved as a description is left out: it isn't AI output
+    and cost nothing.
+
+    Returns dicts sorted by provider then model, each with: provider (the
+    canonical lowercase name, as before), provider_name (for display), model,
+    descriptions, pictures, input_tokens, output_tokens, missing_tokens
+    (descriptions with no input count, from a provider that reports them),
+    cost (float or None), cost_is_partial (True when some descriptions had no
+    token counts, so the cost is a floor) and cost_note (why there's no cost
+    or why it's partial, else "").
+    """
+    from idt_core.providers.registry import capabilities_for, display_name
+
+    rows: dict = {}
+    for item in items:
+        descs = list(getattr(item, "descriptions", None) or [])
+        if not descs and getattr(item, "active_description", None):
+            descs = [item.active_description]
+        seen_here = set()
+        for desc in descs:
+            raw = (desc.provider or "unknown").strip()
+            if raw.lower() in _STATS_NOT_AI_PROVIDERS:
+                continue
+            canonical = capabilities_for(raw).provider
+            provider = raw.lower() if canonical == "unknown" else canonical
+            key = (provider, desc.model or "unknown")
+            row = rows.setdefault(key, {"descriptions": 0, "pictures": 0, "input_tokens": 0,
+                                        "output_tokens": 0, "missing_tokens": 0})
+            row["descriptions"] += 1
+            if key not in seen_here:
+                row["pictures"] += 1
+                seen_here.add(key)
+            if desc.input_tokens:
+                row["input_tokens"] += desc.input_tokens
+            elif provider not in _STATS_NO_TOKEN_PROVIDERS:
+                row["missing_tokens"] += 1
+            if desc.output_tokens:
+                row["output_tokens"] += desc.output_tokens
+
+    out = []
+    for (provider, model), row in sorted(rows.items()):
+        note = _pricing.no_charge_note(provider, model)
+        cost = None
+        partial = False
+        if not note:
+            rates = _stats_rates(model)
+            if rates is None:
+                note = "no price"
+            elif row["missing_tokens"] >= row["descriptions"]:
+                note = "no token data"
+            else:
+                cost = (row["input_tokens"] / 1_000_000 * rates[0]
+                        + row["output_tokens"] / 1_000_000 * rates[1])
+                if row["missing_tokens"]:
+                    partial = True
+                    note = f"{row['missing_tokens']} without token counts"
+        out.append({"provider": provider,
+                    "provider_name": display_name(provider) if provider != "unknown" else "unknown",
+                    "model": model, **row, "cost": cost, "cost_is_partial": partial,
+                    "cost_note": note})
+    return out
+
+
 def cmd_stats(args):
     """
     Show progress and token/cost breakdown across one or more workspaces.
@@ -2506,25 +2891,17 @@ def cmd_stats(args):
 
     root = Path(args.source).resolve()
 
-    # Rough cost table (USD per 1M tokens, input/output)
-    COST_TABLE = {
-        "claude-opus-4-8":             (15.0,  75.0),
-        "claude-opus-4-6":             (15.0,  75.0),
-        "claude-sonnet-4-6":           (3.0,   15.0),
-        "claude-haiku-4-5-20251001":   (0.8,   4.0),
-        "claude-haiku-3-5-20241022":   (0.8,   4.0),
-        "gpt-4o":                      (2.5,   10.0),
-        "gpt-4o-mini":                 (0.15,  0.6),
-    }
-
     # workspace_rows: [(name, total, described, undescribed), ...]
     workspace_rows = []
+    # Items whose descriptions are added up for tokens and cost. Unlike the
+    # progress counts, this includes whole-video descriptions: they were paid
+    # for too. Chats are stored apart and aren't counted.
     described_items = []
 
     def _collect_ws(ws):
         st = ws.status()
         workspace_rows.append((ws.name, st["total"], st["described"], st["undescribed"]))
-        described_items.extend(i for i in ws.media_items() if i.described)
+        described_items.extend(i for i in ws.items() if i.described)
 
     def _collect_proj(pr):
         all_items = list(pr.items())
@@ -2532,7 +2909,7 @@ def cmd_stats(args):
         total = len(all_items)
         described = len(desc_items)
         workspace_rows.append((str(pr.source_dir), total, described, total - described))
-        described_items.extend(desc_items)
+        described_items.extend(pr.described(include_videos=True))
 
     if args.all:
         for bundle in sorted(root.rglob("*.idtw")):
@@ -2561,44 +2938,34 @@ def cmd_stats(args):
                 sys.exit(1)
             _collect_proj(Project.open(root))
 
-    # Accumulate token stats per provider+model
-    totals: dict = {}
-    grand_images = grand_in = grand_out = 0
-    no_token_count = 0
-
-    for item in described_items:
-        desc = item.active_description
-        if not desc:
-            continue
-        key = (desc.provider or "unknown", desc.model or "unknown")
-        if key not in totals:
-            totals[key] = {"images": 0, "input_tokens": 0, "output_tokens": 0}
-        totals[key]["images"] += 1
-        grand_images += 1
-        if desc.input_tokens:
-            totals[key]["input_tokens"] += desc.input_tokens
-            grand_in += desc.input_tokens
-        else:
-            no_token_count += 1
-        if desc.output_tokens:
-            totals[key]["output_tokens"] += desc.output_tokens
-            grand_out += desc.output_tokens
+    # Tokens and cost across every description, not only each picture's
+    # current one: every description was paid for.
+    rows = stats_token_rows(described_items)
+    grand_descs = sum(r["descriptions"] for r in rows)
+    grand_in = sum(r["input_tokens"] for r in rows)
+    grand_out = sum(r["output_tokens"] for r in rows)
+    no_token_count = sum(r["missing_tokens"] for r in rows)
+    priced = [r["cost"] for r in rows if r["cost"] is not None]
+    grand_cost = sum(priced) if priced else None
+    # The total is a floor when any paid row is missing token counts.
+    grand_partial = any(r["cost_is_partial"] or r["cost_note"] == "no token data" for r in rows)
 
     if args.json_out:
         grand_total = sum(r[1] for r in workspace_rows)
         grand_described = sum(r[2] for r in workspace_rows)
-        token_rows = []
-        for (prov, model), d in sorted(totals.items()):
-            cost_in, cost_out = COST_TABLE.get(model, (0, 0))
-            cost = (d["input_tokens"] / 1_000_000 * cost_in +
-                    d["output_tokens"] / 1_000_000 * cost_out)
-            token_rows.append({
-                "provider": prov, "model": model,
-                "images": d["images"],
-                "input_tokens": d["input_tokens"],
-                "output_tokens": d["output_tokens"],
-                "estimated_cost_usd": round(cost, 4) if cost else None,
-            })
+        token_rows = [{
+            "provider": r["provider"], "provider_name": r["provider_name"],
+            "model": r["model"],
+            # Pictures with at least one description by this model. Before
+            # 4.9 it counted only pictures whose current description it was.
+            "images": r["pictures"],
+            "descriptions": r["descriptions"],
+            "input_tokens": r["input_tokens"],
+            "output_tokens": r["output_tokens"],
+            "estimated_cost_usd": round(r["cost"], 4) if r["cost"] is not None else None,
+            "cost_is_partial": r["cost_is_partial"],
+            "cost_note": r["cost_note"],
+        } for r in rows]
         print(json.dumps({
             "workspaces": [
                 {"name": r[0], "total": r[1], "described": r[2], "undescribed": r[3]}
@@ -2607,6 +2974,8 @@ def cmd_stats(args):
             "grand_total": grand_total,
             "grand_described": grand_described,
             "token_breakdown": token_rows,
+            "total_estimated_cost_usd": round(grand_cost, 4) if grand_cost is not None else None,
+            "total_cost_is_partial": grand_partial,
         }, indent=2))
         return
 
@@ -2624,32 +2993,45 @@ def cmd_stats(args):
             ws_pct = int(100 * described / total) if total else 0
             print(f"  {name:<40} {total:>6,} {described:>6,} {undescribed:>6,} {ws_pct:>3}%")
 
-    if not totals:
+    if not rows:
         return
 
     # ── Token/cost section ──────────────────────────────────────────────
     print()
-    print(f"Token usage: {grand_images:,} described images")
+    print(f"Token usage: {grand_descs:,} descriptions of {grand_described:,} images, "
+          f"every description counted")
     if no_token_count:
-        print(f"  (No token data for {no_token_count} image(s) — token counts may not be recorded for all runs)")
+        print(f"  (No token data for {no_token_count} description(s) — token counts may not be recorded for all runs)")
     print()
-    print(f"{'Provider':<12} {'Model':<35} {'Images':>7} {'Input tok':>10} {'Output tok':>11} {'Est. cost':>10}")
-    print("-" * 90)
 
-    for (prov, model), d in sorted(totals.items()):
-        cost_in_rate, cost_out_rate = COST_TABLE.get(model, (0, 0))
-        cost = (d["input_tokens"] / 1_000_000 * cost_in_rate +
-                d["output_tokens"] / 1_000_000 * cost_out_rate)
-        cost_str = f"${cost:.4f}" if cost else "n/a"
-        in_str = f"{d['input_tokens']:,}" if d["input_tokens"] else "n/a"
-        out_str = f"{d['output_tokens']:,}" if d["output_tokens"] else "n/a"
-        print(f"{prov:<12} {model:<35} {d['images']:>7} {in_str:>10} {out_str:>11} {cost_str:>10}")
+    def _cost_text(r):
+        if r["cost"] is None:
+            return r["cost_note"]
+        text = f"${r['cost']:.4f}"
+        return f"at least {text} ({r['cost_note']})" if r["cost_is_partial"] else text
 
-    if len(totals) > 1:
+    # Column widths fit the longest name ("Apple Intelligence", dated model IDs).
+    pw = max([len("Provider")] + [len(r["provider_name"]) for r in rows]) + 2
+    mw = max([len("Model")] + [len(r["model"]) for r in rows]) + 2
+    print(f"{'Provider':<{pw}}{'Model':<{mw}}{'Descr.':>7} {'Input tok':>11} {'Output tok':>11}  Est. cost")
+    rule = "-" * (pw + mw + 7 + 1 + 11 + 1 + 11 + 2 + 12)
+    print(rule)
+
+    for r in rows:
+        in_str = f"{r['input_tokens']:,}" if r["input_tokens"] else "n/a"
+        out_str = f"{r['output_tokens']:,}" if r["output_tokens"] else "n/a"
+        print(f"{r['provider_name']:<{pw}}{r['model']:<{mw}}{r['descriptions']:>7} "
+              f"{in_str:>11} {out_str:>11}  {_cost_text(r)}")
+
+    if len(rows) > 1:
         total_in_str = f"{grand_in:,}" if grand_in else "n/a"
         total_out_str = f"{grand_out:,}" if grand_out else "n/a"
-        print("-" * 90)
-        print(f"{'TOTAL':<12} {'':<35} {grand_images:>7} {total_in_str:>10} {total_out_str:>11} {''!s:>10}")
+        total_cost = ""
+        if grand_cost is not None:
+            total_cost = (f"at least ${grand_cost:.4f}" if grand_partial
+                          else f"${grand_cost:.4f}")
+        print(rule)
+        print(f"{'TOTAL':<{pw}}{'':<{mw}}{grand_descs:>7} {total_in_str:>11} {total_out_str:>11}  {total_cost}")
 
 
 def cmd_config(args):
@@ -2662,16 +3044,34 @@ def cmd_config(args):
         key = key.strip()
         value = value.strip()
         if key == "default_provider":
-            from idt_core.providers.registry import capabilities_for
-
-            # Windows-AI, WindowsAI and "Windows AI" all name the one provider; store its key.
-            if capabilities_for(value).provider == "windows-ai":
-                value = "windows-ai"
-            cfg.default_provider = value
+            # Any name of a provider (claude, Windows AI...) is stored as its key;
+            # one this version doesn't know is refused rather than saved to break
+            # every later run (4.9.0 guru bug bash, B1).
+            provider_key = _cli_provider(value)
+            if provider_key is None:
+                print(f"Error: {value!r} isn't a provider. Choose from: "
+                      f"{', '.join(_PROVIDER_CHOICES_SHOWN)}.", file=sys.stderr)
+                sys.exit(1)
+            value = provider_key
+            cfg.set_default("default_provider", value)
         elif key == "default_model":
-            cfg.default_model = value
-        elif key == "default_prompt_name":
-            cfg.default_prompt_name = value
+            cfg.set_default("default_model", value)
+            # Record whose model this is, so a later change of default provider
+            # doesn't send it to the wrong one (#455 re-review): the provider IDT
+            # knows it as one of, else the default provider in effect now.
+            owner = _model_owner(value)
+            if owner == "ollama":
+                owner = _cli_provider(cfg.default_provider) or "ollama"
+            cfg.default_model_provider = owner
+        elif key in ("default_prompt_name", "default_prompt"):
+            known = cfg.list_prompts()
+            name = _match_prompt_name(value, known)
+            if name is None:
+                print(f"Error: there's no prompt called {value!r}. The prompts are: "
+                      f"{', '.join(sorted(known))}.", file=sys.stderr)
+                sys.exit(1)
+            key, value = "default_prompt_name", name
+            cfg.set_default("default_prompt_name", value)
         elif key == "workspace_root":
             cfg.workspace_root = value or None
         elif key == "preserve_alt_text":
@@ -2685,10 +3085,22 @@ def cmd_config(args):
         print(f"Set {key} = {value}")
         return
 
+    from idt_core.config import DEFAULTS_FROM_CONFIGURE
+
+    def _source(k):
+        # Set here, from Configure's saved settings, or IDT's shipped default.
+        if k in cfg.user_set:
+            return "  (set with idt config)"
+        return "  (from Configure)" if DEFAULTS_FROM_CONFIGURE else "  (default)"
+
     print(f"Config file:      {Path.home() / '.idt' / 'config.json'}")
-    print(f"default_provider: {cfg.default_provider}")
-    print(f"default_model:    {cfg.default_model}")
-    print(f"default_prompt:   {cfg.default_prompt_name}")
+    print(f"default_provider: {_cli_provider(cfg.default_provider) or cfg.default_provider}"
+          f"{_source('default_provider')}")
+    # Unless set here, the default model is Configure's Ollama model, which is
+    # used only with Ollama; other providers use their own default.
+    model_note = "" if "default_model" in cfg.user_set else ", used with Ollama"
+    print(f"default_model:    {cfg.default_model}{_source('default_model')[:-1]}{model_note})")
+    print(f"default_prompt:   {cfg.default_prompt_name}{_source('default_prompt_name')}")
     print(f"workspace_root:   {cfg.workspace_root_path()}")
     print(f"preserve_alt_text: {cfg.preserve_alt_text}")
     if cfg.custom_prompts:
@@ -2764,8 +3176,8 @@ def build_parser() -> argparse.ArgumentParser:
 Examples:
   idt guideme                                            # start here — interactive wizard
   idt describe ~/Pictures/Vacation/
-  idt describe ~/Pictures/Vacation/ --provider anthropic --model claude-opus-4-6
-  idt describe ~/Pictures/Vacation/ --provider ollama --model llava
+  idt describe ~/Pictures/Vacation/ --provider anthropic --model claude-opus-5-5
+  idt describe ~/Pictures/Vacation/ --provider ollama --model minicpm-v4.6
   idt describe ~/Pictures/Vacation/ --prompt concise --limit 10 --embed
   idt describe ~/Pictures/Vacation/ --geocode            # add city/state to prompt context
   idt describe ~/Pictures/Web/ --prompt aialttext --quiet
@@ -2780,7 +3192,7 @@ Examples:
   idt export ~/Pictures/Vacation/
   idt export ~/Pictures/Vacation/ --format csv
   idt combine ~/Pictures/ --output all_descriptions.csv
-  idt combine ~/Pictures/ --sort date --format tsv > by_date.tsv
+  idt combine ~/Pictures/ --sort file --format tsv > by_file.tsv
   idt video ~/Movies/concert.mp4 --interval 5 --describe
   idt video ~/Movies/ --scene 30 --describe --prompt detailed
   idt watch ~/Downloads/ --interval 60 --prompt aialttext
@@ -2791,18 +3203,24 @@ Examples:
   idt stats ~/Pictures/Vacation/
   idt stats ~/Pictures/ --all                           # across entire photo library
   idt config --set default_provider=anthropic
-  idt config --set default_model=claude-opus-4-6
+  idt config --set default_model=claude-opus-5-5
   idt update                                            # is a newer release out?
 
 Supported providers:
-  anthropic  Claude (requires ANTHROPIC_API_KEY)
-  openai     GPT-4o (requires OPENAI_API_KEY)
+  anthropic  Claude (API key saved in ImageDescriber's Configure, or ANTHROPIC_API_KEY)
+  openai     OpenAI GPT models (API key saved in Configure, or OPENAI_API_KEY)
   ollama     Local models via Ollama (no API key)
   apple      Apple Intelligence on this Mac (macOS 27, no API key)
   claude-code  Claude on your Claude subscription, via the claude CLI
   Windows-AI Windows AI on a Copilot+ PC (no API key; describes only, no prompt)
         """,
     )
+    try:
+        from idt_core import __version__ as _idt_version
+    except Exception:  # noqa: BLE001
+        _idt_version = "unknown"
+    # `idt --version` as well as `idt version` (guru bug bash Q4: docs used it).
+    parser.add_argument("--version", action="version", version=f"idt {_idt_version}")
 
     sub = parser.add_subparsers(dest="command", metavar="command")
     sub.required = True
@@ -2821,6 +3239,8 @@ Supported providers:
             "(~/Documents/idt — see 'idt config'); use --workspace to choose a "
             "different name or location."
         ),
+        epilog=EXIT_CODES_HELP,
+        formatter_class=_KeepLinesFormatter,
     )
     p_desc.add_argument(
         "source",
@@ -2839,8 +3259,8 @@ Supported providers:
     _metadata_args(p_desc)
     p_desc.add_argument("--redescribe", action="store_true",
                         help="Generate a new description even for already-described images")
-    p_desc.add_argument("--limit", type=int, metavar="N",
-                        help="Stop after describing N images")
+    p_desc.add_argument("--limit", type=_positive_int, metavar="N",
+                        help="Stop after describing N images (1 or more)")
     p_desc.add_argument("--embed", action="store_true",
                         help="Automatically embed descriptions into image copies after describing")
     p_desc.add_argument("--copy-originals", dest="copy_originals", action="store_true", default=None,
@@ -2850,8 +3270,8 @@ Supported providers:
                         help="Reference originals in place instead of copying them into the workspace.")
     p_desc.add_argument("--no-video", action="store_true",
                         help="Skip automatic video frame extraction (videos are included by default)")
-    p_desc.add_argument("--video-interval", type=float, default=5.0, metavar="SECONDS",
-                        help="Seconds between extracted video frames (default: 5.0)")
+    p_desc.add_argument("--video-interval", type=_video_interval, default=5.0, metavar="SECONDS",
+                        help="Seconds between extracted video frames, 0.5 to 60 (default: 5.0)")
     p_desc.add_argument("--no-export", action="store_true",
                         help="Skip automatic HTML report generation after describing")
     p_desc.add_argument("--showgui", action="store_true",
@@ -2861,7 +3281,8 @@ Supported providers:
     p_desc.add_argument("--show-descriptions", action="store_true", dest="show_descriptions",
                         help="Print each description to the screen as it is generated")
     p_desc.add_argument("--quiet", "-q", action="store_true",
-                        help="Minimal output; in stdin mode, prints filename TAB description")
+                        help="Minimal output; in stdin mode, prints each image's full path, "
+                             "a tab, then its description")
     p_desc.set_defaults(func=cmd_describe)
 
     # ---------------------------------------------------------------- #
@@ -2875,6 +3296,8 @@ Supported providers:
             "--help' for the workspace model). Captures HTML alt text alongside each "
             "image. Use --describe to describe downloaded images immediately."
         ),
+        epilog=EXIT_CODES_HELP.replace("exit codes:", "exit codes, with --describe:"),
+        formatter_class=_KeepLinesFormatter,
     )
     p_dl.add_argument("url", help="URL to download images from")
     p_dl.add_argument("directory", nargs="?",
@@ -2882,7 +3305,7 @@ Supported providers:
                            "domain, under the workspace root — see 'idt config')")
     p_dl.add_argument("--max", dest="max_images", type=int, metavar="N",
                       help="Maximum number of images to download")
-    p_dl.add_argument("--min-size", metavar="WxH",
+    p_dl.add_argument("--min-size", metavar="WxH", type=_size_arg,
                       help="Minimum image size to download (e.g. 200x200)")
     p_dl.add_argument("--timeout", type=int, default=30,
                       help="Request timeout in seconds (default: 30)")
@@ -2918,18 +3341,22 @@ Supported providers:
             "Supports interval mode (one frame every N seconds) and scene-change "
             "detection. Use --describe to describe the extracted frames."
         ),
+        epilog=(EXIT_CODES_HELP + "\n"
+                "A video whose frames can't be extracted counts as a failure. Without\n"
+                "--describe, the codes count videos extracted instead of pictures."),
+        formatter_class=_KeepLinesFormatter,
     )
     p_vid.add_argument("source", help="Video file or directory containing video files")
     p_vid.add_argument("--workspace", "-w", metavar="NAME|PATH",
                        help="Workspace to extract into (bare name → under the workspace "
                             "root; path/.idtw → that location). Default: mirrored from the source.")
     p_vid.add_argument(
-        "--interval", type=float, default=5.0, metavar="SECONDS",
-        help="Extract one frame every N seconds (default: 5.0)",
+        "--interval", type=_video_interval, default=5.0, metavar="SECONDS",
+        help="Extract one frame every N seconds, 0.5 to 60 (default: 5.0)",
     )
     p_vid.add_argument(
-        "--scene", type=float, default=0.0, metavar="THRESHOLD",
-        help="Scene-change extraction; threshold 0-100, lower=more sensitive (e.g. --scene 30). "
+        "--scene", type=_scene_threshold, default=0.0, metavar="THRESHOLD",
+        help="Scene-change extraction; threshold 1 to 100, lower=more sensitive (e.g. --scene 30). "
              "Mutually exclusive with --interval.",
     )
     p_vid.add_argument("--max-frames", type=int, metavar="N",
@@ -2965,7 +3392,9 @@ Supported providers:
     p_show.add_argument("target", help="Image file or source directory")
     p_show.add_argument("--json", dest="json_out", action="store_true",
                         help="Output as JSON (one object per line)")
-    p_show.add_argument("--quiet", "-q", action="store_true")
+    p_show.add_argument("--quiet", "-q", action="store_true",
+                        help="Leave out the 'No description found' messages; descriptions "
+                             "print as usual, with their File, Model and Date lines")
     p_show.set_defaults(func=cmd_show)
 
     # ---------------------------------------------------------------- #
@@ -2976,8 +3405,10 @@ Supported providers:
         help="Write descriptions into image metadata copies",
         description=(
             "Copy described images to <bundle>.idtw/embedded/ and write the description "
-            "into EXIF ImageDescription and XMP dc:description. Source files are "
-            "never modified. HEIC files are converted to JPEG in the copy."
+            "into the copy's metadata: for JPEG, EXIF UserComment and XMP dc:description; "
+            "for PNG, a Description text chunk and XMP; for WebP, EXIF UserComment; for "
+            "TIFF, the ImageDescription and XPComment tags. Source files are never "
+            "modified. HEIC files are converted to JPEG in the copy."
         ),
     )
     p_embed.add_argument("source", help="Source directory")
@@ -2994,7 +3425,8 @@ Supported providers:
     p_export = sub.add_parser(
         "export",
         help="Export descriptions to HTML, CSV, or plain text",
-        description="Generate a report from described images. Output goes to .idt/reports/.",
+        description=("Generate a report from described images. Output goes to "
+                     "<bundle>.idtw/reports/."),
     )
     p_export.add_argument("source", help="Source directory")
     p_export.add_argument("--format", choices=["html", "csv", "txt"], default="html",
@@ -3010,9 +3442,9 @@ Supported providers:
         "combine",
         help="Merge descriptions from multiple projects into one CSV",
         description=(
-            "Walk a directory tree, find all .idt/ project mirrors, and merge "
-            "every described image into a single CSV or TSV file. "
-            "Useful for analysis across a whole photo library."
+            "Walk a directory tree, find every .idtw workspace (and any older .idt/ "
+            "project), and merge every described image, with its active description, "
+            "into a single CSV or TSV file. Useful for analysis across a whole photo library."
         ),
     )
     p_combine.add_argument("directory", help="Root directory to search for IDT projects")
@@ -3022,7 +3454,9 @@ Supported providers:
                            help="Output format (default: csv)")
     p_combine.add_argument("--sort", choices=["date", "file", "timestamp"],
                            default="timestamp",
-                           help="Sort order (default: timestamp)")
+                           help="Sort order (default: timestamp, when each description was "
+                                "made). 'date' sorts by the place name from --geocode, not "
+                                "by when the photo was taken")
     p_combine.set_defaults(func=cmd_combine)
 
     # ---------------------------------------------------------------- #
@@ -3076,8 +3510,8 @@ Supported providers:
                         help="List saved conversations and exit")
     p_chat.add_argument("--no-save", action="store_true",
                         help="Do not write the conversation to disk")
-    p_chat.add_argument("--max-tokens", type=int, metavar="N",
-                        help="Cap the reply length")
+    p_chat.add_argument("--max-tokens", type=_positive_int, metavar="N",
+                        help="Cap the reply length, in tokens")
     p_chat.add_argument("--temperature", type=float, metavar="F",
                         help="Sampling temperature (not supported by Claude)")
     p_chat.add_argument("--web-search", action="store_true",
@@ -3086,12 +3520,14 @@ Supported providers:
                               "OLLAMA_API_KEY)"))
     p_chat.add_argument("--think", dest="thinking", action="store_const",
                         const=True, default=None,
-                        help="Force reasoning-model thinking on (Ollama)")
+                        help="Turn thinking on, for models that can think")
     p_chat.add_argument("--no-think", dest="thinking", action="store_const",
                         const=False,
-                        help="Force thinking off for faster answers (Ollama)")
+                        help="Turn thinking off for faster answers. Claude and OpenAI, "
+                             "which can't switch it off, use the least effort they take")
     p_chat.add_argument("--show-thinking", action="store_true",
-                        help="Stream the model's thinking to stderr")
+                        help="Stream the model's thinking to stderr (only Ollama models "
+                             "send it)")
     p_chat.add_argument("--quiet", "-q", action="store_true",
                         help="Suppress status notes on stderr")
     p_chat.set_defaults(func=cmd_chat)
@@ -3106,12 +3542,15 @@ Supported providers:
             "Describes undescribed images, then polls for new arrivals. "
             "Press Ctrl+C to stop."
         ),
+        epilog=(EXIT_CODES_HELP + "\n"
+                "Counted over the whole watch, when you stop it with Ctrl+C."),
+        formatter_class=_KeepLinesFormatter,
     )
     p_watch.add_argument("source", help="Directory to watch")
     p_watch.add_argument("--workspace", "-w", metavar="NAME|PATH",
                          help="Workspace to describe into (bare name → under the workspace "
                               "root; path/.idtw → that location). Default: mirrored from the source.")
-    p_watch.add_argument("--interval", type=int, default=30, metavar="SECONDS",
+    p_watch.add_argument("--interval", type=_positive_int, default=30, metavar="SECONDS",
                          help="Polling interval in seconds (default: 30)")
     _provider_args(p_watch)
     _prompt_args(p_watch)
@@ -3134,9 +3573,11 @@ Supported providers:
         "stats",
         help="Show token usage and cost estimates for a project",
         description=(
-            "Summarise token counts and estimated API costs across all described "
-            "images, broken down by provider and model. Local models (Ollama) "
-            "do not report tokens so no cost is shown for them."
+            "Summarise token counts and estimated API costs across every description, "
+            "broken down by provider and model. A picture described twice counts "
+            "twice, since both were paid for. Models that run on your computer "
+            "(Ollama, Windows AI, Apple Intelligence, MLX) show 'no charge'; Claude "
+            "Code shows 'your plan'."
         ),
     )
     p_stats.add_argument("source", help="Source directory (or parent directory with --all)")
@@ -3151,7 +3592,9 @@ Supported providers:
     # ---------------------------------------------------------------- #
     p_config = sub.add_parser("config", help="View or set default configuration")
     p_config.add_argument("--set", dest="set_value", metavar="KEY=VALUE",
-                          help="Set a config value")
+                          help="Set a config value. Keys: default_provider, default_model, "
+                               "default_prompt_name, workspace_root, preserve_alt_text. "
+                               "With no options, shows every value")
     p_config.set_defaults(func=cmd_config)
 
     # ---------------------------------------------------------------- #
@@ -3164,7 +3607,9 @@ Supported providers:
             "Step-by-step wizard that asks you to choose a provider, model, image "
             "source, prompt style, and metadata options, then shows you the exact "
             "command and optionally runs it. Screen-reader friendly — no ANSI, no "
-            "spinners, numbered choices throughout."
+            "spinners, numbered choices throughout. Takes no options: it uses your "
+            "saved Generation settings. To override them for one run, use 'idt "
+            "describe' with --think, --no-think, --temperature or --max-tokens."
         ),
     )
     p_guideme.set_defaults(func=cmd_guideme)
@@ -3220,6 +3665,18 @@ def main():
     _show_provider_warnings()
     parser = build_parser()
     args = parser.parse_args()
+    # A mistyped --prompt is refused before anything is created: checked later,
+    # it left a new, empty workspace behind (#455 review).
+    if getattr(args, "prompt", None) and not getattr(args, "prompt_text", None):
+        from idt_core.config import UserConfig
+
+        known = UserConfig.load().list_prompts()
+        if _match_prompt_name(args.prompt, known) is None:
+            from idt_core.providers.windows_ai import PROMPT_NAME as _WIN_PROMPT
+
+            if args.prompt != _WIN_PROMPT:
+                parser.error(f"there's no prompt called {args.prompt!r}. The prompts are: "
+                             f"{', '.join(sorted(known))}. `idt prompts` shows them.")
     _cmd_titles = {
         "describe": "IDT - Describing Images",
         "download": "IDT - Downloading Images",
@@ -3235,13 +3692,17 @@ def main():
     if cmd and cmd in _cmd_titles:
         _set_console_title(_cmd_titles[cmd])
     try:
-        args.func(args)
+        # The describing commands return their exit code (_describe_exit_code);
+        # the rest return None, which is 0.
+        rc = args.func(args)
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
         sys.exit(130)
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
+    if isinstance(rc, int) and not isinstance(rc, bool) and rc:
+        sys.exit(rc)
 
 
 if __name__ == "__main__":

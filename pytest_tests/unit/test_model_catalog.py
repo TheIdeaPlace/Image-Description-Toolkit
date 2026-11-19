@@ -122,11 +122,11 @@ def test_a_live_entry_cannot_overwrite_recorded_limits():
 
 
 def test_curated_wins_for_every_metadata_field():
-    merged = catalog.merge("claude", _live(("claude-opus-5", "Bogus", 1)))
-    entry = next(e for e in merged if e.id == "claude-opus-5")
+    merged = catalog.merge("claude", _live(("claude-opus-5-5", "Bogus", 1)))
+    entry = next(e for e in merged if e.id == "claude-opus-5-5")
 
-    assert entry.name == "Claude Opus 5"
-    assert entry.cost == "$$$$"
+    assert entry.name == "Claude Opus 5.5"
+    assert entry.cost == "$$$"
     assert entry.recommended is True
     assert entry.description and entry.description != catalog.NEW_MODEL_NOTE
 
@@ -135,7 +135,8 @@ def test_model_limits_still_matches_the_recorded_figures():
     """Guards the same numbers test_chat_providers.py asserts, from this side."""
     assert model_limits("openai", "gpt-4o") == (128_000, 16_384)
     assert model_limits("openai", "gpt-5.2")[0] == 400_000
-    assert model_limits("claude", "claude-opus-5") == (200_000, 128_000)
+    assert model_limits("claude", "claude-opus-5") == (1_000_000, 128_000)
+    assert model_limits("claude", "claude-haiku-4-5-20251001") == (200_000, 64_000)
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +152,7 @@ def test_model_limits_never_touches_the_disk(monkeypatch):
     monkeypatch.setattr(model_cache, "path_for", explode)
 
     for _ in range(100):
-        assert model_limits("claude", "claude-opus-5") == (200_000, 128_000)
+        assert model_limits("claude", "claude-opus-5") == (1_000_000, 128_000)
         assert model_limits("openai", "no-such-model") == (None, None)
 
 
@@ -237,8 +238,20 @@ def test_a_retired_model_drops_out_of_the_list():
     being offered, rather than failing at request time."""
     merged = catalog.merge("claude", _live(("claude-opus-5", "Claude Opus 5", 1)))
     ids = [e.id for e in merged]
-    assert "claude-opus-4-1-20250805" in CLAUDE_MODELS
-    assert "claude-opus-4-1-20250805" not in ids
+    assert "claude-sonnet-4-5-20250929" in CLAUDE_MODELS
+    assert "claude-sonnet-4-5-20250929" not in ids
+
+
+def test_a_listed_model_we_know_but_dont_offer_keeps_its_details():
+    """Mythos isn't offered offline (verified organizations only), but an
+    account whose listing has it must see its name, not 'details unknown'."""
+    merged = catalog.merge("claude", _live(("claude-opus-5-5", "Claude Opus 5.5", 2),
+                                           ("claude-mythos-5", "Claude Mythos 5", 1)))
+    entry = next(e for e in merged if e.id == "claude-mythos-5")
+    assert "claude-mythos-5" not in CLAUDE_MODELS
+    assert entry.source == "curated"
+    assert entry.description != catalog.NEW_MODEL_NOTE
+    assert entry.context_window == 1_000_000
 
 
 def test_a_retired_model_is_still_resolvable():

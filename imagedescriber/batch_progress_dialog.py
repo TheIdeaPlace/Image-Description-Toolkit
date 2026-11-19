@@ -68,6 +68,41 @@ def _focus_if_alive(window) -> None:
 # "claude-code" -> "Claude Code". idt_core imports the same way in dev and
 # frozen builds, so no try/except fallback is needed.
 from idt_core.providers.registry import display_name as _display_provider  # noqa: E402
+# "claude-haiku-5-5" -> "Claude Haiku 5.5": the name is what's spoken.
+from idt_core.providers.catalog import model_display_name as _display_model  # noqa: E402
+from idt_core.pricing import format_dollars as _dollars  # noqa: E402
+
+#: Why a model has no price, as said in the cost row.
+_COST_NOTE_WORDS = {
+    "no charge": "no charge (runs on your computer)",
+    "Ollama plan": "covered by your Ollama plan",
+    "your plan": "covered by your Claude plan",
+    "no price": "no price known for this model",
+}
+
+
+def cost_rows(token_stats: dict, total: int, extracting: bool = False,
+              current: int = 0) -> list:
+    """The batch's cost meter, as rows for the progress list: what the
+    pictures described so far cost, the average per picture, and what the
+    whole batch should come to: the cost so far, exactly, plus the average
+    for each item still to go. List prices, so they're estimates."""
+    cost = token_stats.get("cost")
+    if cost is None:
+        note = token_stats.get("cost_note")
+        if not note:
+            return []
+        return [f"  Estimated Cost:           {_COST_NOTE_WORDS.get(note, note)}"]
+    rows = [f"  Estimated Cost So Far:    {_dollars(cost)}"]
+    avg = token_stats.get("avg_cost")
+    if avg is not None:
+        rows.append(f"  Average Cost per Image:   {_dollars(avg)}")
+        # Not while videos are still extracting: the total leaves out frames
+        # still to come, as with the time estimate.
+        if total > 0 and not extracting:
+            projected = cost + avg * max(total - current, 0)
+            rows.append(f"  Projected Batch Cost:     about {_dollars(projected)}")
+    return rows
 
 
 class BatchProgressDialog(wx.Dialog):
@@ -462,7 +497,8 @@ class BatchProgressDialog(wx.Dialog):
             if self.batch_provider:
                 self.stats_list.Append(f"Provider:                   {_display_provider(self.batch_provider)}")
             if self.batch_model:
-                self.stats_list.Append(f"Model:                      {self.batch_model}")
+                self.stats_list.Append(f"Model:                      "
+                                       f"{_display_model(self.batch_provider, self.batch_model)}")
             if self.batch_prompt:
                 self.stats_list.Append(f"Prompt Style:               {self.batch_prompt}")
 
@@ -471,6 +507,9 @@ class BatchProgressDialog(wx.Dialog):
             self.stats_list.Append("─" * 44)
             self.separator_indices.add(self.stats_list.GetCount() - 1)
             self.stats_list.Append("Token Usage")
+            for row in cost_rows(token_stats, total, extracting=self._extraction is not None,
+                                 current=current):
+                self.stats_list.Append(row)
             self.stats_list.Append(f"  Average Input Tokens:     {token_stats['avg_input']:,}")
             self.stats_list.Append(f"  Average Output Tokens:    {token_stats['avg_output']:,}")
             self.stats_list.Append(f"  Average Total Tokens:     {token_stats['avg_total']:,}")
@@ -492,8 +531,8 @@ class BatchProgressDialog(wx.Dialog):
         if image_name:
             self.stats_list.Append(f"Current:                    {image_name}")
             if provider and model:
-                self.stats_list.Append(f"Provider:                   {provider}")
-                self.stats_list.Append(f"Model:                      {model}")
+                self.stats_list.Append(f"Provider:                   {_display_provider(provider)}")
+                self.stats_list.Append(f"Model:                      {_display_model(provider, model)}")
         elif file_path:
             self.stats_list.Append(f"Current Image:              {Path(file_path).name}")
         elif self._waiting and self._extraction is not None:
