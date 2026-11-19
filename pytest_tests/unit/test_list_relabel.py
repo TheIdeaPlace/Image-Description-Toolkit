@@ -130,6 +130,20 @@ def test_relabelling_is_much_faster_than_a_rebuild(frame, ws):
     assert relabel < rebuild / 10
 
 
+def test_tree_knows_whether_a_batch_needs_a_rebuild(frame, ws, tmp_path):
+    """_launch_batch_impl rebuilds only for images the tree doesn't show yet
+    (frames just extracted); otherwise the rebuild changed nothing."""
+    from data_models import ImageItem
+
+    w, _ = ws
+    assert not frame._tree_lacks_any(list(w.items))           # all shown: no rebuild
+    new_frame = ImageItem(str(tmp_path / "frames" / "clip_0.00s.jpg"), item_type="extracted_frame")
+    w.add_item(new_frame)
+    assert frame._tree_lacks_any(list(w.items))               # a new frame: rebuild
+    frame.search_filter_text = "IMG"
+    assert frame._tree_lacks_any([list(w.items)[0]])          # a search: rebuild
+
+
 def test_adding_a_manual_description_updates_the_count(frame, ws, monkeypatch):
     """#429: the list kept saying no description after one was added."""
     w, rebuilds = ws

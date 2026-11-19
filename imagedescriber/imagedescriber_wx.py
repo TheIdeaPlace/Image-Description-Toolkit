@@ -3295,6 +3295,15 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         except (LookupError, RuntimeError):
             self.refresh_image_list()
 
+    def _tree_lacks_any(self, paths) -> bool:
+        """True if the tree may be missing one of ``paths`` (a rebuild is
+        needed to show it). An active search always counts: what it shows
+        depends on more than the paths."""
+        if self.search_filter_text:
+            return True
+        shown = getattr(self, '_tree_nodes', {})
+        return any(fp not in shown for fp in paths)
+
     def refresh_image_list(self):
         """Refresh the image list display with videos and extracted frames grouped"""
         # PERFORMANCE DIAGNOSTIC: Track how long this takes
@@ -5016,7 +5025,12 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # below, off the main thread with every other item. Writing them here
         # first, on the main thread, took seconds on a large library and froze
         # the window.
-        self.refresh_image_list()
+        #
+        # The rebuild is only to show frames just extracted. When every image
+        # in the batch is in the tree already it changed nothing and cost 10
+        # seconds on Kelly's 12,906-item workspace as the dialog closed.
+        if self._tree_lacks_any(to_process):
+            self.refresh_image_list()
         self.mark_modified()
 
         # A new batch's failure count (not in _ensure_progress_dialog: that
