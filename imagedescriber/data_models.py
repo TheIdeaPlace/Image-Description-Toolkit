@@ -29,7 +29,10 @@ class ImageDescription:
                  created: str = "", custom_prompt: str = "", provider: str = "", detection_data: List[dict] = None,
                  metadata: Dict[str, any] = None, finish_reason: str = "", completion_tokens: int = 0, response_id: str = "",
                  token_usage: Optional[dict] = None):
-        self.text = text
+        # Stripped here, so new descriptions and ones loaded from older
+        # workspaces both lose the line break some models open with: the
+        # editor otherwise started on a blank line, read as "blank" (#424).
+        self.text = text.strip() if isinstance(text, str) else text
         self.model = model
         self.prompt_style = prompt_style
         self.created = created or datetime.now().isoformat()

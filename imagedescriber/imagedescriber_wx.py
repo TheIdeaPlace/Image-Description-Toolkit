@@ -752,6 +752,13 @@ if _wx_dv is not None:
                 super().Expand(item)
 
 
+#: The Descriptions list's one entry for a picture with no descriptions (#423).
+NO_DESCRIPTIONS_ENTRY = "No descriptions yet"
+
+#: The name prompt when saving a new workspace (#426).
+WORKSPACE_NAME_PROMPT = "Workspace name (it is saved as a folder ending in .idtw):"
+
+
 class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
     """Main application window for ImageDescriber"""
 
@@ -1508,8 +1515,11 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             )
             self._image_tree_root = self.image_list.AddRoot("Images")
             self.image_list.Bind(wx.EVT_TREE_SEL_CHANGED, self.on_image_selected)
-            # Context menu for folder nodes (Windows: EVT_TREE_ITEM_RIGHT_CLICK)
-            self.image_list.Bind(wx.EVT_TREE_ITEM_RIGHT_CLICK, self.on_tree_context_menu)
+            # Context menu for folder nodes. EVT_TREE_ITEM_MENU, not
+            # EVT_TREE_ITEM_RIGHT_CLICK: it fires for the Applications key and
+            # Shift+F10 as well as a right-click (an unhandled right-click
+            # becomes WM_CONTEXTMENU), so the menu opens once either way (#498).
+            self.image_list.Bind(wx.EVT_TREE_ITEM_MENU, self.on_tree_context_menu)
             # Double-click / Enter activation (Windows TreeCtrl)
             self.image_list.Bind(wx.EVT_TREE_ITEM_ACTIVATED, self.on_item_activated)
 
@@ -2306,8 +2316,14 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             # Enable save button
             self.save_desc_btn.Enable(True)
         else:
-            # No descriptions yet
-            self.desc_list.Clear()
+            # No descriptions yet. An empty list read as "unknown" twice in
+            # NVDA (#423), so it holds one entry that says so, as a chat with
+            # no messages does. A video's details replace it below.
+            self.desc_list.LoadDescriptions([{
+                'description': NO_DESCRIPTIONS_ENTRY,
+                'model': '', 'prompt_style': '', 'created': '', 'provider': '',
+            }])
+            self.desc_list.SetSelection(0)
 
             # For videos, show metadata in description area for accessibility
             if image_item.item_type == "video":
@@ -5558,7 +5574,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         bundle_path = Path(self.workspace_file)
         try:
             from idt_core.workspace import Workspace
-            from idt_core.gui_bridge import gui_item_to_ws_item, sidecar_name_index
+            from idt_core.gui_bridge import (gui_item_to_ws_item, sidecar_name_index,
+                                             _gui_chat_item_to_bundle)
         except ImportError:
             return
         # Before Workspace.open, which quietly creates an empty bundle when the
@@ -5615,7 +5632,14 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                          else dict(all_items))
             checkpointer = self._checkpointer
             for file_path, gui_item in all_items.items():
-                if file_path in gui_items or str(file_path).startswith("chat:"):
+                if file_path in gui_items:
+                    continue
+                if str(file_path).startswith("chat:"):
+                    # Unchanged chat: write it anyway when its file is missing
+                    # (saves before #403 never wrote chats to an existing bundle).
+                    chat_id = str(file_path).split("chat:", 1)[1]
+                    if not (ws.chats_dir / f"{chat_id}.json").exists():
+                        gui_items[file_path] = gui_item
                     continue
                 if f"{Path(file_path).name}.json" not in index:
                     # Unchanged here, but its sidecar is gone from disk (deleted
@@ -5630,8 +5654,13 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             total_items = len(gui_items)
             for done, (file_path, gui_item) in enumerate(gui_items.items(), start=1):
                 if str(file_path).startswith("chat:"):
+                    # Chats live in the bundle's chats/ store, written the same
+                    # way Save As writes them (#403: they used to be skipped, so
+                    # a chat started in a saved workspace was lost on reopen).
+                    _gui_chat_item_to_bundle(ws, file_path, gui_item)
                     if progress:
-                        progress(done, total_items, str(file_path))
+                        progress(done, total_items,
+                                 gui_item.get("display_name") or "Chat")
                     continue
                 # Per item, so a batch's checkpoints interleave with a long save.
                 with checkpointer.lock:
@@ -5831,7 +5860,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         default_parent = str(workspace_root)
 
         dir_dlg = wx.DirDialog(
-            self, f"{title} — choose the folder to create the bundle inside",
+            # Plain words: "bundle" meant nothing to a newcomer (#426).
+            self, f"{title}: choose the folder to save the workspace in",
             defaultPath=default_parent,
             style=wx.DD_DEFAULT_STYLE
         )
@@ -5844,7 +5874,9 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
         name_dlg = wx.TextEntryDialog(
             self,
-            "Bundle name (a folder named <name>.idtw will be created):",
+            # No "<name>" placeholder: NVDA read it as "less than name greater
+            # than" (#426).
+            WORKSPACE_NAME_PROMPT,
             title, proposed_name
         )
         try:
@@ -6245,7 +6277,13 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             # Write header
             f.write("Image Descriptions - Exported from ImageDescriber\n")
             f.write(f"Export Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Total Images: {len(self.workspace.items)}\n")
+            # Pictures only: videos and chats are items too, and counting them
+            # gave a total above the entries listed (#479).
+            picture_count = sum(
+                1 for item in self.workspace.items.values()
+                if item.item_type not in ("video", "chat")
+                and not str(item.file_path).startswith("chat:"))
+            f.write(f"Total Images: {picture_count}\n")
             f.write("=" * 80 + "\n\n")
 
             # Sort images by filename for consistent output
@@ -7475,8 +7513,25 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         menu = wx.Menu()
         rescan_item = menu.Append(wx.ID_ANY, "Refresh Folder from Disk\u2026")
         self.Bind(wx.EVT_MENU, self.on_rescan_folder, rescan_item)
-        self.PopupMenu(menu)
+        self.PopupMenu(menu, self._context_menu_position(event, clicked_item))
         menu.Destroy()
+
+    def _context_menu_position(self, event, item):
+        """Where to open a tree node's context menu, in frame coordinates.
+
+        A right-click opens at the pointer. The Applications key and Shift+F10
+        have no pointer position, so the menu opens at the folder's row rather
+        than wherever the mouse happens to rest (#498).
+        """
+        if not isinstance(event, wx.TreeEvent):
+            return wx.DefaultPosition
+        point = event.GetPoint()
+        if point == wx.DefaultPosition:
+            rect = self.image_list.GetBoundingRect(item, textOnly=True)
+            if not rect:
+                return wx.DefaultPosition
+            point = rect.GetBottomLeft()
+        return self.ScreenToClient(self.image_list.ClientToScreen(point))
 
     def on_rescan_folder(self, event):
         """Open the Refresh Folder from Disk dialog for the selected folder node."""

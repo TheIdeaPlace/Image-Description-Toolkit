@@ -270,7 +270,9 @@ class WorkspaceDescription:
                metadata_context: Optional[str] = None) -> "WorkspaceDescription":
         return cls(
             id=str(uuid.uuid4()),
-            text=text,
+            # Some models open their answer with a line break; stored as is, the
+            # editor and reports started with a blank line (#424).
+            text=text.strip() if isinstance(text, str) else text,
             provider=provider,
             model=model,
             prompt_name=prompt_name,
