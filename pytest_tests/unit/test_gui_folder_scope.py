@@ -344,6 +344,94 @@ def test_a_selected_folder_leaves_no_picture_current(
     assert len(paths) == 3
 
 
+def _current_matches_selection(frame):
+    """What R, M, F and Z act on is what the tree shows selected."""
+    tree = frame.image_list
+    node = tree.GetSelection()
+    data = tree.GetItemData(node) if node.IsOk() else None
+    current = frame.current_image_item
+    return (current is None) if data is None else (current is not None
+                                                     and current.file_path == data)
+
+
+def test_a_selected_folder_stays_selected_across_a_list_rebuild(
+        frame, cli_style_bundle):
+    """P on a folder rebuilds the list when the batch ends; the folder must
+    still be the one selected, and the details must name it (#501 review)."""
+    bundle_path, source = cli_style_bundle
+    frame.load_workspace(str(bundle_path))
+
+    tree = frame.image_list
+    top = {tree.GetItemText(n): n for n in _top_level_nodes(tree)}
+    day2 = next(n for n in _folder_nodes(tree, top[source.name])
+                if tree.GetItemText(n) == "Day2")
+    tree.SelectItem(day2)
+    frame.on_image_selected(None)
+
+    frame.refresh_image_list()
+
+    assert tree.GetItemText(tree.GetSelection()) == "Day2"
+    assert frame.image_info_label.GetLabel() == "Folder: Day2, 1 item"
+    assert frame.current_image_item is None
+
+
+def test_a_picture_hidden_by_search_does_not_stay_current(
+        frame, cli_style_bundle):
+    bundle_path, source = cli_style_bundle
+    frame.load_workspace(str(bundle_path))
+
+    tree = frame.image_list
+    folder = next(n for n in _top_level_nodes(tree)
+                  if tree.GetItemText(n) == source.name)
+    tree.SelectItem(_leaf_nodes(tree, folder)[0])
+    frame.on_image_selected(None)
+    assert frame.current_image_item is not None
+
+    try:
+        frame.search_filter_text = "IMG_0003"
+        frame.refresh_image_list()
+        assert _current_matches_selection(frame)
+    finally:
+        frame.search_filter_text = ""
+        frame.refresh_image_list()
+
+
+def test_opening_a_workspace_drops_the_old_current_picture(
+        frame, cli_style_bundle):
+    bundle_path, source = cli_style_bundle
+    frame.load_workspace(str(bundle_path))
+    tree = frame.image_list
+    folder = next(n for n in _top_level_nodes(tree)
+                  if tree.GetItemText(n) == source.name)
+    tree.SelectItem(_leaf_nodes(tree, folder)[0])
+    frame.on_image_selected(None)
+
+    frame.load_workspace(str(bundle_path))
+
+    assert _current_matches_selection(frame)
+
+
+def test_the_chats_node_offers_no_process(frame, cli_style_bundle):
+    """Selecting Chats must not enable Generate Description for chats."""
+    from data_models import ImageItem
+
+    bundle_path, _source = cli_style_bundle
+    frame.load_workspace(str(bundle_path))
+    chat = ImageItem("chat:chat_1", "chat")
+    frame.workspace.items[chat.file_path] = chat
+    try:
+        frame.refresh_image_list()
+        tree = frame.image_list
+        chats = next(n for n in _top_level_nodes(tree)
+                     if tree.GetItemText(n) == "Chats")
+        tree.SelectItem(chats)
+        frame.on_image_selected(None)
+        assert frame.current_image_item is None
+        assert not frame.process_btn.IsEnabled()
+    finally:
+        frame.workspace.items.pop(chat.file_path, None)
+
+
 def test_folder_nodes_render_before_loose_root_items(frame, tmp_path):
     """Folders first, the way every file browser orders them.
 

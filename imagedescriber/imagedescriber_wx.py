@@ -2083,7 +2083,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         it; it reads the selected node, not the current item.
         """
         self.current_image_item = None
-        count = len(self._get_file_paths_under_node(node))
+        paths = self._get_file_paths_under_node(node)
+        count = len(paths)
         name = self.image_list.GetItemText(node)
         self.image_info_label.SetLabel(
             f"Folder: {name}, {count} item{'s' if count != 1 else ''}")
@@ -2091,8 +2092,18 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         self.description_text.SetValue("")
         self._note_editor_shows(None, None, "")
         self.show_preview_message("Folder")
-        self.process_btn.Enable(count > 0)
+        # Chats can't be described, so the Chats node offers no Process.
+        self.process_btn.Enable(any(not p.startswith("chat:") for p in paths))
         self.save_desc_btn.Enable(False)
+
+    def _folder_path_of(self, node):
+        """A folder node's subfolder path ("Trip/Day2"), from its labels up to the root."""
+        parts = []
+        root = self.image_list.GetRootItem()
+        while node.IsOk() and node != root:
+            parts.append(self.image_list.GetItemText(node))
+            node = self.image_list.GetItemParent(node)
+        return str(Path(*reversed(parts))) if parts else None
 
     # Explicit tab order: image_list -> desc_list -> description_text
     def on_image_list_key(self, event):
@@ -3375,8 +3386,11 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # video nodes the user has expanded/collapsed.
         current_item = self.image_list.GetSelection()
         current_file_path = None
+        current_folder = None    # the selected folder's path, kept across the rebuild (#497)
         if current_item.IsOk():
             current_file_path = self.image_list.GetItemData(current_item)
+            if current_file_path is None:
+                current_folder = self._folder_path_of(current_item)
 
         # Track expanded state of video nodes and folder nodes so we can restore
         # it after rebuild.  Key = file_path for video nodes, subfolder path string
@@ -3665,9 +3679,17 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                         self.image_list.Expand(tree_item)
 
         # Prune folder nodes that ended up with zero visible children (all filtered out)
+        pruned = set()
         for subfolder_str, folder_node in list(folder_nodes.items()):
             if folder_node.IsOk() and not self.image_list.ItemHasChildren(folder_node):
                 self.image_list.Delete(folder_node)
+                pruned.add(subfolder_str)
+
+        # A folder that was selected stays selected, so P on a folder doesn't
+        # land back at the top of the tree when the batch ends (#501 review).
+        if (new_selection_item is None and current_folder in folder_nodes
+                and current_folder not in pruned):
+            new_selection_item = folder_nodes[current_folder]
 
         # Add "Chats" section when filter is "all" or "chats"
         if self.current_filter in ("all", "chats") and chat_items:
@@ -3716,7 +3738,9 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 # Re-enable action buttons if current_image_item is still valid.
                 # This guards against the macOS DataViewTreeCtrl behaviour where
                 # re-clicking an already-selected item fires no selection-change event.
-                if self.current_image_item:
+                if self.image_list.GetItemData(new_selection_item) is None:
+                    self._show_folder(new_selection_item)
+                elif self.current_image_item:
                     self.process_btn.Enable(True)
                     self.save_desc_btn.Enable(True)
             elif displayed_count > 0:
@@ -3737,6 +3761,17 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                         # the user selects a *different* item first.
                         self.process_btn.Enable(True)
                         self.save_desc_btn.Enable(True)
+                    elif first_file_path is None:
+                        # Usually a folder, as folders come first. The picture
+                        # that was current (hidden by a search or filter, or
+                        # from the workspace just closed) must not stay
+                        # current behind it (#501 review).
+                        self._show_folder(first)
+                    else:
+                        self.current_image_item = None
+            else:
+                # Nothing shown (everything filtered out): nothing is current.
+                self.current_image_item = None
         finally:
             self._refreshing_list = False
 
@@ -5436,6 +5471,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 return
 
             self.workspace = ImageWorkspace.from_dict(data)
+            # A picture from the workspace just closed must not stay current (#501 review).
+            self.current_image_item = None
             self.workspace_file = Path(file_path)
             self.workspace.saved = True
             # What is on disk now, so a save writes only what changes from here.
