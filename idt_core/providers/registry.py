@@ -104,6 +104,11 @@ class ProviderCapabilities:
     #: error rather than inventing a threshold.
     max_image_bytes: Optional[int] = None
     max_document_bytes: Optional[int] = None
+    #: Whether its chat scales every picture to fit the API's limits before
+    #: sending it (Claude: encoding.encode_attachment_claude -> fit_image).
+    #: Then a picture's file size is no reason to refuse it at attach time;
+    #: it only has to be a picture that can be read.
+    fits_images: bool = False
     #: Text attachments are inlined into the prompt by our own formatters, so
     #: unlike the limits above this one is our choice, not the API's. It keeps
     #: a stray multi-megabyte log from producing a prompt no model can take.
@@ -211,9 +216,11 @@ _REGISTRY: Dict[str, ProviderCapabilities] = {
         attachment_mime_types=_IMAGE_MIMES
         + ("application/pdf",)
         + TEXT_ATTACHMENT_MIME_TYPES,
-        # Anthropic's published per-file limits.
+        # Anthropic's published per-file limits. Pictures over the image
+        # limit are scaled to fit when sent (fits_images).
         max_image_bytes=5 * 1024 * 1024,
         max_document_bytes=32 * 1024 * 1024,
+        fits_images=True,
     ),
     "claude-code": ProviderCapabilities(
         provider="claude-code",
@@ -227,6 +234,7 @@ _REGISTRY: Dict[str, ProviderCapabilities] = {
         # PDFs are left out until verified through the CLI's stream-json input.
         attachment_mime_types=_IMAGE_MIMES + TEXT_ATTACHMENT_MIME_TYPES,
         max_image_bytes=5 * 1024 * 1024,
+        fits_images=True,
     ),
     "apple": ProviderCapabilities(
         provider="apple",

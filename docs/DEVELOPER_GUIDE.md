@@ -189,7 +189,7 @@ Provider-agnostic, wx-free, and the backing for three surfaces: `idt chat`, the 
 | `attachments.py` | MIME inference, HEIC→JPEG, provider acceptance, size limits |
 | `mlx.py` | Apple Silicon local inference (macOS only, imported lazily) |
 
-**`attachments.prepare_attachments(paths, provider, workdir)`** returns `(attachments, converted_paths, errors)`. One unusable file does not discard the rest — nine good photos and one oversized yields nine attachments and one message. Size limits come from `ProviderCapabilities.size_limit_for()`; `None` there means "no published limit", so no threshold is invented. Callers own `workdir` and delete it.
+**`attachments.prepare_attachments(paths, provider, workdir)`** returns `(attachments, converted_paths, errors)`. One unusable file does not discard the rest — nine good photos and one oversized PDF yields nine attachments and one message. Size limits come from `ProviderCapabilities.size_limit_for()`; `None` there means "no published limit", so no threshold is invented. A provider with `fits_images` (Claude, Claude Code) scales pictures to fit when sending, so a picture is not refused for its size, only if it cannot be read. Callers own `workdir` and delete it.
 
 `mlx.py` is separate from `providers.py` so that macOS-only code does not drag down a coverage measurement taken on Windows. It has no floor for the same reason.
 
