@@ -163,7 +163,7 @@ class TestDescribeChecksTheKeyFirst:
         err = capsys.readouterr().err
         assert err.startswith(f"Error: No API key found for {shown}.")
         assert var in err
-        assert "Configure Settings" in err
+        assert "API Keys" in err      # Tools, Configure Settings on Windows; Preferences on a Mac
         assert "Could not resolve authentication method" not in err
 
     def test_the_message_matches_idt_chat(self, no_keys, capsys):

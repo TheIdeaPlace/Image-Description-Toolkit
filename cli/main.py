@@ -136,6 +136,7 @@ def _make_provider(provider: str, model: Optional[str], ollama_host: str,
         print("Note: Windows-AI takes no generation settings; they were ignored.",
               file=sys.stderr)
 
+    api_key = None
     if provider in ("anthropic", "openai"):
         # Once, up front, as `idt chat` does. Without it Claude failed on every
         # picture with the SDK's "Could not resolve authentication method"
