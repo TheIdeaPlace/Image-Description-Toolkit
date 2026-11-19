@@ -56,6 +56,15 @@
 
 ### 🐛 Bug Fixes
 
+- File → Save in an already-saved workspace skipped every `chat:` item, so chats added there were lost on reopen. `_save_bundle` now writes changed chats through `_gui_chat_item_to_bundle`, as Save As does; a chat with no id is never written (#403, #504).
+- Selecting a folder node left the last picture as `current_image_item`, so R, F2, M, F, Z and Enter acted on a picture out of sight. A folder now leaves nothing current and shows "Folder: name, N items"; `refresh_image_list` keeps a selected folder across rebuilds, never leaves a hidden or closed workspace's picture current, and the Chats node doesn't enable Process (#497, #501).
+- The finished batch window rebuilt its summary from the last progress event, leaving out the batch's last picture; `on_worker_complete` passes it through `note_completed` for the current batch only (#475, #506).
+- `idt describe` with Claude or OpenAI and no key failed per picture with the SDK's "Could not resolve authentication method"; `_make_provider` checks once, up front, with `idt chat`'s message. ImageDescriber's no-key message says where to add a key, and blames the SDK only when its import failed (#467, #477, #503).
+- A dropped connection with no status code is `ErrorKind.CONNECTION` ("Couldn't connect to Claude. Check your internet connection."), still retried, rather than a "Server error" (#476, #503).
+- Extract Video Frames opened at 5 s / threshold 30 whatever Configure saved, and dropped the start/end times, minimum scene length and max frames. It now opens with the saved settings and passes them all through; an empty max frames means no limit in scene mode (it was read as 50), and the shipped config sets 50 (#437, #503).
+- The Prompt Editor failed every save with Ollama not running: the disabled "No models available" entry has no client data (#505).
+- `idt describe --stdin` required a source argument; `source` is now optional with `--stdin`, and describe with neither says what to give (#500, #502).
+- The text export's "Total Images" counted videos and chats, and chats were exported as pictures; both now count and list pictures only (#479, #504).
 - ImageDescriber opens a workspace off the UI thread (`_run_with_progress`, now with `show_after`), with a progress count from `Workspace.items(progress=)` through `bundle_to_gui_workspace_dict(progress=)`. A cold open of a 12,906-item bundle in OneDrive took 95 s on the UI thread ("Not Responding"). A running folder scan is stopped first, the startup update check waits while a progress pump is running, and a hidden progress window is re-shown while its work runs (#492).
 - Viewer mode sorted descriptions by file path (its comment said by time), so Home and End never moved. It now sorts by when each description was made, oldest first, with chat turns grouped after the pictures, and selects the newest picture description on load. The picture previews (Viewer and Editor, and Editor's preview container) are `shared.wx_common.NoFocusPanel`, so Tab no longer stops on an empty "panel"; `SetCanFocus(False)` didn't prevent it. Restoring the selection on a live update now refreshes the details too (#491).
 - ImageDescriber: changing one picture relabels its entry (`refresh_image_label`) instead of rebuilding the image list (`refresh_image_list`), which took about 10 s per rebuild on a 12,906-item workspace with a screen reader and ran when a single picture started, finished or failed, on progress, and at every batch start. The rebuild is kept when a picture must appear or disappear under the View filter or a search, and at batch start only when the batch includes pictures the list doesn't show yet. Add Manual Description now updates the list (#429, #490).
@@ -100,15 +109,32 @@
 - Chat no longer sends `temperature` to OpenAI reasoning models.
 - The five temperature, max tokens, top k, top p and repeat penalty entries are gone from the Configure dialog, along with `model_settings` and `prompt_model_settings` in the shipped config. Nothing has read them since the legacy scripts were removed in June, so changing them did nothing. Values already in a user's config file are left alone and ignored.
 
+- Screen reader fixes from the 4.9.0 triage:
+  - the HTML report's `alt` was the whole description, printed again below it; it's now "<name>, described below", and HEIC pictures use their converted JPEG (#465, part; Markdown still shows literally);
+  - an empty Descriptions list read "unknown" twice; it shows "No descriptions yet", and the list no longer hands the screen reader the previous picture's descriptions (#423, #504);
+  - descriptions are tidied of leading blank lines and trailing space when made and when loaded (`tidy_description_text`), so the editor doesn't start on "blank" (#424, #504);
+  - the image tree binds `EVT_TREE_ITEM_MENU`, so the Applications key and Shift+F10 open a folder's menu (#498, #504);
+  - the batch window title reads "45%, 9 of 20 images described — …" while describing (#412, #506);
+  - the "─" separator rows are gone from the batch window and Workspace Statistics (#427, #506);
+  - at batch end the image list is rebuilt before focus, so its item is read once (#414, #506);
+  - Configure reads settings by plain names ("Default provider: Ollama"), in the list and in Change Setting, and is titled "Configure" once (#422 part, #505);
+  - the Prompt Editor's combo boxes are named with `set_screen_reader_name`, its title has no file name, and the `--provider` note is gone; so is the Model description box's missing name in Processing Options and the follow-up dialog (#417, #418, #505);
+  - Chat Settings opens on Provider, and `chat_window_title()` stops "Chat: Chat - …" (#421 part, #506);
+  - the Save Workspace dialogs say "workspace" and no longer read "less than name greater than" (#426 part, #504).
+- Costs under a dollar are shown in cents in the batch window and Test Key ("0.096 cents", "62 cents"), dollars and cents from $1 (#495).
+- Claude and Claude Code chat attachments: pictures over 5 MB are scaled to fit rather than refused, and a picture that can't be read is refused with a reason (#494).
+
 ### 🔧 Other
 
+- The Prompt Editor's API Key field is removed: it wrote a top-level `api_key` nothing read. A key saved there is left in the file. For OpenAI and Claude, a read-only note says to use Add Key in Configure (#499, #505).
+- Configure's Default prompt style lists every prompt in the settings file, custom ones included (#469 part, #505).
 - IDT's links, updater and user guide point at TheIdeaPlace/Image-Description-Toolkit (#381). Installed copies keep updating through GitHub's redirect.
 - Range checks on command-line numbers, as argparse types so they exit 2 before anything runs: `describe --limit` 1 or more (`--limit 0` is an error, not "no limit"), `video --interval` and `describe --video-interval` 0.5 to 60, `video --scene` 1 to 100, `chat --max-tokens` and `watch --interval` more than 0 (0 used to poll in a tight loop), `download --min-size` as WIDTHxHEIGHT (a malformed value used to be ignored). `idt guideme` asks again for a limit below 1. The video ranges are shared with ImageDescriber's dialogs (#454).
 - `idt --version` works as well as `idt version` (#455).
 - Documentation checked against the code from the 4.9.0 bug bash: the user guide's API key setup (Configure first, then the full lookup order), the `idt describe`, `models`, `chat`, `config`, `show`, `status`, `export`, `combine` and `embed` references, what metadata and geocoding send, HEIC support, workspace reference mode, the installer and standalone downloads, and the real Process menu names; `CONFIGURATION_GUIDE.md` rewritten for the user config dir; `--help` text corrected to match (#456).
 
 ### Known limitations
-- File → Save doesn't write chats in a workspace that was already saved (#403).
+- The end of a batch and ImageDescriber chat replies aren't announced on their own (#409, #410); the fix, which ships NVDA's controller DLL, is held for 4.9.1 (#438).
 - A Claude API key that isn't assigned to a workspace still needs an `anthropic-workspace-id` header IDT can't send. Use a key assigned to a workspace, the default for new keys.
 
 ## [4.8.1] - 2026-10-09

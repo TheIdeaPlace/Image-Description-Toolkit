@@ -51,7 +51,9 @@ ImageDescriber's batch window now shows what a run is costing as it goes, like a
 meter. Three new rows sit at the top of the Token Usage section:
 
 - **Estimated Cost So Far.**
-- **Average Cost per Image.** An amount under a cent is given in cents, such as "0.096 cents".
+- **Average Cost per Image.** Any amount under a dollar is given in cents, such as
+  "0.096 cents" or "62 cents", so the rows can be compared by ear; from a dollar up it's
+  dollars and cents. Test Key gives its cost the same way.
 - **Projected Batch Cost,** an estimate of what the whole run will come to.
 
 These use the providers' list prices, the same ones `idt stats` uses. For a model that
@@ -195,6 +197,37 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 
 ### Fixed
 
+- **Chats were lost from a workspace that had already been saved.** A chat started, or
+  continued, in a saved workspace wasn't written by File → Save, so it was gone the next
+  time the workspace was opened. Save now writes chats along with pictures.
+- **R, F2, M, F and Z on a folder changed a picture you had moved away from.** With a
+  folder selected in the image list, these acted on the last picture you had been on, out
+  of sight. Selecting a folder now leaves no picture current: the details say "Folder:
+  name, N items", and the single-picture commands say no image is selected. P on a folder
+  still describes the pictures in it, and the folder stays selected when the batch ends.
+- **The batch summary left out the last picture.** "Last Image Described", the token
+  totals and the cost in the finished batch window now include it.
+- **Describing with Claude or OpenAI and no API key failed on every picture,** each with
+  the provider's own wording ("Could not resolve authentication method"). `idt describe`
+  now stops once, before describing anything, and says where to add a key. In
+  ImageDescriber the message says "No Claude API key. Add one in Tools, Configure
+  Settings, on the API Keys tab." rather than "API key not configured or SDK not
+  installed".
+- **Claude with no internet connection was reported as a "Server error".** It now says
+  "Couldn't connect to Claude. Check your internet connection." The request is still
+  retried.
+- **The Extract Video Frames dialog ignored the settings saved in Configure.** It always
+  opened at 5 seconds and threshold 30, and dropped the start and end times, the minimum
+  scene length and the frame limit. It now opens with your saved settings and uses all of
+  them. Max frames per video is 50 as shipped; if you empty it, scene detection now has
+  no limit, where it used to stop at 50 anyway.
+- **The Prompt Editor couldn't save while Ollama wasn't running.** Every save said
+  "Failed to save configuration".
+- **`idt describe --stdin` was refused** with "the following arguments are required:
+  source". It now reads picture paths from standard input on its own, as `idt describe -`
+  does.
+- **The text export's "Total Images" counted videos and chats,** and chats were listed
+  as pictures. It now counts the pictures listed, and chats are left out.
 - **Opening a large workspace no longer freezes ImageDescriber.** Opening a workspace reads
   one small file per picture. The first time after starting your computer, a workspace of
   12,906 pictures in a OneDrive folder took a minute and a half to read, and the window
@@ -386,6 +419,12 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
   without pause, and a malformed `--min-size` was ignored. `idt guideme` asks again when
   the number of pictures to describe is below 1.
 - `idt --version` works as well as `idt version`.
+- **The Prompt Editor no longer has an API Key field.** What it saved was never used, and
+  it sat in the settings file as plain text. Add keys in Configure, on the API Keys tab.
+  A key saved there before is left in the file, unused; Configure's API Keys tab is
+  where keys are kept.
+- **Default prompt style in Configure lists every prompt,** including accessibility,
+  aialttext and prompts of your own. It offered a fixed seven.
 - The user guide, the configuration guide and the command line's `--help` text were
   checked against what IDT does and corrected in many places: setting up API keys,
   every `idt` command's options and defaults, what `idt export`, `idt combine` and
@@ -394,6 +433,33 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 
 ### For screen reader users
 
+- **The HTML report reads each description once.** A picture's alt text was its whole
+  description, which was then printed again under it. The alt text is now the picture's
+  name and "described below". HEIC pictures in the report now show in a browser.
+- **No more "unknown, unknown" on a picture with no descriptions.** The Descriptions list
+  reads "No descriptions yet".
+- **The description editor no longer starts on a blank line.** Many Ollama descriptions
+  began with an empty line, so the first thing heard in the editor was "blank".
+  Descriptions are tidied when they're made and when older ones are opened.
+- **A folder's context menu opens from the keyboard,** with the Applications key or
+  Shift+F10, as well as with a right-click.
+- **The batch window's title says how far along the run is:** "45%, 9 of 20 images
+  described", followed by the stage.
+- **No separator lines are read** in the batch window or Workspace Statistics. Lines of
+  "─" characters were list items, read aloud as you arrowed.
+- **At the end of a batch the image list item is read once,** not twice.
+- **Configure reads settings by name:** "Default provider: Ollama", not
+  "default_provider: ollama", including when you change one. Its title is "Configure",
+  said once.
+- **The Prompt Editor's boxes are named** (Default prompt style, AI provider, Default
+  model), its title no longer includes a file name, and the note about a command-line
+  flag is gone. For OpenAI or Claude, a read-only box after AI provider says where to add
+  the key.
+- **The box under the model in Processing Options is named "Model description".**
+- **Chat Settings opens on the AI provider,** not the OK button, and the chat window's
+  title says "Chat" once.
+- **The Save Workspace dialogs say what they want,** "choose the folder to save the
+  workspace in" and "Workspace name", rather than reading "less than name greater than".
 - **Viewer mode lists descriptions oldest to newest, and opens on the newest.** It used
   to list them by file path, so Home and End stayed on the same two pictures however many
   descriptions came in, even after a refresh. Now End is always the latest description,
@@ -966,10 +1032,12 @@ idt version     Version information
 
 ## Known limitations
 
-- **In ImageDescriber, File → Save doesn't save chats in a workspace that was already
-  saved** ([#403](https://github.com/TheIdeaPlace/Image-Description-Toolkit/issues/403)).
-  A chat started or continued there is lost when the workspace is closed. **File → Save
-  As** to a new name keeps them.
+- **The end of a batch, and a chat reply in ImageDescriber, aren't announced on their
+  own** ([#409](https://github.com/TheIdeaPlace/Image-Description-Toolkit/issues/409),
+  [#410](https://github.com/TheIdeaPlace/Image-Description-Toolkit/issues/410)). When a batch
+  finishes, focus moves to the image list as the batch window shows its summary, so the
+  summary isn't read; it is still in the batch window. A chat reply isn't read as it
+  arrives; it is in the conversation list. A fix is planned for 4.9.1.
 - **A Claude API key that isn't assigned to a workspace is refused by Anthropic** with a
   message asking for an `anthropic-workspace-id` header, which IDT has no setting for.
   Use a key assigned to a workspace (the Claude Console's default for new keys).
