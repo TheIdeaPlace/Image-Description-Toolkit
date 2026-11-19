@@ -358,13 +358,13 @@ Leave these out and IDT uses sensible defaults for the provider and model you pi
 |---|---|---|
 | `--limit N` | Unlimited | Stop after describing N images (useful for testing). N must be 1 or more; leave it out for no limit |
 | `--redescribe` | Off | Re-describe already-described images (adds new description, keeps old ones) |
-| `--workspace NAME\|PATH`, `-w` | `<folder name>.idtw` in the workspace root | The workspace bundle to create or use. A bare name goes under the workspace root; a path, or a name ending in `.idtw`, is used as it is |
+| `--workspace NAME\|PATH`, `-w` | `<folder name>.idtw` in the workspace root | The workspace bundle to create or use. A bare name goes under the workspace root; a path, or a name ending in `.idtw`, is used as it is (relative to the current folder) |
 | `--copy-originals` / `--no-copy-originals` | Off for a new workspace | Copy the pictures into the workspace, or reference them where they are |
 | `--no-video` | Off | Skip automatic video frame extraction |
 | `--video-interval SECONDS` | 5.0 | Seconds between extracted video frames, 0.5 to 60 |
 | `--show-descriptions` | Off | Print each description to the terminal as it's generated |
 | `--quiet, -q` | Off | Minimal output; in stdin mode, prints the image's full path, a tab, then the description |
-| `--stdin` | Off | Read image paths from stdin; the same as passing `-` as the source |
+| `--stdin` | Off | Read image paths from stdin. A source argument is still required, so pass `-` as the source instead (`idt describe -`) |
 | `--project DIR` | The folder that holds all the paths | In stdin mode, the folder the pictures are treated as belonging to, which names the workspace |
 | `--showgui` | Off | Run the describe in ImageDescriber instead of the console: it opens on the folder, starts the batch and shows the progress. Closing ImageDescriber ends the command. Takes a folder of pictures, not a workspace |
 
@@ -514,7 +514,7 @@ idt video <source> [options]
 
 | Option | Default | Description |
 |---|---|---|
-| `--workspace NAME\|PATH`, `-w` | Named after the source, in the workspace root | The workspace to extract into. A bare name goes under the workspace root; a path, or a name ending in `.idtw`, is used as it is |
+| `--workspace NAME\|PATH`, `-w` | Named after the folder you give, or for a single video the folder that holds it, in the workspace root | The workspace to extract into. A bare name goes under the workspace root; a path, or a name ending in `.idtw`, is used as it is (relative to the current folder) |
 
 **Supported video formats:** `.mp4`, `.mov`, `.avi`, `.mkv`, `.m4v`, `.wmv`, `.mts`, `.m2ts`
 
@@ -708,7 +708,7 @@ idt watch <directory> [options]
 | Option | Default | Description |
 |---|---|---|
 | `--interval SECONDS` | 30 | Polling interval, 1 or more |
-| `--workspace NAME\|PATH`, `-w` | Named after the folder, in the workspace root | The workspace to describe into. A bare name goes under the workspace root; a path, or a name ending in `.idtw`, is used as it is |
+| `--workspace NAME\|PATH`, `-w` | Named after the folder, in the workspace root | The workspace to describe into. A bare name goes under the workspace root; a path, or a name ending in `.idtw`, is used as it is (relative to the current folder) |
 | `--provider`, `--model`, `--prompt`, `--prompt-text` | — | AI options, as for [`idt describe`](#idt-describe--generate-descriptions) |
 | `--ollama-host URL` | `http://127.0.0.1:11434` | The Ollama server address |
 | `--think`, `--no-think`, `--temperature F`, `--max-tokens N` | Automatic | Generation settings, as for `idt describe` |
@@ -1120,7 +1120,7 @@ The five Filter items sit directly in the View menu, not in a submenu, and only 
 
 The main window has the image list on the left and the descriptions on the right. Its controls, in the order you reach them with Tab, which is also the order a screen reader meets them:
 
-1. **Images in workspace**: the image list, on the left. (When the search bar is showing, its Find box and Clear button come first.)
+1. **Images in workspace**: the image list, on the left. (When the search bar is showing, its search box ("Filter images by text") and Clear search button come first.)
 2. **Description list for current image**: the descriptions of the selected image, on the right.
 3. **Image description editor**: the text of the selected description, below the list.
 4. The **Generate Description** and **Save Description** buttons, below the editor.
@@ -1196,7 +1196,7 @@ While a batch runs, the window title shows how far it has got, for example `42%,
 - **File → Open Workspace (.idtw)...** (`Ctrl+O`) to browse for a bundle.
 - From a command prompt or Terminal, start ImageDescriber with the bundle's path, for example `ImageDescriber.exe C:\Users\you\Documents\idt\MyTrip.idtw`.
 
-A large workspace can take a while to open, especially from a OneDrive or network folder. If opening takes more than half a second, a progress window titled "Opening workspace" appears and counts the items as they are read; it closes by itself when the workspace is open.
+A large workspace can take a while to open, especially from a OneDrive or network folder. If opening takes more than half a second, a progress window titled "Opening workspace — Batch Processing" appears and counts the items as they are read; it closes by itself when the workspace is open.
 
 **Refreshing after changes on disk**
 
@@ -1307,7 +1307,7 @@ The chat window is a general-purpose, multi-turn conversation with the AI model 
 - **Conversation history** (ListBox) — All messages, navigable with arrow keys. Screen readers announce new messages automatically.
 - **Message detail pane** — Full text of the selected message. Editable so you can select and copy from it; edits are not saved.
 - **Input field** — Type your message. `Enter` sends; `Shift+Enter` starts a new line.
-- **Attach Files** — Attach images or text files to the conversation. Shown only for providers that accept attachments; Claude and OpenAI also accept PDFs, and MLX takes images only. See [Attaching files](#attaching-files) for what each provider accepts. You can also paste an image straight from the clipboard with `Ctrl+V`.
+- **Attach Files** — Attach images or text files to the conversation. Shown only for providers that accept attachments; Claude and OpenAI also accept PDFs, and MLX takes images only. See [Attaching files](#attaching-files) for what each provider accepts. You can also paste an image from the clipboard with **Paste Image** (on Windows, `Ctrl+V` also works).
 - **Change Model** — Switch provider or model mid-conversation. History is kept.
 - **Token usage** — Shows how much of the model's context window the conversation is using.
 - **Session → Thinking** — Automatic, On or Off. Off makes a reasoning model answer faster: a question about a photo on a large thinking model can otherwise take minutes. For Claude and OpenAI, Off means the least effort the model takes. The choice applies from your next message, and a new chat window starts with the last one you picked.
@@ -1384,7 +1384,7 @@ See [Appendix D: Keyboard Shortcut Reference](#appendix-d-keyboard-shortcut-refe
 
 **Tab order in the main window (Editor mode):**
 
-Image list → Description list → Description editor → Generate Description → Save Description (Shift+Tab to move backward). When the search bar is showing, its Find box and Clear button come before the image list. The image preview is never a Tab stop.
+Image list → Description list → Description editor → Generate Description → Save Description (Shift+Tab to move backward). When the search bar is showing, its search box ("Filter images by text") and Clear search button come before the image list. The image preview is never a Tab stop.
 
 **Tab order in Viewer mode:**
 
@@ -1424,7 +1424,7 @@ Because of these, typing one of these letters in the image list doesn't jump to 
 
 ### Ollama — Local (Windows and macOS)
 
-Ollama runs AI models on your own machine. No internet connection is required after the model is downloaded. No data leaves your computer, except with Ollama's cloud models (see [below](#ollamas-cloud-models)).
+Ollama runs AI models on your own machine. No internet connection is required after the model is downloaded. No data leaves your computer, except with Ollama's cloud models (see [Ollama's cloud models](#ollamas-cloud-models)).
 
 **CLI and GUI provider name:** `ollama`
 
@@ -1454,7 +1454,7 @@ idt describe ~/Photos --provider ollama --model minicpm-v4.6 --ollama-host http:
 
 ImageDescriber has no setting for another Ollama server: it always uses the Ollama on this computer (`http://127.0.0.1:11434`).
 
-**Ollama's cloud models**
+#### Ollama's cloud models
 
 Ollama also offers cloud models, whose names end in `-cloud` (or `:cloud`). They run on ollama.com rather than on your computer, so your pictures are sent there, but you reach them through the Ollama on your computer like any other model. To use one, sign in to Ollama (`ollama signin`) and pull the model with `ollama pull`. It then appears in ImageDescriber's Ollama model list and in `idt models --provider ollama`, as long as Ollama reports that it can see images. There is no separate provider to choose. The Batch Progress dialog shows their cost as "covered by your Ollama plan".
 
@@ -2045,8 +2045,8 @@ What each provider accepts:
 |---|---|---|
 | Ollama | JPEG, PNG, GIF, WebP, text files | None published for images |
 | OpenAI | JPEG, PNG, GIF, WebP, **PDF**, text files | 32 MB per PDF |
-| Claude | JPEG, PNG, GIF, WebP, **PDF**, text files | 5 MB per image, 32 MB per PDF |
-| Claude Code | JPEG, PNG, GIF, WebP, text files | 5 MB per image |
+| Claude | JPEG, PNG, GIF, WebP, **PDF**, text files | Larger pictures are scaled down to fit; 32 MB per PDF |
+| Claude Code | JPEG, PNG, GIF, WebP, text files | Larger pictures are scaled down to fit |
 | Apple Intelligence | JPEG, PNG, GIF, WebP, text files | None published for images |
 
 **Text files** are `.txt`, `.log`, `.md`, `.csv`, `.html`, `.htm`, `.css`, `.js`, `.py`, `.json`, `.xml`, `.yaml` and `.yml`. Their text goes into your message, up to 1 MB per file. (In ImageDescriber's chat window, MLX takes images only.)
@@ -2413,8 +2413,7 @@ MyTrip.idtw/                        Workspace bundle (a folder ending in .idtw)
 The shortcuts you are most likely to reach for. For the complete set —
 every menu item in both apps, every Alt mnemonic on Windows, and the
 chords the operating systems have already claimed — see
-[KEYBOARD_SHORTCUTS.md](KEYBOARD_SHORTCUTS.md), which is checked against
-the source by the test suite.
+[KEYBOARD_SHORTCUTS.md](KEYBOARD_SHORTCUTS.md).
 
 ### Global Shortcuts
 

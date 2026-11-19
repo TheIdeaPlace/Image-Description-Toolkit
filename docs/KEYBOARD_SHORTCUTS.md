@@ -295,7 +295,7 @@ later means picking from the letters the menu bar does not already own
 
 Tab order, which the user guide also gives:
 
-- **Editor mode:** the search bar's Find box and Clear button when it is
+- **Editor mode:** the search bar's search box ("Filter images by text") and Clear search button when it is
   showing, the workspace tree, the description list, the description editor,
   Generate Description, Save Description. The tree and the description list
   move focus on Tab themselves (`on_image_list_key`, `on_desc_list_key`).
