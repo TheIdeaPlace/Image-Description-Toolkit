@@ -130,6 +130,59 @@ def test_relabelling_is_much_faster_than_a_rebuild(frame, ws):
     assert relabel < rebuild / 10
 
 
+def test_undescribed_only_p_on_an_undescribed_picture_does_not_rebuild(frame, ws):
+    """The natural view for working through photos (#490 review): P only adds
+    the P marker; the picture stays undescribed and stays in the list."""
+    w, rebuilds = ws
+    frame.current_filter = "undescribed"
+    real = frame.refresh_image_list
+    real()   # the tree as Undescribed Only shows it
+    rebuilds.clear()
+    path = list(w.items)[13]
+    frame.processing_items[path] = {"provider": "claude", "model": "claude-haiku-5-5"}
+    frame.refresh_image_label(path)
+    assert _label(frame, path) == "P " + Path(path).name
+    assert rebuilds == []
+
+
+def _quiet(frame, monkeypatch):
+    monkeypatch.setattr(frame, "_checkpoint_item", lambda path: None)
+    monkeypatch.setattr(frame, "mark_modified", lambda *a, **k: None)
+    monkeypatch.setattr(frame, "_batch_active", False, raising=False)
+
+
+def test_the_completion_handler_relabels(frame, ws, monkeypatch):
+    from types import SimpleNamespace
+
+    w, rebuilds = ws
+    _quiet(frame, monkeypatch)
+    path = list(w.items)[15]
+    frame.processing_items[path] = {"provider": "claude", "model": "claude-haiku-5-5"}
+    frame.on_worker_complete(SimpleNamespace(
+        file_path=path, description="A lake.", provider="claude",
+        model="claude-haiku-5-5", prompt_style="narrative", custom_prompt="",
+        metadata={}, batch=None))
+    assert _label(frame, path) == "d1 " + Path(path).name
+    assert rebuilds == []
+
+
+def test_the_failure_handler_relabels(frame, ws, monkeypatch):
+    from types import SimpleNamespace
+
+    import imagedescriber_wx
+
+    w, rebuilds = ws
+    _quiet(frame, monkeypatch)
+    for name in ("show_error", "show_warning", "show_info"):
+        monkeypatch.setattr(imagedescriber_wx, name, lambda *a, **k: None, raising=False)
+    path = list(w.items)[17]
+    frame.processing_items[path] = {"provider": "claude", "model": "claude-haiku-5-5"}
+    frame.on_worker_failed(SimpleNamespace(file_path=path, error="Server error",
+                                           batch=None, run_fatal=False))
+    assert _label(frame, path) == "X " + Path(path).name
+    assert rebuilds == []
+
+
 def test_tree_knows_whether_a_batch_needs_a_rebuild(frame, ws, tmp_path):
     """_launch_batch_impl rebuilds only for images the tree doesn't show yet
     (frames just extracted); otherwise the rebuild changed nothing."""
