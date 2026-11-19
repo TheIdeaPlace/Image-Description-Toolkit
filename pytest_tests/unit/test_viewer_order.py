@@ -37,7 +37,7 @@ def _workspace(tmp_path):
     w = ImageWorkspace(new_workspace=True)
     # Path order is a, b, c; description order is c, a, b (then a again).
     made = [("c.jpg", "2026-11-18T09:00:00"), ("a.jpg", "2026-11-18T10:00:00"),
-            ("b.jpg", "2026-11-18T11:00:00+00:00"), ("a.jpg", "2026-11-19T08:00:00")]
+            ("b.jpg", "2026-11-18T11:00:00"), ("a.jpg", "2026-11-19T08:00:00")]
     for name, when in made:
         path = str(tmp_path / name)
         if path not in w.items:
