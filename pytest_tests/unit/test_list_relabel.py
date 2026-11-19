@@ -96,11 +96,16 @@ def test_a_filter_that_changes_what_shows_still_rebuilds(frame, ws):
     assert path not in frame._tree_nodes
 
 
-def test_a_search_still_rebuilds(frame, ws):
+def test_a_search_rebuilds_only_when_it_changes_what_shows(frame, ws):
     w, rebuilds = ws
-    frame.search_filter_text = "IMG"
-    frame.refresh_image_label(list(w.items)[3])
+    path = list(w.items)[3]
+    frame.search_filter_text = "IMG"          # still matches: a relabel
+    frame.refresh_image_label(path)
+    assert rebuilds == []
+    frame.search_filter_text = "no such text"  # no longer matches: it must go
+    frame.refresh_image_label(path)
     assert rebuilds == [1]
+    assert path not in frame._tree_nodes
 
 
 def test_an_item_not_in_the_tree_rebuilds(frame, ws, tmp_path):
