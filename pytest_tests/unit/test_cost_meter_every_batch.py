@@ -156,3 +156,58 @@ def test_no_cost_in_the_log_for_a_provider_with_no_charge(monkeypatch, tmp_path)
     log = _run(monkeypatch, tmp_path, "ollama", "moondream", {"a.jpg": (900, 120)})
     assert "described  (900 in, 120 out)" in log
     assert "  cost " not in log and "cost=" not in log and "so far" not in log
+
+
+# --------------------------------------------------------------------------- #
+# The pictures that stand out: largest token use and most expensive            #
+# --------------------------------------------------------------------------- #
+
+@needs_wx
+def test_standout_rows_give_names_costs_and_descriptions():
+    from batch_progress_dialog import standout_rows
+
+    rows = standout_rows({
+        "peak_total": 3936, "peak_name": "screen.jpg",
+        "peak_description": "A settings screen with a long list.\n\n"
+                            "[Token Usage: 3,936 total (2,023 prompt + 1,913 completion)]",
+        "priciest_name": "screen.jpg", "priciest_cost": 0.0011588,
+        "priciest_description": "A settings screen with a long list.",
+    })
+    assert rows == [
+        "  Largest Token Use:        3,936 (screen.jpg)",
+        "  Largest Token Use Description: A settings screen with a long list.",
+        "  Most Expensive Picture:   0.12 cents (screen.jpg)",
+        "  Most Expensive Description: A settings screen with a long list.",
+    ]
+
+
+@needs_wx
+def test_no_most_expensive_row_without_prices():
+    from batch_progress_dialog import standout_rows
+
+    rows = standout_rows({"peak_total": 1020, "peak_name": "a.jpg",
+                          "peak_description": "A dog.", "priciest_name": None,
+                          "priciest_cost": None, "priciest_description": ""})
+    assert rows == ["  Largest Token Use:        1,020 (a.jpg)",
+                    "  Largest Token Use Description: A dog."]
+
+
+@needs_wx
+def test_token_stats_pick_the_standouts():
+    """The most tokens isn't always the most money: input is cheaper than
+    output, so a long prompt with a short answer uses more tokens for less."""
+    from types import SimpleNamespace
+    from idt_core.pricing import CostMeter
+
+    frame = SimpleNamespace(_cost_meter=CostMeter(), _token_records=[
+        {"input": 9000, "output": 100, "total": 9100, "name": "big-in.jpg",
+         "description": "Many tokens in.", "cost": 0.00095},
+        {"input": 2023, "output": 1913, "total": 3936, "name": "long-out.jpg",
+         "description": "A long answer.", "cost": 0.0011588},
+        {"input": 500, "output": 50, "total": 550, "name": "free.jpg",
+         "description": "Unpriced.", "cost": None},
+    ])
+    stats = imagedescriber_wx.ImageDescriberFrame._compute_token_stats(frame)
+    assert (stats["peak_name"], stats["peak_description"]) == ("big-in.jpg", "Many tokens in.")
+    assert (stats["priciest_name"], stats["priciest_cost"], stats["priciest_description"]) == \
+        ("long-out.jpg", 0.0011588, "A long answer.")

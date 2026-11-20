@@ -3306,6 +3306,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         avg_total = round(sum(r['total'] for r in self._token_records) / n)
         total = sum(r['total'] for r in self._token_records)
         peak = max(self._token_records, key=lambda r: r['total'])
+        priced = [r for r in self._token_records if r.get('cost') is not None]
+        priciest = max(priced, key=lambda r: r['cost']) if priced else None
         # The cost meter: list prices from idt_core.pricing, the same table
         # `idt stats` uses, totalled as each picture finished.
         meter = self._cost_meter.reading()
@@ -3316,6 +3318,10 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             'total': total,
             'peak_total': peak['total'],
             'peak_name': peak['name'],
+            'peak_description': peak.get('description', ''),
+            'priciest_name': priciest['name'] if priciest else None,
+            'priciest_cost': priciest['cost'] if priciest else None,
+            'priciest_description': priciest.get('description', '') if priciest else '',
             'cost': meter['cost'],
             'avg_cost': meter['avg'],
             'cost_note': meter['note'],
@@ -6798,14 +6804,19 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             out_t = metadata.get('output_tokens', 0)
             tot_t = metadata.get('total_tokens', 0)
             if tot_t > 0 and self._counts_toward_batch(getattr(event, 'batch', None)):
+                # Priced once, here, and added to the running total.
+                before, priced = self._cost_meter.cost, self._cost_meter.priced
+                self._cost_meter.add(event.provider, event.model, in_t, out_t)
                 self._token_records.append({
                     'input': in_t,
                     'output': out_t,
                     'total': tot_t,
                     'name': Path(event.file_path).name,
+                    'description': event.description or '',
+                    # None when this picture has no per-token price.
+                    'cost': (self._cost_meter.cost - before
+                             if self._cost_meter.priced > priced else None),
                 })
-                # Priced once, here, and added to the running total.
-                self._cost_meter.add(event.provider, event.model, in_t, out_t)
             desc = ImageDescription(
                 text=event.description,
                 model=event.model,

@@ -45,6 +45,7 @@ from idt_core.providers.registry import display_name as _display_provider  # noq
 # "claude-haiku-5-5" -> "Claude Haiku 5.5": the name is what's spoken.
 from idt_core.providers.catalog import model_display_name as _display_model  # noqa: E402
 from idt_core.pricing import format_dollars as _dollars  # noqa: E402
+from idt_core.description_text import strip_usage_line  # noqa: E402
 
 #: Why a model has no price, as said in the cost row.
 _COST_NOTE_WORDS = {
@@ -76,6 +77,23 @@ def cost_rows(token_stats: dict, total: int, extracting: bool = False,
         if total > 0 and not extracting:
             projected = cost + avg * max(total - current, 0)
             rows.append(f"  Projected Batch Cost:     about {_dollars(projected)}")
+    return rows
+
+
+def standout_rows(token_stats: dict) -> list:
+    """The pictures that stand out so far: the one that used the most tokens
+    and the one that cost the most, each with its description, so there's
+    something to notice when you look in on a long batch."""
+    rows = [f"  Largest Token Use:        {token_stats['peak_total']:,} "
+            f"({token_stats['peak_name']})"]
+    if token_stats.get('peak_description'):
+        rows.append(f"  Largest Token Use Description: {strip_usage_line(token_stats['peak_description'])}")
+    if token_stats.get('priciest_name') and token_stats.get('priciest_cost') is not None:
+        rows.append(f"  Most Expensive Picture:   {_dollars(token_stats['priciest_cost'])} "
+                    f"({token_stats['priciest_name']})")
+        if token_stats.get('priciest_description'):
+            rows.append(f"  Most Expensive Description: "
+                        f"{strip_usage_line(token_stats['priciest_description'])}")
     return rows
 
 
@@ -516,8 +534,8 @@ class BatchProgressDialog(wx.Dialog):
             self.stats_list.Append(f"  Average Output Tokens:    {token_stats['avg_output']:,}")
             self.stats_list.Append(f"  Average Total Tokens:     {token_stats['avg_total']:,}")
             self.stats_list.Append(f"  Total Tokens:             {token_stats['total']:,}")
-            peak_label = f"{token_stats['peak_total']:,} ({token_stats['peak_name']})"
-            self.stats_list.Append(f"  Largest Token Use:        {peak_label}")
+            for row in standout_rows(token_stats):
+                self.stats_list.Append(row)
 
         # ── Last completed + current image ───────────────────────────────────
         if last_image and last_description:
