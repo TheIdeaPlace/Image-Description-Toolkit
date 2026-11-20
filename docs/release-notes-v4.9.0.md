@@ -50,7 +50,18 @@ meter. Three new rows sit at the top of the Token Usage section:
 - **Average Cost per Image.** Any amount under a dollar is given in cents, such as
   "0.096 cents" or "62 cents", so the rows can be compared by ear; from a dollar up it's
   dollars and cents. Test Key gives its cost the same way.
-- **Projected Batch Cost,** an estimate of what the whole run will come to.
+- **Projected Batch Cost,** an estimate of what the whole run will come to. For a resumed
+  batch it covers the part being resumed.
+
+Two more rows give you something to notice when you look in on a long run: **Largest
+Token Use**, the picture that took the most tokens so far, and **Most Expensive
+Picture**, the one that cost the most, each followed by its description. They aren't
+always the same picture, since a model's answer costs more per token than what it's sent.
+
+Only the batch's own pictures count: a picture you describe with P, or a follow-up
+question, while a batch runs isn't added to it. Each picture's cost, with the running
+total and average, is also written to the workspace's run log (in its `logs` folder), so
+you can check the window against it.
 
 These use the providers' list prices, the same ones `idt stats` uses. For a model that
 doesn't charge per token, the row says so instead: "no charge (runs on your computer)",
