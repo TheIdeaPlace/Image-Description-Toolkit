@@ -17,7 +17,6 @@ Accessibility:
 
 import wx
 from pathlib import Path
-from typing import Optional
 
 #: The stopping state's line, and the text that identifies its row (see
 #: update_progress, which keeps it selected through rebuilds).
