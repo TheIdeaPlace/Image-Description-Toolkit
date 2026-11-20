@@ -149,7 +149,7 @@ Claude (through the API) and OpenAI need an API key. Ollama, Claude Code, Apple 
 
 **Getting a key**
 
-- Claude: sign up at [console.anthropic.com](https://console.anthropic.com) and create an API key.
+- Claude: sign up at [console.anthropic.com](https://console.anthropic.com) and create an API key **in a workspace**. New keys are assigned to one by default. A key that isn't is refused by Anthropic with "This API key is not scoped to a workspace"; IDT can't work around that, so create a new key inside a workspace in the Claude Console.
 - OpenAI: sign up at [platform.openai.com](https://platform.openai.com) and create an API key.
 
 **Saving the key: the easy way**
