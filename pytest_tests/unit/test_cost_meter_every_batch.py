@@ -56,8 +56,7 @@ def test_batches_that_skip_the_options_dialog_still_name_their_provider():
 
 # wx only for the tests below; the source checks above run without it.
 try:
-    import wx  # noqa: F401
-    import workers_wx
+    import workers_wx          # imports wx itself
     import imagedescriber_wx
 except ImportError:  # pragma: no cover - CI and the VM have wx
     workers_wx = imagedescriber_wx = None
