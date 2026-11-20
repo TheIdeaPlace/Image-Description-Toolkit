@@ -1422,9 +1422,14 @@ class BatchProcessingWorker(threading.Thread):
                                           f"of hidden reasoning, discarded")
                         if worker.result_truncated:
                             token_str += "  CUT OFF at the output limit"
-                        if in_t or out_t:
+                        # The window adds a picture when its total is over
+                        # 0, priced with the picture worker's provider and
+                        # model; the log does the same, so the two agree.
+                        if (in_t or 0) + (out_t or 0) > 0:
                             before = log_meter.cost
-                            log_meter.add(self.provider, self.model, in_t, out_t)
+                            log_meter.add(getattr(worker, 'provider', self.provider),
+                                          getattr(worker, 'model', self.model),
+                                          in_t, out_t)
                             reading = log_meter.reading()
                             if reading["cost"] is not None and log_meter.cost != before:
                                 token_str += (

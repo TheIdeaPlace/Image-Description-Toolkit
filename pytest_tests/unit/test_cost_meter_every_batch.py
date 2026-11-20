@@ -29,23 +29,69 @@ def test_every_new_batch_window_starts_the_meter_afresh():
              if re.search(r"self\.batch_progress_dialog = BatchProgressDialog\(", line)]
     assert len(sites) >= 5, sites
     for i in sites:
-        before = "\n".join(lines[max(0, i - 25):i])
-        assert "self._start_batch_meters()" in before, (
+        # Close above, in the same function: not merely somewhere earlier.
+        window = lines[max(0, i - 15):i]
+        start = max((k for k, line in enumerate(window) if line.lstrip().startswith("def ")),
+                    default=-1)
+        before = "\n".join(window[start + 1:])
+        assert "self._start_batch_meters(" in before, (
             f"line {i + 1} opens a batch window without resetting the cost meter")
 
 
 def test_the_meter_is_reset_in_one_place_only():
     """Two copies of the reset drifted apart once; keep one."""
     assert _SOURCE.count("self._cost_meter = CostMeter()") == 2   # __init__ and the helper
-    assert _SOURCE.count("def _start_batch_meters(self)") == 1
+    assert _SOURCE.count("def _start_batch_meters(self") == 1
 
 
-wx = pytest.importorskip("wx", reason="wxPython not installed in this environment")
+def test_only_the_batchs_own_pictures_reach_the_meter():
+    """P, a follow-up or an auto-rename finishing mid-batch isn't added."""
+    assert ("if tot_t > 0 and self._counts_toward_batch(getattr(event, 'batch', None)):"
+            in _SOURCE)
 
-import workers_wx  # noqa: E402
-import imagedescriber_wx  # noqa: E402
+
+# wx only for the tests below; the source checks above run without it.
+try:
+    import wx  # noqa: F401
+    import workers_wx
+    import imagedescriber_wx
+except ImportError:  # pragma: no cover - CI and the VM have wx
+    workers_wx = imagedescriber_wx = None
+
+needs_wx = pytest.mark.skipif(workers_wx is None, reason="wxPython not installed")
 
 
+@needs_wx
+def test_counts_toward_batch():
+    from types import SimpleNamespace
+
+    running, stopped, other = object(), object(), object()
+    counts = imagedescriber_wx.ImageDescriberFrame._counts_toward_batch
+    frame = SimpleNamespace(batch_worker=running, _stopping_worker=stopped)
+    assert counts(frame, running)
+    assert not counts(frame, None)            # P, a follow-up, an auto-rename
+    assert not counts(frame, other)
+    assert not counts(frame, stopped)         # a newer batch is running
+    frame.batch_worker = None
+    assert counts(frame, stopped)             # the stopped batch's last picture
+
+
+@needs_wx
+def test_start_batch_meters_names_the_batch():
+    from types import SimpleNamespace
+    from idt_core.pricing import CostMeter
+
+    frame = SimpleNamespace(_token_records=[], _cost_meter=CostMeter(),
+                            _batch_provider="ollama", _batch_model="moondream",
+                            _batch_prompt="simple")
+    imagedescriber_wx.ImageDescriberFrame._start_batch_meters(
+        frame, {"provider": "claude", "model": "claude-haiku-5-5",
+                "prompt_style": "narrative"})
+    assert (frame._batch_provider, frame._batch_model, frame._batch_prompt) == \
+        ("claude", "claude-haiku-5-5", "narrative")
+
+
+@needs_wx
 def test_start_batch_meters_drops_the_last_batch():
     from types import SimpleNamespace
     from idt_core.pricing import CostMeter
@@ -92,6 +138,7 @@ def _run(monkeypatch, tmp_path, provider, model, tokens):
     return "".join(p.read_text(encoding="utf-8") for p in tmp_path.glob("*.log"))
 
 
+@needs_wx
 def test_the_run_log_records_the_cost_meter(monkeypatch, tmp_path):
     """Haiku 5.5 at $0.10 / $0.50 per million: 2,023 in and 255 out is
     0.033 cents; 2,023 in and 1,913 out is 0.12 cents."""
@@ -104,6 +151,7 @@ def test_the_run_log_records_the_cost_meter(monkeypatch, tmp_path):
     assert "cost=0.15 cents  average=0.074 cents" in log
 
 
+@needs_wx
 def test_no_cost_in_the_log_for_a_provider_with_no_charge(monkeypatch, tmp_path):
     log = _run(monkeypatch, tmp_path, "ollama", "moondream", {"a.jpg": (900, 120)})
     assert "described  (900 in, 120 out)" in log

@@ -3255,8 +3255,12 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         except Exception as e:
             show_error(self, f"Error loading directory:\n{e}")
 
-    def _start_batch_meters(self):
+    def _start_batch_meters(self, options: Optional[dict] = None):
         """A new batch starts its token totals and cost meter from nothing.
+
+        With ``options``, the batch window's Provider, Model and Prompt rows
+        come from them too; a resumed batch otherwise showed the previous
+        batch's provider beside its own costs (#507 review).
 
         Every place that opens a new batch window calls this. Resuming a batch,
         a download and auto-processing frames didn't, so the meter carried the
@@ -3266,6 +3270,25 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         """
         self._token_records = []
         self._cost_meter = CostMeter()
+        if options:
+            self._batch_provider = options.get('provider', '') or ''
+            self._batch_model = options.get('model', '') or ''
+            self._batch_prompt = options.get('prompt_style', '') or ''
+
+    def _counts_toward_batch(self, batch) -> bool:
+        """Is this finished picture part of the batch the window is showing?
+
+        A picture processed with P, a follow-up question or an auto-rename can
+        finish during a batch. Their cost went into the batch's meter, and as
+        one more priced picture it raised the average multiplied into the
+        projection (#507 review). A stopped batch's last picture counts only
+        while no newer batch has started.
+        """
+        if batch is None:
+            return False
+        if batch is self.batch_worker:
+            return True
+        return self.batch_worker is None and batch is self._stopping_worker
 
     def _compute_token_stats(self):
         """Compute aggregate token usage stats from the current batch's records.
@@ -6774,7 +6797,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             in_t = metadata.get('input_tokens', 0)
             out_t = metadata.get('output_tokens', 0)
             tot_t = metadata.get('total_tokens', 0)
-            if tot_t > 0:
+            if tot_t > 0 and self._counts_toward_batch(getattr(event, 'batch', None)):
                 self._token_records.append({
                     'input': in_t,
                     'output': out_t,
@@ -8280,7 +8303,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # Show progress dialog (starting from resumed position)
         total = batch_state.get('total_queued', len(file_paths))
         if BatchProgressDialog:
-            self._start_batch_meters()
+            self._start_batch_meters({'provider': provider, 'model': model,
+                                      'prompt_style': prompt_style})
             self.batch_progress_dialog = BatchProgressDialog(self, total, describing=True)
             self.batch_progress_dialog.Show()
             # Enable "Show Batch Progress" menu item
@@ -8516,7 +8540,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
         # Show batch progress dialog
         if BatchProgressDialog:
-            self._start_batch_meters()
+            self._start_batch_meters(options)
             self.batch_progress_dialog = BatchProgressDialog(
                 self, total_images=len(to_process), describing=True)
             self.batch_progress_dialog.Show()
@@ -8622,7 +8646,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
         # Show progress dialog
         if BatchProgressDialog:
-            self._start_batch_meters()
+            self._start_batch_meters(options)
             self.batch_progress_dialog = BatchProgressDialog(
                 self, len(frame_paths), describing=True)
             self.batch_progress_dialog.Show()
