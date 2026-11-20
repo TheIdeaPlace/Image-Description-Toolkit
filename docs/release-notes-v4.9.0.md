@@ -1,39 +1,35 @@
 # Image Description Toolkit v4.9.0
 
-**Image Description Toolkit (IDT) writes text descriptions of your images, using AI, in bulk.**
+**Image Description Toolkit (IDT) writes text descriptions of your images, using AI, in
+bulk.** 4.9.0 is about getting good descriptions out of each AI model, and about fixing
+what a full bug bash with JAWS and NVDA turned up.
 
-Point it at a folder of photos and it produces a description of each one. Descriptions
-can be written for alt text, for cataloging, for making an archive searchable, or for
-anyone who needs to know what is in a picture without seeing it.
+IDT now controls how it asks each model for text: how long an answer may be, how much the
+model thinks first, and, where a model allows it, temperature. Everything starts on
+**Automatic**, so you can leave it alone; a new Generation tab in Configure is there if you
+want it. Claude's newest models are in, with Claude Haiku 5.5 as the default, and so are
+OpenAI's, with GPT-6 Luna as the default. ImageDescriber's batch window now shows what a
+run is costing as it goes, and Configure's API Keys tab adds a key for the provider you're
+on and can test it.
 
-**Your choice of AI.** Use models that run on your own computer, or paid AI services,
-whichever suits the job. With Ollama, Apple Intelligence on a Mac, or Windows AI on a
-Copilot+ PC, your photos never leave your machine and there's nothing to pay: no
-account, no subscription, no uploading. When you want the most detailed descriptions,
-use Claude or OpenAI with your own API key, or Claude through the Claude subscription
-you already have; IDT shows what a run is costing as it goes. You can switch between
-them at any time, picture by picture or folder by folder.
+A large photo library is handled much better. A workspace of nearly 13,000 pictures opens
+without "Not Responding", describing one picture no longer freezes the window, and saving
+writes only what changed. Settings saved in Configure now take effect on an installed
+Windows copy, which they didn't before. Saving an older description no longer overwrites
+the newest, chats are kept in a workspace that was already saved, and descriptions no
+longer remark that they "can't confirm" where a photo was taken.
 
----
+With a screen reader, switching between Editor and Viewer mode is heard straight away,
+Viewer mode opens on the newest description, models are read by name, and Configure and
+the Prompt Editor read their settings in plain words. A picture with no descriptions says
+"No descriptions yet", the editor no longer starts on a blank line, the batch window's
+title says how far along a run is, and lines of box-drawing characters are no longer read
+aloud. One thing isn't fixed yet: the end of a batch, and a chat reply in ImageDescriber,
+aren't announced on their own. That's planned for 4.9.1.
 
-## Download
-
-| File | Platform | What it is |
-|---|---|---|
-| **`ImageDescriptionToolkitSetup-4.9.0-windows.exe`** | Windows 10/11, 64-bit | **Start here.** Installs all three applications. |
-| **`IDT-4.9.0-macos-arm64.dmg`** | macOS, Apple Silicon | **Start here.** Contains all three. |
-| `idt-4.9.0-windows-x64.zip` | Windows | Just the command-line tool, no installer |
-| `ImageDescriber-4.9.0-windows-x64.zip` | Windows | Just the image GUI, no installer |
-| `IDTChat-4.9.0-windows-x64.zip` | Windows | Just the chat client, no installer |
-| `idt-4.9.0-macos-arm64.tar.gz` | macOS | Just the command-line tool |
-| `SHA256SUMS.txt` | — | Checksums, if you want to verify your download |
-
-No Python, no dependencies. The Windows installer is signed; the macOS build is signed
-and notarized by Apple.
-
-The standalone zips are for people who want one tool and no installer. Each holds a
-folder: unzip it and run the `.exe` inside, keeping the `-lib` folder next to it. Most
-people want the installer, which puts all three on the Start menu.
+If you already have IDT, ImageDescriber offers this update on its daily check, or now from
+Help, Check for Updates. The full release
+notes follow, then the downloads and an introduction to IDT for anyone new to it.
 
 ---
 
@@ -528,6 +524,92 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 - **Messages no longer read "backslash n".** The message after Refresh AI Models and
   the error when Configure couldn't open showed `\n` as text where a line break belonged.
 
+---
+
+## Known limitations
+
+- **The end of a batch, and a chat reply in ImageDescriber, aren't announced on their
+  own** ([#409](https://github.com/TheIdeaPlace/Image-Description-Toolkit/issues/409),
+  [#410](https://github.com/TheIdeaPlace/Image-Description-Toolkit/issues/410)). When a batch
+  finishes, focus moves to the image list as the batch window shows its summary, so the
+  summary isn't read; it is still in the batch window. A chat reply isn't read as it
+  arrives; it is in the conversation list. A fix is planned for 4.9.1.
+- **A Claude API key that isn't assigned to a workspace is refused by Anthropic** with a
+  message asking for an `anthropic-workspace-id` header, which IDT has no setting for.
+  Use a key assigned to a workspace (the Claude Console's default for new keys).
+- **macOS builds are Apple Silicon only.** No Intel Mac build is published. Intel
+  users can run from source.
+- **Work done before v4.5 isn't converted automatically.** Older `wf_…` output
+  folders still open in the desktop app: **File → Open Workflow Result (Viewer
+  Mode)…** to read one as it is, or **File → Import Workflow (to Workspace)…** to
+  bring its descriptions into a `.idtw` bundle.
+- **`idt guideme` needs a terminal it can read from.** Run from a script or a pipe,
+  it exits immediately with `Error: EOF when reading a line`. Use `idt describe` in
+  scripts.
+- **A brand-new model's cost and context window are unknown to IDT** until a later
+  release records them. It is still usable; `idt stats` may show no cost estimate for
+  it, and long conversations are trimmed conservatively.
+- **Apple Intelligence declines some images.** Not a fault and not worth retrying;
+  try a different prompt style. See the note above.
+- **Apple Intelligence holds about 4,096 tokens.** Fine for describing images; short
+  for chat. IDT tells you when a conversation has outgrown it.
+- **Apple Intelligence needs a one-time `sudo fm license`** run by an administrator.
+  It applies to everyone who uses that Mac, and no application can do it for you.
+- **Windows AI needs a Copilot+ PC** (one with an NPU) and Windows 11 24H2 or later,
+  and IDT installed with the installer. It takes no prompt and can't chat.
+- **Windows AI declines some pictures**: mostly-text ones, and some its content
+  filter stops. Not worth retrying with Windows AI; another provider (or OCR, for
+  text) will do.
+- **Windows AI can stop responding partway through a very long batch.** It happened
+  twice, after hours of describing: every picture then failed, or waited three minutes
+  and timed out. The model runs inside Windows, not in IDT, so IDT can't restart it.
+  The run now stops after 10 different pictures or videos in a row fail, which is at
+  most about 30 pictures, since only 3 frames of each video are tried. Restarting the
+  PC cleared it, after which the run carried on from where it stopped.
+- Local models are slower than cloud ones, sometimes much slower, depending on your
+  hardware.
+
+---
+
+## About Image Description Toolkit
+
+**Image Description Toolkit (IDT) writes text descriptions of your images, using AI, in bulk.**
+
+Point it at a folder of photos and it produces a description of each one. Descriptions
+can be written for alt text, for cataloging, for making an archive searchable, or for
+anyone who needs to know what is in a picture without seeing it.
+
+**Your choice of AI.** Use models that run on your own computer, or paid AI services,
+whichever suits the job. With Ollama, Apple Intelligence on a Mac, or Windows AI on a
+Copilot+ PC, your photos never leave your machine and there's nothing to pay: no
+account, no subscription, no uploading. When you want the most detailed descriptions,
+use Claude or OpenAI with your own API key, or Claude through the Claude subscription
+you already have; IDT shows what a run is costing as it goes. You can switch between
+them at any time, picture by picture or folder by folder.
+
+---
+
+## Download
+
+| File | Platform | What it is |
+|---|---|---|
+| **`ImageDescriptionToolkitSetup-4.9.0-windows.exe`** | Windows 10/11, 64-bit | **Start here.** Installs all three applications. |
+| **`IDT-4.9.0-macos-arm64.dmg`** | macOS, Apple Silicon | **Start here.** Contains all three. |
+| `idt-4.9.0-windows-x64.zip` | Windows | Just the command-line tool, no installer |
+| `ImageDescriber-4.9.0-windows-x64.zip` | Windows | Just the image GUI, no installer |
+| `IDTChat-4.9.0-windows-x64.zip` | Windows | Just the chat client, no installer |
+| `idt-4.9.0-macos-arm64.tar.gz` | macOS | Just the command-line tool |
+| `SHA256SUMS.txt` | — | Checksums, if you want to verify your download |
+
+No Python, no dependencies. The Windows installer is signed; the macOS build is signed
+and notarized by Apple.
+
+The standalone zips are for people who want one tool and no installer. Each holds a
+folder: unzip it and run the `.exe` inside, keeping the `-lib` folder next to it. Most
+people want the installer, which puts all three on the Start menu.
+
+---
+
 ## From 4.8.1: runs that stop when everything is failing
 
 A maintenance release, mostly for the `idt` command-line tool, from runs over an
@@ -627,6 +709,8 @@ which all need a prompt.
 failed and the batch carries on. Windows' model also fails on some pictures at
 one size and not another, so IDT tries those again at smaller sizes, and most are
 then described.
+
+---
 
 ## From 4.7: videos and batches
 
@@ -1027,51 +1111,6 @@ idt version     Version information
 ```
 
 `idt <command> --help` for options.
-
----
-
-## Known limitations
-
-- **The end of a batch, and a chat reply in ImageDescriber, aren't announced on their
-  own** ([#409](https://github.com/TheIdeaPlace/Image-Description-Toolkit/issues/409),
-  [#410](https://github.com/TheIdeaPlace/Image-Description-Toolkit/issues/410)). When a batch
-  finishes, focus moves to the image list as the batch window shows its summary, so the
-  summary isn't read; it is still in the batch window. A chat reply isn't read as it
-  arrives; it is in the conversation list. A fix is planned for 4.9.1.
-- **A Claude API key that isn't assigned to a workspace is refused by Anthropic** with a
-  message asking for an `anthropic-workspace-id` header, which IDT has no setting for.
-  Use a key assigned to a workspace (the Claude Console's default for new keys).
-- **macOS builds are Apple Silicon only.** No Intel Mac build is published. Intel
-  users can run from source.
-- **Work done before v4.5 isn't converted automatically.** Older `wf_…` output
-  folders still open in the desktop app: **File → Open Workflow Result (Viewer
-  Mode)…** to read one as it is, or **File → Import Workflow (to Workspace)…** to
-  bring its descriptions into a `.idtw` bundle.
-- **`idt guideme` needs a terminal it can read from.** Run from a script or a pipe,
-  it exits immediately with `Error: EOF when reading a line`. Use `idt describe` in
-  scripts.
-- **A brand-new model's cost and context window are unknown to IDT** until a later
-  release records them. It is still usable; `idt stats` may show no cost estimate for
-  it, and long conversations are trimmed conservatively.
-- **Apple Intelligence declines some images.** Not a fault and not worth retrying;
-  try a different prompt style. See the note above.
-- **Apple Intelligence holds about 4,096 tokens.** Fine for describing images; short
-  for chat. IDT tells you when a conversation has outgrown it.
-- **Apple Intelligence needs a one-time `sudo fm license`** run by an administrator.
-  It applies to everyone who uses that Mac, and no application can do it for you.
-- **Windows AI needs a Copilot+ PC** (one with an NPU) and Windows 11 24H2 or later,
-  and IDT installed with the installer. It takes no prompt and can't chat.
-- **Windows AI declines some pictures**: mostly-text ones, and some its content
-  filter stops. Not worth retrying with Windows AI; another provider (or OCR, for
-  text) will do.
-- **Windows AI can stop responding partway through a very long batch.** It happened
-  twice, after hours of describing: every picture then failed, or waited three minutes
-  and timed out. The model runs inside Windows, not in IDT, so IDT can't restart it.
-  The run now stops after 10 different pictures or videos in a row fail, which is at
-  most about 30 pictures, since only 3 frames of each video are tried. Restarting the
-  PC cleared it, after which the run carried on from where it stopped.
-- Local models are slower than cloud ones, sometimes much slower, depending on your
-  hardware.
 
 ---
 
