@@ -1248,6 +1248,11 @@ class BatchProcessingWorker(threading.Thread):
             failed = 0
             start_time = time.time()
 
+            # The run log keeps its own cost meter, so what the batch window
+            # shows can be checked against the log afterwards.
+            from idt_core.pricing import CostMeter, format_dollars
+            log_meter = CostMeter()
+
             if run_log:
                 run_log.info(
                     f"GUI batch run — provider={self.provider}  model={self.model}"
@@ -1417,6 +1422,16 @@ class BatchProcessingWorker(threading.Thread):
                                           f"of hidden reasoning, discarded")
                         if worker.result_truncated:
                             token_str += "  CUT OFF at the output limit"
+                        if in_t or out_t:
+                            before = log_meter.cost
+                            log_meter.add(self.provider, self.model, in_t, out_t)
+                            reading = log_meter.reading()
+                            if reading["cost"] is not None and log_meter.cost != before:
+                                token_str += (
+                                    f"  cost {format_dollars(log_meter.cost - before)};"
+                                    f" so far {format_dollars(reading['cost'])},"
+                                    f" average {format_dollars(reading['avg'])}"
+                                    f" over {log_meter.priced}")
                         run_log.info(f"{i}/{total}  {Path(file_path).name}: described{token_str}")
                     else:
                         err = worker.result_error or "unknown error"
@@ -1491,9 +1506,14 @@ class BatchProcessingWorker(threading.Thread):
 
             elapsed = time.time() - start_time
             if run_log:
+                reading = log_meter.reading()
+                cost_str = ""
+                if reading["cost"] is not None:
+                    cost_str = (f"  cost={format_dollars(reading['cost'])}"
+                                f"  average={format_dollars(reading['avg'])}")
                 run_log.info(
                     f"done  described={completed - failed}  errors={failed}"
-                    f"  elapsed={elapsed:.1f}s"
+                    f"  elapsed={elapsed:.1f}s{cost_str}"
                 )
 
             # Post final completion

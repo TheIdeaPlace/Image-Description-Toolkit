@@ -3175,6 +3175,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # Show progress dialog
         if BatchProgressDialog:
             self._batch_active = True
+            self._start_batch_meters()
             self.batch_progress_dialog = BatchProgressDialog(
                 self,
                 total_images=settings.get('max_images', 100) if settings.get('max_images') else 100
@@ -3253,6 +3254,18 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
         except Exception as e:
             show_error(self, f"Error loading directory:\n{e}")
+
+    def _start_batch_meters(self):
+        """A new batch starts its token totals and cost meter from nothing.
+
+        Every place that opens a new batch window calls this. Resuming a batch,
+        a download and auto-processing frames didn't, so the meter carried the
+        previous batch's cost and picture count: the average opened at the old
+        batch's figure and drifted for many pictures before it was right, and
+        the projected cost included the old batch's spending.
+        """
+        self._token_records = []
+        self._cost_meter = CostMeter()
 
     def _compute_token_stats(self):
         """Compute aggregate token usage stats from the current batch's records.
@@ -4742,8 +4755,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         self._stage_count = stage_count
         self._stage_no = 0
         self._batch_active = True
-        self._token_records = []
-        self._cost_meter = CostMeter()
+        self._start_batch_meters()
         self._batch_provider = options.get('provider', '')
         self._batch_model = options.get('model', '')
         self._batch_prompt = options.get('prompt_style', '')
@@ -8268,6 +8280,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # Show progress dialog (starting from resumed position)
         total = batch_state.get('total_queued', len(file_paths))
         if BatchProgressDialog:
+            self._start_batch_meters()
             self.batch_progress_dialog = BatchProgressDialog(self, total, describing=True)
             self.batch_progress_dialog.Show()
             # Enable "Show Batch Progress" menu item
@@ -8503,6 +8516,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
         # Show batch progress dialog
         if BatchProgressDialog:
+            self._start_batch_meters()
             self.batch_progress_dialog = BatchProgressDialog(
                 self, total_images=len(to_process), describing=True)
             self.batch_progress_dialog.Show()
@@ -8608,6 +8622,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
 
         # Show progress dialog
         if BatchProgressDialog:
+            self._start_batch_meters()
             self.batch_progress_dialog = BatchProgressDialog(
                 self, len(frame_paths), describing=True)
             self.batch_progress_dialog.Show()
