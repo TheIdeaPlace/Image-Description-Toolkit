@@ -10495,10 +10495,15 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # Built outside the list literal: a string wrapped across lines inside a
         # list reads like a missing comma (and CodeQL flags it as one).
         if can_install and sys.platform == "darwin":
+            # Quitting first is not a courtesy: replacing a running copy breaks
+            # whatever it opens next, with an unrelated error (11/20/2026). The
+            # disk image holds an IDT folder with both apps, so IDT Chat too.
             how = (
                 "The disk image will be downloaded to your Downloads folder and "
-                "shown in Finder. Quit ImageDescriber, then drag the new "
-                "ImageDescriber to Applications."
+                "shown in Finder. Quit ImageDescriber and IDT Chat first, then "
+                "drag the IDT folder to Applications, replacing the old one. An "
+                "app left open while it's replaced can fail with odd errors "
+                "until it's reopened."
             )
             lines += ["", how]
         elif can_install:

@@ -623,6 +623,9 @@ them at any time, picture by picture or folder by folder.
 No Python, no dependencies. The Windows installer is signed; the macOS build is signed
 and notarized by Apple.
 
+**Updating on a Mac:** quit ImageDescriber and IDT Chat first, then drag the `IDT` folder
+from the disk image to Applications, replacing the old one.
+
 The standalone zips are for people who want one tool and no installer. Each holds a
 folder: unzip it and run the `.exe` inside, keeping the `-lib` folder next to it. Most
 people want the installer, which puts all three on the Start menu.
