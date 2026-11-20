@@ -831,9 +831,10 @@ class ChatFrame(wx.Frame):
         * **wx.ID_PREFERENCES / wx.ID_ABOUT / wx.ID_EXIT are wiring, not
           decoration.** macOS puts Settings, About and Quit on the application
           menu, and those entries reach these handlers only when the items
-          carry the standard ids. They also must not repeat the accelerator
-          the application menu already supplies, or two menu items answer to
-          the same chord.
+          carry the standard ids. wxOSX gives Quit its Cmd+Q, so Exit must
+          not repeat it, but it gives Settings no Cmd+, at all: Settings
+          carries Ctrl+, on every platform (11/20/2026; before that Cmd+,
+          did nothing).
         """
         bar = wx.MenuBar()
 
@@ -850,7 +851,7 @@ class ChatFrame(wx.Frame):
         self._menu_item(file_menu, "&Export Conversation...\tCtrl+Shift+E",
                         self.on_export)
         file_menu.AppendSeparator()
-        self._menu_item(file_menu, self._accel("&Settings...", "Ctrl+,"),
+        self._menu_item(file_menu, "&Settings...\tCtrl+,",
                         self.on_settings, wx.ID_PREFERENCES)
         self._menu_item(file_menu, "API &Keys...", self.on_api_keys)
         file_menu.AppendSeparator()
@@ -956,9 +957,9 @@ class ChatFrame(wx.Frame):
     def _accel(label: str, key: str) -> str:
         """`label` with `key` attached, except where macOS supplies the key.
 
-        Settings and Quit already answer to Cmd+, and Cmd+Q from the
-        application menu. Spelling the accelerator out again would put two menu
-        items on one chord.
+        Quit already answers to Cmd+Q from the application menu; spelling it
+        out again would put two menu items on one chord. (Settings is not one
+        of these: wxOSX gives it no Cmd+,.)
         """
         return label if _MAC else f"{label}\t{key}"
 
@@ -1873,6 +1874,7 @@ class ChatFrame(wx.Frame):
             (f"{mod}+Shift+R", "Read the last response again"),
             (f"{mod}+T", "Token usage"),
             (f"{mod}+Shift+E", "Export conversation"),
+            (f"{mod}+,", "Settings"),
             (f"{mod}+?" if _MAC else "F1", "This list"),
         ]
         width = max(len(keys) for keys, _text in rows) + 2
@@ -1984,6 +1986,14 @@ class ChatApp(wx.App):
 
 def main():
     app = ChatApp(False)
+    # A new version installed over this one while it is open breaks whatever
+    # is opened next with a misleading error; this makes it say "quit and
+    # reopen" (idt_core/app_replaced.py).
+    try:
+        from shared.wx_common import watch_for_replacement
+        watch_for_replacement()
+    except Exception:
+        pass
     app.MainLoop()
 
 

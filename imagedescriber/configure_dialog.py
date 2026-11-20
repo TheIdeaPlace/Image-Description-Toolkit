@@ -1351,7 +1351,19 @@ class ConfigureDialog(wx.Dialog):
                     print(f"Warning: {path} not found")
             except Exception as e:
                 self.configs[name] = {}
-                show_warning(self, f"Error loading {path}:\n{str(e)}")
+                # The failing call's own path, which may not be ``path``: the
+                # loader also looks for the shipped defaults.
+                failed = getattr(e, 'filename', None) or path
+                logger.error("Couldn't load settings %s (failed on %s)", path, failed,
+                             exc_info=True)
+                message = f"Couldn't load {path}:\n{e}"
+                if str(failed) != str(path):
+                    message += f"\n\nThe failing file was {failed}."
+                if isinstance(e, PermissionError) and sys.platform == 'darwin':
+                    message += ("\n\nmacOS refused access. Check System Settings, "
+                                "Privacy & Security, for ImageDescriber. Details are "
+                                "in the log, ~/Library/Logs/ImageDescriber.")
+                show_warning(self, message)
         normalise_generation_section(self.configs.get("image_describer"))
 
     def load_category_settings(self, category: str):

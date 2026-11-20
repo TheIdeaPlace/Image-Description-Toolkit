@@ -54,6 +54,11 @@ a = Analysis(
         # no PyObjC, but it still has to be in the bundle: without it every
         # text box and list in the macOS build goes back to being unlabelled.
         'shared.mac_accessibility',
+        # "Quit and reopen" when a new version is installed over the running
+        # app (11/20/2026). wx_common imports number_entry inside a function.
+        'shared.wx_common',
+        'shared.number_entry',
+        'idt_core.app_replaced',
 
         # ---- idt_core chat engine ----
         'idt_core',

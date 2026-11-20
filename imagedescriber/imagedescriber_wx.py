@@ -1957,11 +1957,13 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         edit_prompts_item = tools_menu.Append(wx.ID_ANY, "Edit &Prompts...\tCtrl+Shift+P")
         self.Bind(wx.EVT_MENU, self.on_edit_prompts, edit_prompts_item)
 
-        # Configure Settings - use platform-specific menu ID and accelerator
-        # On macOS, wx.ID_PREFERENCES automatically gets Cmd+, and moves to app menu
-        # Don't specify accelerator text - the system handles it and VoiceOver reads it correctly
+        # Configure Settings. On macOS wx.ID_PREFERENCES moves the item to the
+        # application menu, but wxWidgets 3.3 does NOT give it Cmd+, -- without
+        # the accelerator here Cmd+, did nothing (11/20/2026, checked by reading
+        # the NSMenuItem's keyEquivalent). The copy left in Tools is hidden, so
+        # there is still one item on the chord.
         if sys.platform == 'darwin':
-            configure_item = tools_menu.Append(wx.ID_PREFERENCES, "P&references...")
+            configure_item = tools_menu.Append(wx.ID_PREFERENCES, "P&references...\tCtrl+,")
         else:
             configure_item = tools_menu.Append(wx.ID_ANY, "&Configure Settings...\tCtrl+Shift+C")
         self.Bind(wx.EVT_MENU, self.on_configure_settings,configure_item)
@@ -9985,6 +9987,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self.cached_ollama_models = None  # Force reload on next use
 
         except Exception as e:
+            logger.error("Error launching Configure Settings", exc_info=True)
             show_error(self, f"Error launching Configure Settings:\n{e}")
 
     def on_install_ollama(self, event):
@@ -10492,10 +10495,15 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # Built outside the list literal: a string wrapped across lines inside a
         # list reads like a missing comma (and CodeQL flags it as one).
         if can_install and sys.platform == "darwin":
+            # Quitting first is not a courtesy: replacing a running copy breaks
+            # whatever it opens next, with an unrelated error (11/20/2026). The
+            # disk image holds an IDT folder with both apps, so IDT Chat too.
             how = (
                 "The disk image will be downloaded to your Downloads folder and "
-                "shown in Finder. Quit ImageDescriber, then drag the new "
-                "ImageDescriber to Applications."
+                "shown in Finder. Quit ImageDescriber and IDT Chat first, then "
+                "drag the IDT folder to Applications, replacing the old one. An "
+                "app left open while it's replaced can fail with odd errors "
+                "until it's reopened."
             )
             lines += ["", how]
         elif can_install:
@@ -10972,6 +10980,16 @@ def main():
             log_build_banner()
         except Exception:
             pass
+
+    # Installing a new version over this one while it is open breaks whatever
+    # is opened next, with a misleading error (Settings said "Operation not
+    # permitted" for a settings file that was fine, 11/20/2026). Record the
+    # executable now so error boxes can say "quit and reopen" instead.
+    try:
+        from shared.wx_common import watch_for_replacement
+        watch_for_replacement()
+    except Exception as e:
+        logger.warning(f"Couldn't watch for the app being replaced: {e!r}")
 
     app = wx.App()
 
