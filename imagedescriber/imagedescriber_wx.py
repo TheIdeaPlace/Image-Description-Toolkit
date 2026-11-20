@@ -10973,6 +10973,16 @@ def main():
         except Exception:
             pass
 
+    # What this process can reach in the settings folder. macOS can refuse an
+    # app launched from Finder what it allows the same app launched from
+    # Terminal, and Configure's message alone didn't say which call failed.
+    try:
+        from idt_core.config_loader import settings_access_report
+        for line in settings_access_report():
+            logger.info(f"Settings check: {line}")
+    except Exception as e:
+        logger.warning(f"Settings check couldn't run: {e!r}", exc_info=True)
+
     app = wx.App()
 
     # Name every dialog's controls for VoiceOver as it is shown. Installed once
