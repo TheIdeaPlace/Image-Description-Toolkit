@@ -137,3 +137,17 @@ def test_hidden_reasoning_and_cutoffs_reach_the_run_log(tmp_path, src):
     log_text = "".join(p.read_text(encoding="utf-8") for p in ws.logs_dir.glob("*.log"))
     assert log_text.count("4,820 characters of hidden reasoning, discarded") == 2
     assert log_text.count("CUT OFF at the output limit") == 1
+
+
+def test_an_unreadable_description_file_is_logged_not_dropped_silently(tmp_path, src, caplog):
+    ws = Workspace.create(tmp_path / "WS")
+    ws.add_source_folder(src, recursive=True)
+    list(WorkspacePipeline(ws, FakeProvider()).run(RunOptions(prompt_text="x")))
+    broken = ws.descriptions_dir / "broken.json"
+    broken.write_text("{not json", encoding="utf-8")
+
+    with caplog.at_level("WARNING", logger="idt_core.workspace"):
+        items = ws.items()
+
+    assert len(items) == 2                      # the good ones still open
+    assert "broken.json" in caplog.text

@@ -47,16 +47,11 @@ if str(_project_root) not in sys.path:
 # Import shared utilities
 try:
     from shared.wx_common import (
-        ConfigManager,
         ModifiedStateMixin,
         set_screen_reader_name,
         show_error,
         show_warning,
         show_info,
-        open_file_dialog,
-        save_file_dialog,
-        show_about_dialog,
-        get_app_version,
     )
 except ImportError as e:
     print(f"ERROR: Cannot import shared.wx_common: {e}")

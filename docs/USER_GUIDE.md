@@ -1252,10 +1252,13 @@ To batch only one folder, select the folder in the image list and choose **Proce
 **Token use and cost.** Once descriptions start coming back, the list has a **Token Usage** section:
 
 - **Estimated Cost So Far** — what the pictures described so far cost, at the provider's list prices.
-- **Average Cost per Image**.
-- **Projected Batch Cost** — about what the whole batch will cost: the cost so far plus the average for each picture still to go. Not shown while videos are still having their frames extracted, since the total isn't known yet.
+- **Average Cost per Image**. Under a dollar, costs are given in cents, such as "0.074 cents".
+- **Projected Batch Cost** — about what the whole batch will cost: the cost so far plus the average for each picture still to go. Not shown while videos are still having their frames extracted, since the total isn't known yet. For a resumed batch it covers the part being resumed, not pictures described before.
 - **Average Input Tokens**, **Average Output Tokens**, **Average Total Tokens** and **Total Tokens**.
-- **Largest Token Use** — the most tokens one picture took, and which picture.
+- **Largest Token Use** — the most tokens one picture took, and which picture, followed by that picture's description.
+- **Most Expensive Picture** — what the costliest picture so far cost, and which picture, followed by its description. It isn't always the one with the most tokens: a model's answer costs more per token than what it's sent.
+
+Only the batch's own pictures count. A picture you describe with P, or a follow-up question, while a batch runs isn't added to it. Each picture's cost and the running total are also written to the workspace's run log, in its `logs` folder.
 
 For a model that isn't charged per token, the cost line says why instead: "no charge (runs on your computer)", "covered by your Ollama plan", "covered by your Claude plan" (Claude Code), or "no price known for this model". The costs are estimates; your provider's bill is the real figure.
 

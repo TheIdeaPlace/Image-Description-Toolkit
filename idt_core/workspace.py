@@ -773,8 +773,12 @@ class Workspace:
         for done, p in enumerate(paths, start=1):
             try:
                 out.append(WorkspaceItem.from_dict(json.loads(p.read_text(encoding="utf-8"))))
-            except Exception:
-                pass
+            except Exception as exc:
+                # One damaged description file mustn't stop the workspace
+                # opening, but it mustn't vanish without a word either.
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Skipped a description file that couldn't be read: %s (%s)", p, exc)
             if progress is not None:
                 progress(done, total, p.stem)
         return out
