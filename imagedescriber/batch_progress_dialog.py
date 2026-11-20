@@ -80,6 +80,13 @@ def cost_rows(token_stats: dict, total: int, extracting: bool = False,
     return rows
 
 
+def one_line(text) -> str:
+    """A description as one list row: no usage line, and its paragraph breaks
+    as spaces. A list row can't show a line break; on screen it ran the
+    paragraphs together or drew boxes, and screen readers paused at each."""
+    return " ".join(strip_usage_line(text or "").split())
+
+
 def standout_rows(token_stats: dict) -> list:
     """The pictures that stand out so far: the one that used the most tokens
     and the one that cost the most, each with its description, so there's
@@ -87,13 +94,13 @@ def standout_rows(token_stats: dict) -> list:
     rows = [f"  Largest Token Use:        {token_stats['peak_total']:,} "
             f"({token_stats['peak_name']})"]
     if token_stats.get('peak_description'):
-        rows.append(f"  Largest Token Use Description: {strip_usage_line(token_stats['peak_description'])}")
+        rows.append(f"  Largest Token Use Description: {one_line(token_stats['peak_description'])}")
     if token_stats.get('priciest_name') and token_stats.get('priciest_cost') is not None:
         rows.append(f"  Most Expensive Picture:   {_dollars(token_stats['priciest_cost'])} "
                     f"({token_stats['priciest_name']})")
         if token_stats.get('priciest_description'):
             rows.append(f"  Most Expensive Description: "
-                        f"{strip_usage_line(token_stats['priciest_description'])}")
+                        f"{one_line(token_stats['priciest_description'])}")
     return rows
 
 
@@ -540,7 +547,7 @@ class BatchProgressDialog(wx.Dialog):
         # ── Last completed + current image ───────────────────────────────────
         if last_image and last_description:
             self.stats_list.Append(f"Last Image Described:       {last_image}")
-            self.stats_list.Append(f"Last Description:           {last_description}")
+            self.stats_list.Append(f"Last Description:           {one_line(last_description)}")
 
         if image_name or file_path:
             self._waiting = False

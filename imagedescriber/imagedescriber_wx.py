@@ -3274,6 +3274,38 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self._batch_provider = options.get('provider', '') or ''
             self._batch_model = options.get('model', '') or ''
             self._batch_prompt = options.get('prompt_style', '') or ''
+            try:
+                from ai_providers import provider_uses_prompt
+            except ImportError:
+                from imagedescriber.ai_providers import provider_uses_prompt
+            if self._batch_provider and not provider_uses_prompt(self._batch_provider):
+                # No prompt to show: the progress window leaves the line out
+                # rather than name a style the provider never sees.
+                self._batch_prompt = ''
+
+    def _meter_picture(self, event, metadata: dict) -> None:
+        """Add one finished picture to the batch's token totals and cost meter.
+
+        Counted when it's the batch's own and reported tokens; the run log
+        uses the same test (input plus output over 0), so the two agree.
+        """
+        in_t = metadata.get('input_tokens', 0) or 0
+        out_t = metadata.get('output_tokens', 0) or 0
+        if in_t + out_t <= 0 or not self._counts_toward_batch(getattr(event, 'batch', None)):
+            return
+        # Priced once, here, and added to the running total.
+        before, priced = self._cost_meter.cost, self._cost_meter.priced
+        self._cost_meter.add(event.provider, event.model, in_t, out_t)
+        self._token_records.append({
+            'input': in_t,
+            'output': out_t,
+            'total': metadata.get('total_tokens', 0) or in_t + out_t,
+            'name': Path(event.file_path).name,
+            'description': event.description or '',
+            # None when this picture has no per-token price.
+            'cost': (self._cost_meter.cost - before
+                     if self._cost_meter.priced > priced else None),
+        })
 
     def _counts_toward_batch(self, batch) -> bool:
         """Is this finished picture part of the batch the window is showing?
@@ -4784,18 +4816,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         self._stage_count = stage_count
         self._stage_no = 0
         self._batch_active = True
-        self._start_batch_meters()
-        self._batch_provider = options.get('provider', '')
-        self._batch_model = options.get('model', '')
-        self._batch_prompt = options.get('prompt_style', '')
-        try:
-            from ai_providers import provider_uses_prompt
-        except ImportError:
-            from imagedescriber.ai_providers import provider_uses_prompt
-        if self._batch_provider and not provider_uses_prompt(self._batch_provider):
-            # No prompt to show: the progress window leaves the line out
-            # rather than name a style the provider never sees.
-            self._batch_prompt = ''
+        self._start_batch_meters(options)
 
         self.batch_progress_dialog = BatchProgressDialog(
             self, 0,
@@ -6800,23 +6821,7 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             metadata = getattr(event, 'metadata', {})
 
             # Accumulate token usage for the progress dialog Token Usage section
-            in_t = metadata.get('input_tokens', 0)
-            out_t = metadata.get('output_tokens', 0)
-            tot_t = metadata.get('total_tokens', 0)
-            if tot_t > 0 and self._counts_toward_batch(getattr(event, 'batch', None)):
-                # Priced once, here, and added to the running total.
-                before, priced = self._cost_meter.cost, self._cost_meter.priced
-                self._cost_meter.add(event.provider, event.model, in_t, out_t)
-                self._token_records.append({
-                    'input': in_t,
-                    'output': out_t,
-                    'total': tot_t,
-                    'name': Path(event.file_path).name,
-                    'description': event.description or '',
-                    # None when this picture has no per-token price.
-                    'cost': (self._cost_meter.cost - before
-                             if self._cost_meter.priced > priced else None),
-                })
+            self._meter_picture(event, metadata)
             desc = ImageDescription(
                 text=event.description,
                 model=event.model,

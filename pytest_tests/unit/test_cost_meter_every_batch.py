@@ -44,10 +44,14 @@ def test_the_meter_is_reset_in_one_place_only():
     assert _SOURCE.count("def _start_batch_meters(self") == 1
 
 
-def test_only_the_batchs_own_pictures_reach_the_meter():
-    """P, a follow-up or an auto-rename finishing mid-batch isn't added."""
-    assert ("if tot_t > 0 and self._counts_toward_batch(getattr(event, 'batch', None)):"
-            in _SOURCE)
+def test_batches_that_skip_the_options_dialog_still_name_their_provider():
+    """Resume, downloaded images and extracted frames pass their own provider,
+    model and prompt; without them the window named the previous batch's."""
+    calls = re.findall(r"self\._start_batch_meters\(([^)]*)", _SOURCE)
+    with_options = [c for c in calls if c.strip()]
+    # _ensure_progress_dialog, downloaded images, frames: (options); resume: ({...
+    assert sum(c.strip() == "options" for c in with_options) >= 3, calls
+    assert any(c.strip().startswith("{") for c in with_options), calls
 
 
 # wx only for the tests below; the source checks above run without it.
@@ -211,3 +215,51 @@ def test_token_stats_pick_the_standouts():
     assert (stats["peak_name"], stats["peak_description"]) == ("big-in.jpg", "Many tokens in.")
     assert (stats["priciest_name"], stats["priciest_cost"], stats["priciest_description"]) == \
         ("long-out.jpg", 0.0011588, "A long answer.")
+
+
+def _meter_frame(batch_worker):
+    from types import SimpleNamespace
+    from idt_core.pricing import CostMeter
+
+    frame = SimpleNamespace(_token_records=[], _cost_meter=CostMeter(),
+                            batch_worker=batch_worker, _stopping_worker=None)
+    cls = imagedescriber_wx.ImageDescriberFrame
+    frame._counts_toward_batch = lambda b: cls._counts_toward_batch(frame, b)
+    return frame, lambda event, md: cls._meter_picture(frame, event, md)
+
+
+def _event(batch, provider="claude", model="claude-haiku-5-5", name="a.jpg"):
+    from types import SimpleNamespace
+    return SimpleNamespace(batch=batch, provider=provider, model=model,
+                           file_path=f"C:/p/{name}", description=f"About {name}.")
+
+
+@needs_wx
+def test_meter_picture_counts_the_batchs_own_and_prices_each():
+    batch = object()
+    frame, meter = _meter_frame(batch)
+    meter(_event(batch), {"input_tokens": 2023, "output_tokens": 1913, "total_tokens": 3936})
+    meter(_event(None, name="p.jpg"), {"input_tokens": 2023, "output_tokens": 1913,
+                                       "total_tokens": 3936})       # P during the batch
+    meter(_event(batch, provider="ollama", model="moondream", name="o.jpg"),
+          {"input_tokens": 900, "output_tokens": 120, "total_tokens": 1020})
+    meter(_event(batch, name="none.jpg"), {"total_tokens": 0})       # no usage reported
+
+    names = [r["name"] for r in frame._token_records]
+    assert names == ["a.jpg", "o.jpg"]
+    assert frame._token_records[0]["cost"] == pytest.approx(0.0011588)
+    assert frame._token_records[0]["description"] == "About a.jpg."
+    assert frame._token_records[1]["cost"] is None                   # unpriced
+    assert frame._cost_meter.priced == 1
+
+
+@needs_wx
+def test_list_rows_keep_a_description_on_one_line():
+    from batch_progress_dialog import one_line, standout_rows
+
+    text = ("Madison, Wisconsin - A lake at dusk.\n\nThe far shore is lit.\n\n"
+            "[Token Usage: 3,936 total (2,023 prompt + 1,913 completion)]")
+    assert one_line(text) == "Madison, Wisconsin - A lake at dusk. The far shore is lit."
+    rows = standout_rows({"peak_total": 3936, "peak_name": "a.jpg", "peak_description": text,
+                          "priciest_name": None, "priciest_cost": None})
+    assert all("\n" not in r for r in rows)
