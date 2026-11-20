@@ -204,6 +204,14 @@ idt describe C:\Photos --provider ollama --model qwen3-vl:8b-instruct --max-toke
 
 ### Fixed
 
+- **Cmd+, now opens Settings on the Mac.** In both ImageDescriber and IDT Chat it did
+  nothing; Settings was only reachable from the menu.
+- **Installing over an app that's still open.** Installing a new version while
+  ImageDescriber or IDT Chat was open made the next thing you opened fail with an error
+  that had nothing to do with it: opening Settings could say "Operation not permitted"
+  for your settings file. Your settings were fine; quitting and reopening fixed it. The
+  apps now notice when they've been replaced while open and tell you to quit and reopen.
+  Quit both apps before installing.
 - **Chats were lost from a workspace that had already been saved.** A chat started, or
   continued, in a saved workspace wasn't written by File → Save, so it was gone the next
   time the workspace was opened. Save now writes chats along with pictures.
