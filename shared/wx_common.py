@@ -24,6 +24,52 @@ try:
 except ImportError:
     load_json_config = None
 
+try:
+    from idt_core import app_replaced
+except ImportError:
+    app_replaced = None
+
+
+def _with_replaced_notice(message: str) -> str:
+    """``message``, led by "quit and reopen" if the app was replaced while open.
+
+    Whatever fails after that is a symptom, not the problem (see
+    idt_core/app_replaced.py), so the one thing worth doing comes first.
+    """
+    try:
+        if app_replaced is not None and app_replaced.replaced():
+            return f"{app_replaced.notice()}\n\nThe error was: {message}"
+    except Exception:
+        pass
+    return message
+
+
+def watch_for_replacement() -> None:
+    """Call once at startup, before the main loop, in a frozen app.
+
+    Records the executable (idt_core/app_replaced.py) and, from then on, an
+    exception no handler caught -- wx would only print it -- shows "quit and
+    reopen" if the app has been replaced since, once. Otherwise the exception
+    goes where it went before.
+    """
+    if app_replaced is None:
+        return
+    app_replaced.remember()
+    previous = sys.excepthook
+    told = []
+
+    def hook(exc_type, exc, tb):
+        previous(exc_type, exc, tb)
+        try:
+            if not told and app_replaced.replaced():
+                told.append(True)
+                wx.CallAfter(wx.MessageBox, app_replaced.notice(),
+                             "Please reopen", wx.OK | wx.ICON_WARNING)
+        except Exception:
+            pass
+
+    sys.excepthook = hook
+
 
 # ==================== PATH RESOLUTION ====================
 
@@ -553,7 +599,7 @@ def show_error(parent, message: str, title: str = "Error"):
         message: Error message to display
         title: Dialog title
     """
-    wx.MessageBox(message, title, wx.OK | wx.ICON_ERROR, parent)
+    wx.MessageBox(_with_replaced_notice(message), title, wx.OK | wx.ICON_ERROR, parent)
 
 
 def show_warning(parent, message: str, title: str = "Warning"):
@@ -565,7 +611,7 @@ def show_warning(parent, message: str, title: str = "Warning"):
         message: Warning message to display
         title: Dialog title
     """
-    wx.MessageBox(message, title, wx.OK | wx.ICON_WARNING, parent)
+    wx.MessageBox(_with_replaced_notice(message), title, wx.OK | wx.ICON_WARNING, parent)
 
 
 def show_info(parent, message: str, title: str = "Information"):

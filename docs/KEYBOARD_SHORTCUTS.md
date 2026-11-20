@@ -52,7 +52,7 @@ window, menu, or dialog.
 | New Chat | `Ctrl+N` | `Cmd+N` | |
 | Delete Chat | — | — | Contextual `Delete`; see below |
 | Export Conversation… | `Ctrl+Shift+E` | `Cmd+Shift+E` | Not `Cmd+E` — that is "use selection for find" on macOS |
-| Settings… | `Ctrl+,` | `Cmd+,` | macOS supplies the key via the application menu (`wx.ID_PREFERENCES`) |
+| Settings… | `Ctrl+,` | `Cmd+,` | On the macOS application menu through `wx.ID_PREFERENCES`; the item must carry `Ctrl+,` itself, since wx doesn't add `Cmd+,` |
 | API Keys… | — | — | |
 | Close Window | — | `Cmd+W` | macOS only; with one window it is the same as quitting |
 | Exit | `Ctrl+Q` | `Cmd+Q` | macOS supplies the key via the application menu (`wx.ID_EXIT`) |
@@ -201,7 +201,7 @@ Within an open menu:
 | **Tools** |
 | Edit Prompts… | `Ctrl+Shift+P` | `Cmd+Shift+P` | Not `Ctrl+P` — that is Print on both platforms |
 | Configure Settings… | `Ctrl+Shift+C` | — | Windows label |
-| Preferences… | — | `Cmd+,` | macOS label; the application menu supplies the key |
+| Preferences… | — | `Cmd+,` | macOS label; on the application menu, and the item carries `Ctrl+,` itself |
 | Install Ollama… | — | — | |
 | Install FFmpeg (for video GPS)… | — | — | |
 | Export Configuration… | — | — | |
@@ -343,7 +343,7 @@ Command. Chords that are already spoken for:
 | `Cmd+M` | Minimise window (macOS; wx puts it on the automatic Window menu) |
 | `Cmd+W`, `Cmd+Shift+W` | Close window (macOS) |
 | `Cmd+H` | Hide application (macOS) |
-| `Cmd+Q`, `Cmd+,` | Quit, Settings — supplied by the macOS application menu |
+| `Cmd+Q`, `Cmd+,` | Quit, Settings. wx supplies `Cmd+Q` for `wx.ID_EXIT`, so don't repeat it; it does **not** supply `Cmd+,`, so the `wx.ID_PREFERENCES` item must carry `Ctrl+,` (until 11/20/2026 neither app did, and `Cmd+,` did nothing) |
 | `Ctrl+P` / `Cmd+P` | Print, on both, and pressed reflexively |
 | `Ctrl+Space` | Input-source switcher and Spotlight |
 | `Ctrl+X/C/V/Z/A` | The focused control's editing keys — never repurpose them |

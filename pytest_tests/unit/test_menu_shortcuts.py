@@ -135,6 +135,27 @@ def test_the_mac_application_menu_ids_are_used(app):
 
 
 @every_app
+def test_settings_carries_cmd_comma_itself(app):
+    """wxOSX moves the wx.ID_PREFERENCES item to the application menu but
+    gives it no Cmd+, -- the item must carry Ctrl+, (Cmd+, on macOS) itself.
+
+    Both apps left it off on the belief that macOS supplied it, and Cmd+, did
+    nothing in either (11/20/2026, confirmed by reading the moved NSMenuItem's
+    keyEquivalent: empty without the accelerator, "," with it).
+    """
+    lines = _menu_source(app).splitlines()
+    for index, line in enumerate(lines):
+        context = "\n".join(lines[max(0, index - 1):index + 2])
+        # The call that creates the item, not a comment or docstring naming it.
+        if "wx.ID_PREFERENCES" in line and ("Append(" in line or line.rstrip().endswith(")")) \
+                and not line.lstrip().startswith(("#", "*")):
+            assert "\\tCtrl+," in context, (
+                f"the Settings item has no Ctrl+, (Cmd+,): {context.strip()}")
+            return
+    pytest.fail("no wx.ID_PREFERENCES item found")
+
+
+@every_app
 def test_the_help_key_is_platform_correct(app):
     """F1 on Windows; Cmd+? on macOS, where F1 is a hardware key."""
     menu = _menu_source(app)
@@ -179,7 +200,7 @@ def test_the_shortcut_list_covers_every_accelerator():
 
     # The listing spells the modifier per platform ("Cmd+N" / "Ctrl+N"), so
     # compare on the key part alone.
-    documented = set(re.findall(r"\{mod\}\+([A-Za-z0-9+?.]+)", listing))
+    documented = set(re.findall(r"\{mod\}\+([A-Za-z0-9+?.,]+)", listing))
     for accel in _accelerators(_menu_source("chat")):
         key = accel[len("Ctrl+"):] if accel.startswith("Ctrl+") else accel
         if key in ("Return", "W"):

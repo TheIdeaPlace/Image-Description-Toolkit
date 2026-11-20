@@ -44,8 +44,6 @@ __all__ = [
     'load_json_config',
     'merge_defaults',
     'writable_config_path',
-    'settings_access_report',
-    'SETTINGS_FILES',
 ]
 
 
@@ -266,65 +264,6 @@ def _migrate_once(path: Path, filename: str, config: dict) -> dict:
     except OSError:
         pass        # read-only or locked: fixed in memory now, and again next time
     return config
-
-
-#: The settings files Configure reads and saves.
-SETTINGS_FILES = ('image_describer_config.json', 'video_frame_extractor_config.json',
-                  'workflow_config.json')
-
-
-def settings_access_report() -> list:
-    """Lines saying whether this process can reach each settings file.
-
-    For the startup log. Every check catches its own error, so the report
-    names exactly which call macOS refuses and on which path -- the Configure
-    dialog only ever said "Operation not permitted" (macOS 27, 11/20/2026:
-    the app launched from Finder couldn't load its settings, but the same app
-    launched from Terminal could).
-    """
-    lines = [f"cwd: {_safe(os.getcwd)}"]
-    user_dir = get_user_config_dir()
-    lines.append(f"user config dir {user_dir}: {_probe_stat(user_dir)}")
-    lines.append(f"  listdir: {_safe(lambda: sorted(os.listdir(user_dir)))}")
-    for name in SETTINGS_FILES:
-        p = user_dir / name
-        lines.append(f"  {name}: stat {_probe_stat(p)}; read {_probe_read(p)}")
-        try:
-            _config, path, source = load_json_config(name)
-            lines.append(f"    load_json_config: ok, from {source} ({path})")
-        except Exception as exc:                                # noqa: BLE001
-            lines.append(f"    load_json_config: FAILED {exc!r} "
-                         f"(path {getattr(exc, 'filename', None)!r})")
-        try:
-            dpath, dsource = resolve_defaults(name)
-            lines.append(f"    defaults: {dsource} ({dpath})")
-        except Exception as exc:                                # noqa: BLE001
-            lines.append(f"    defaults: FAILED {exc!r} "
-                         f"(path {getattr(exc, 'filename', None)!r})")
-    return lines
-
-
-def _safe(fn):
-    try:
-        return fn()
-    except Exception as exc:                                    # noqa: BLE001
-        return f"FAILED {exc!r}"
-
-
-def _probe_stat(p: Path) -> str:
-    try:
-        st = os.stat(p)
-        return f"ok (mode {oct(st.st_mode & 0o777)})"
-    except Exception as exc:                                    # noqa: BLE001
-        return f"FAILED {exc!r}"
-
-
-def _probe_read(p: Path) -> str:
-    try:
-        with open(p, 'rb') as f:
-            return f"ok ({len(f.read())} bytes)"
-    except Exception as exc:                                    # noqa: BLE001
-        return f"FAILED {exc!r}"
 
 
 def _is_user_file(path: Path, filename: str) -> bool:

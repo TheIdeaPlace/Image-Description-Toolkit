@@ -102,6 +102,7 @@ a = Analysis(
         'idt_core.exporter',
         'idt_core.config',
         'idt_core.config_loader',
+        'idt_core.app_replaced',   # "quit and reopen" after an install over the running app
         'idt_core.converter',
         'idt_core.updater',
         'idt_core.progress',
