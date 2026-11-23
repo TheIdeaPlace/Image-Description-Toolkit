@@ -7,7 +7,6 @@ From an 11,559-image Apple Intelligence run kept in OneDrive: the manifest was
 rebuilt with default settings at the end, the run log stopped at hour 3 of 29,
 and 9 images were refused that the technical or artistic prompt described.
 """
-import json
 import os
 import threading
 import time
@@ -15,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-import idt_core.workspace as workspace_mod
 from idt_core.logger import close_run_log, open_run_log
 from idt_core.pipeline import (
     REFUSAL_FALLBACK_STYLES, RunOptions, WorkspacePipeline,
@@ -41,7 +39,7 @@ def _bundle_with_content(tmp_path) -> Workspace:
 
 
 def test_open_raises_rather_than_recreating_a_bundle_with_content(tmp_path, monkeypatch):
-    monkeypatch.setattr(workspace_mod, "MANIFEST_WAIT_SECONDS", 0.3)
+    monkeypatch.setattr("idt_core.workspace.MANIFEST_WAIT_SECONDS", 0.3)
     ws = _bundle_with_content(tmp_path)
     ws.manifest_path.unlink()
 
@@ -51,7 +49,7 @@ def test_open_raises_rather_than_recreating_a_bundle_with_content(tmp_path, monk
 
 
 def test_open_waits_for_a_manifest_that_comes_back(tmp_path, monkeypatch):
-    monkeypatch.setattr(workspace_mod, "MANIFEST_WAIT_SECONDS", 5.0)
+    monkeypatch.setattr("idt_core.workspace.MANIFEST_WAIT_SECONDS", 5.0)
     ws = _bundle_with_content(tmp_path)
     saved = ws.manifest_path.read_text(encoding="utf-8")
     ws.manifest_path.unlink()
@@ -69,7 +67,7 @@ def test_open_waits_for_a_manifest_that_comes_back(tmp_path, monkeypatch):
 
 
 def test_open_waits_out_a_half_written_manifest(tmp_path, monkeypatch):
-    monkeypatch.setattr(workspace_mod, "MANIFEST_WAIT_SECONDS", 5.0)
+    monkeypatch.setattr("idt_core.workspace.MANIFEST_WAIT_SECONDS", 5.0)
     ws = _bundle_with_content(tmp_path)
     saved = ws.manifest_path.read_text(encoding="utf-8")
     ws.manifest_path.write_text(saved[:20], encoding="utf-8")
@@ -90,7 +88,8 @@ def test_open_still_creates_a_new_bundle(tmp_path):
 
     empty = tmp_path / "Empty.idtw"
     (empty / "descriptions").mkdir(parents=True)
-    assert Workspace.is_bundle(Workspace.open(empty).path)
+    opened = Workspace.open(empty)
+    assert Workspace.is_bundle(opened.path)
 
 
 # --------------------------------------------------------------------------- #
