@@ -67,6 +67,57 @@ def metadata_preamble(context: str, name_place: bool = True) -> str:
            else "Use it where it helps, and ")
     return f"{META_PREFIX}{context}\n{_META_SOURCE}{use}{_META_NO_COMMENT}\n\n"
 
+#: Prompt styles tried, in order, when the provider declines one image in a way
+#: a different prompt can change (``prompt_may_help``: Apple Intelligence's
+#: safety guardrails). Measured on the 9 photos Apple refused in an
+#: 11,559-image run (battleship guns, a museum exhibit, mounted antlers, two
+#: street scenes): technical and artistic described all 9, while narrative,
+#: detailed, concise, simple and accessibility were each refused on several.
+#: The same prompt is not stable either -- narrative got 3 of the 9 through on
+#: a retry -- so this is a ranking, not a guarantee.
+REFUSAL_FALLBACK_STYLES = ("technical", "artistic")
+
+
+def describe_with_refusal_fallback(describe, prompt_name: str, prompt_text: str,
+                                   preamble: str, resolve_prompt):
+    """Describe one image, falling back to other prompt styles on a refusal.
+
+    ``describe(prompt)`` makes the provider call, with ``preamble`` (the
+    metadata lines, or "") before each prompt tried. ``resolve_prompt(name)``
+    returns a style's prompt text, or None. Returns ``(result, prompt_name,
+    prompt_text)`` for the prompt that worked, so the description records the
+    style that actually wrote it.
+
+    Only a refusal marked ``prompt_may_help`` falls back: Windows AI takes no
+    prompt, and an unreadable file stays unreadable. A custom prompt never
+    falls back: swapping the user's own wording for a built-in one is not ours
+    to decide. When every fallback is refused too, the original refusal is
+    raised, so the picture is still counted and remembered as declined.
+    """
+    try:
+        return describe(preamble + prompt_text), prompt_name, prompt_text
+    except Exception as exc:
+        if prompt_name == "custom" or not _chain_says(exc, "prompt_may_help"):
+            raise
+        refusal = exc
+    for style in REFUSAL_FALLBACK_STYLES:
+        if style == prompt_name:
+            continue
+        text = resolve_prompt(style)
+        if not text:
+            continue
+        try:
+            return describe(preamble + text), style, text
+        except Exception as exc:
+            if not _chain_says(exc, "prompt_may_help"):
+                raise
+    raise refusal
+
+
+def _builtin_prompt(name: str) -> Optional[str]:
+    from .config import UserConfig
+    return UserConfig.load().get_prompt_text(name)
+
 
 @dataclass
 class RunOptions:
@@ -148,20 +199,20 @@ class Pipeline:
                     meta_context = meta.prompt_context()
                     item.metadata = meta.to_dict()
 
-            # Build enriched prompt: context line first, then the actual prompt
-            prompt = options.prompt_text
-            if meta_context:
-                prompt = metadata_preamble(meta_context) + prompt
-
             image_bytes, mime_type = load_for_api(item.processable_path)
-            result = self.provider.describe(image_bytes, mime_type, prompt)
+            result, prompt_name, prompt_text = describe_with_refusal_fallback(
+                lambda p: self.provider.describe(image_bytes, mime_type, p),
+                options.prompt_name, options.prompt_text,
+                metadata_preamble(meta_context) if meta_context else "",
+                _builtin_prompt,
+            )
 
             desc = Description.create(
                 text=result.text,
                 model=result.model,
                 provider=result.provider,
-                prompt_name=options.prompt_name,
-                prompt_text=options.prompt_text,
+                prompt_name=prompt_name,
+                prompt_text=prompt_text,
                 input_tokens=result.input_tokens,
                 output_tokens=result.output_tokens,
                 metadata_context=meta_context or None,
@@ -597,11 +648,14 @@ class WorkspacePipeline:
                 event = self._process(item, index, total, options)
                 if event.success:
                     described += 1
-                    tokens = ""
+                    tokens = fallback = ""
                     if item.descriptions:
                         last = item.descriptions[-1]
                         if last.input_tokens or last.output_tokens:
                             tokens = f"  ({last.input_tokens} in, {last.output_tokens} out)"
+                        if last.prompt_name != options.prompt_name:
+                            fallback = (f"  [{options.prompt_name} refused; "
+                                        f"used {last.prompt_name}]")
                     if event.thinking_chars:
                         tokens += (f"  {event.thinking_chars:,} characters of hidden "
                                    f"reasoning, discarded")
@@ -610,7 +664,7 @@ class WorkspacePipeline:
                                    f"were hidden reasoning")
                     if event.truncated:
                         tokens += "  CUT OFF at the output limit"
-                    log.info(f"{index}/{total}  {item.image}: described{tokens}")
+                    log.info(f"{index}/{total}  {item.image}: described{tokens}{fallback}")
                 else:
                     errors += 1
                     log.error(f"{index}/{total}  {item.image}: ERROR — {event.error}")
@@ -682,21 +736,26 @@ class WorkspacePipeline:
                     read_path = conv
 
             # EXIF is read from the bundle copy (copy2 preserved it)
-            meta, meta_context, prompt = _extract_and_build_prompt(
+            meta, meta_context, _ = _extract_and_build_prompt(
                 self._extractor, self._geocoder, bundle_image, options.prompt_text
             )
             if meta:
                 item.metadata = meta.to_dict()
 
             image_bytes, mime_type = load_for_api(read_path)
-            result = self.provider.describe(image_bytes, mime_type, prompt)
+            result, prompt_name, prompt_text = describe_with_refusal_fallback(
+                lambda p: self.provider.describe(image_bytes, mime_type, p),
+                options.prompt_name, options.prompt_text,
+                metadata_preamble(meta_context) if meta_context else "",
+                _builtin_prompt,
+            )
 
             desc = WorkspaceDescription.create(
                 text=result.text,
                 provider=result.provider,
                 model=result.model,
-                prompt_name=options.prompt_name,
-                prompt_text=options.prompt_text,
+                prompt_name=prompt_name,
+                prompt_text=prompt_text,
                 input_tokens=result.input_tokens,
                 output_tokens=result.output_tokens,
                 metadata_context=meta_context or None,

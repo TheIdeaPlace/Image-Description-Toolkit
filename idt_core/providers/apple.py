@@ -199,14 +199,20 @@ class AppleFMError(RuntimeError):
     ``per_image`` is True when the model declined this one image (its safety
     guardrails): says nothing about the next image, so a batch must not count
     it toward its run of identical failures (#337, #352).
+
+    ``prompt_may_help`` is True on a refusal a different prompt can change (the
+    guardrails, which depend on the prompt's wording): the pipeline's
+    ``describe_with_refusal_fallback`` tries other prompt styles on it.
     """
 
     def __init__(self, message: str, status_code: Optional[int] = None,
-                 setup: bool = False, per_image: bool = False):
+                 setup: bool = False, per_image: bool = False,
+                 prompt_may_help: bool = False):
         super().__init__(message)
         self.status_code = status_code
         self.setup = setup
         self.per_image = per_image
+        self.prompt_may_help = prompt_may_help
 
 
 # ---------------------------------------------------------------------------
@@ -594,7 +600,7 @@ class FmServer:
             if _CONTEXT_MARKER in detail:
                 raise AppleFMError(CONTEXT_HINT)
             if _GUARDRAIL_MARKER in detail:
-                raise AppleFMError(GUARDRAIL_HINT, per_image=True)
+                raise AppleFMError(GUARDRAIL_HINT, per_image=True, prompt_may_help=True)
             if _MODEL_MANAGER_MARKER in detail:
                 # 503 rather than the 500 the server sent: this one is worth
                 # retrying, and the status is what both classifiers read first.
@@ -752,7 +758,8 @@ def response_text(data: dict) -> str:
     message = choices[0].get("message") or {}
     refusal = message.get("refusal")
     if refusal:
-        raise AppleFMError(f"Apple Intelligence declined: {refusal}", per_image=True)
+        raise AppleFMError(f"Apple Intelligence declined: {refusal}", per_image=True,
+                           prompt_may_help=True)
     text = (message.get("content") or "").strip()
     if not text:
         reason = choices[0].get("finish_reason") or "no content"

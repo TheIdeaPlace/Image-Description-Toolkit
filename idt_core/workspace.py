@@ -64,6 +64,46 @@ def _atomic_write_text(path: Path, text: str) -> None:
     tmp.replace(path)
 
 
+class WorkspaceManifestError(OSError):
+    """A bundle's manifest.json is missing or unreadable, and the bundle has
+    content, so it must not be silently recreated."""
+
+
+#: How long to wait out a manifest that is missing or half-written: a
+#: cloud-synced folder (OneDrive, iCloud) can hide a file briefly while it
+#: syncs, and another IDT process may be mid-rename.
+MANIFEST_WAIT_SECONDS = 5.0
+
+
+def _has_bundle_content(path: Path) -> bool:
+    """True if `path` holds anything a bundle writes besides its manifest."""
+    for sub in ("descriptions", "images", "derived", "logs", "chats"):
+        d = path / sub
+        try:
+            if d.is_dir() and any(d.iterdir()):
+                return True
+        except OSError:
+            return True       # can't tell: assume content, never overwrite
+    return False
+
+
+def _read_manifest_patiently(manifest: Path) -> dict:
+    """Read and parse manifest.json, retrying while it is missing or partial."""
+    import time
+    deadline = time.monotonic() + MANIFEST_WAIT_SECONDS
+    while True:
+        try:
+            return json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            if time.monotonic() >= deadline:
+                raise WorkspaceManifestError(
+                    f"The workspace manifest {manifest} is missing or unreadable "
+                    f"({exc}). The workspace was left unchanged; if it lives in a "
+                    f"cloud-synced folder, let syncing finish and try again."
+                ) from exc
+            time.sleep(0.25)
+
+
 #: Written into each video's frames folder: the source path of the video that
 #: owns it. Lets a second video that maps to the same folder notice and use
 #: its own, instead of clearing or overwriting the first one's frames.
@@ -581,10 +621,14 @@ class Workspace:
         if path.suffix.lower() != BUNDLE_EXT and not cls.is_bundle(path):
             path = path.with_name(path.name + BUNDLE_EXT)
         path = Path(os.path.abspath(path))
-        if not cls.is_bundle(path):
+        if not cls.is_bundle(path) and not _has_bundle_content(path):
             return cls.create(path)
+        # A manifest missing from a bundle that has content is never replaced:
+        # a fresh one -- default provider, no history -- over a workspace full
+        # of descriptions is what an 11,559-image run in OneDrive got, because
+        # a cloud-synced folder can hide a file for a moment while it syncs.
+        data = _read_manifest_patiently(path / "manifest.json")
         ws = cls(path)
-        data = json.loads(ws.manifest_path.read_text(encoding="utf-8"))
         ws.name = data.get("name", path.stem)
         ws.created = data.get("created", _now())
         ws.modified = data.get("modified", ws.created)
