@@ -111,7 +111,8 @@ RUN_FATAL_KINDS = frozenset({ErrorKind.AUTH, ErrorKind.UNAVAILABLE})
 #: Code plan, Ollama not running). REFUSAL_STREAK: consecutive images the provider
 #: declined (#352). Shared with the command line's runs, so the two can't drift.
 from idt_core.pipeline import (  # noqa: E402
-    REFUSAL_STREAK, SAME_FAILURE_STREAK, FailureStreak, frame_video,
+    REFUSAL_STREAK, SAME_FAILURE_STREAK, FailureStreak, describe_with_refusal_fallback,
+    frame_video,
     is_per_image_failure as _is_per_image_failure,
     metadata_preamble,
     normalise_failure_text as _normalise_failure_text,
@@ -396,6 +397,9 @@ class ProcessingWorker(threading.Thread):
         self.result_kind = None   # ErrorKind of a provider failure, if known
         self.result_signature = None   # see _failure_signature
         self.result_per_image = False   # see _is_per_image_failure
+        # The prompt style that wrote the description when the chosen one was
+        # refused for this image, else None (see describe_with_refusal_fallback).
+        self.result_fallback_style = None
         # The BatchProcessingWorker this image belongs to, or None. Carried on
         # the failure event so the window can tell batch images from a single
         # image, a follow-up question or a rename, and from a batch that has
@@ -439,6 +443,7 @@ class ProcessingWorker(threading.Thread):
             # prompt_context() → "Munich, Germany" (the place only).
             # Falls back gracefully when idt_core is unavailable (frozen builds
             # that haven't been updated yet).
+            base_prompt = prompt_text
             prompt_text, exif_context_str = self._inject_exif_context(prompt_text)
 
             # Track processing time
@@ -446,9 +451,26 @@ class ProcessingWorker(threading.Thread):
             start_time = time.time()
 
             # Process the image with selected provider (passing API key)
-            # Returns tuple: (description, provider_instance)
-            description, provider_obj = self._process_with_ai(self.file_path, prompt_text, api_key=self.api_key)
-            
+            # Returns tuple: (description, provider_instance). A refusal of
+            # this one image (Apple's guardrails) is retried with another
+            # prompt style, and the description records the style that wrote it.
+            def _prompt_for(style):
+                value = prompt_data.get(style) if not self.custom_prompt else None
+                return value.get("text") if isinstance(value, dict) else value
+
+            # The metadata lines _inject_exif_context put before the prompt,
+            # so a fallback prompt gets exactly the same ones.
+            preamble = prompt_text[:len(prompt_text) - len(base_prompt)]
+            prompt_data = config.get("prompt_variations", config.get("prompts", {}))
+            (description, provider_obj), used_style, _ = describe_with_refusal_fallback(
+                lambda p: self._process_with_ai(self.file_path, p, api_key=self.api_key),
+                "custom" if self.custom_prompt else self.prompt_style,
+                base_prompt, preamble, _prompt_for,
+            )
+            if not self.custom_prompt and used_style != self.prompt_style:
+                self.result_fallback_style = used_style
+                metadata['prompt_fallback_from'] = self.prompt_style
+
             # Calculate processing duration
             processing_duration = time.time() - start_time
             metadata['processing_time_seconds'] = round(processing_duration, 2)
@@ -485,7 +507,7 @@ class ProcessingWorker(threading.Thread):
                 description=description,
                 provider=self.provider,
                 model=self.model,
-                prompt_style=self.prompt_style,
+                prompt_style=self.result_fallback_style or self.prompt_style,
                 custom_prompt=self.custom_prompt,
                 metadata=metadata,
                 batch=self.batch,
@@ -1438,7 +1460,10 @@ class BatchProcessingWorker(threading.Thread):
                                     f" so far {format_dollars(reading['cost'])},"
                                     f" average {format_dollars(reading['avg'])}"
                                     f" over {log_meter.priced}")
-                        run_log.info(f"{i}/{total}  {Path(file_path).name}: described{token_str}")
+                        fallback = getattr(worker, 'result_fallback_style', None)
+                        fb_str = (f"  [{self.prompt_style} refused; used {fallback}]"
+                                  if fallback else "")
+                        run_log.info(f"{i}/{total}  {Path(file_path).name}: described{token_str}{fb_str}")
                     else:
                         err = worker.result_error or "unknown error"
                         run_log.warning(f"{i}/{total}  {Path(file_path).name}: failed  {err}")

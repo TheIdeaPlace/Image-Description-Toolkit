@@ -25,6 +25,28 @@ _DATE = "%Y-%m-%d %H:%M:%S"
 CAPTURED_LOGGERS = ("idt_core.providers",)
 
 
+class _AppendPerRecordHandler(logging.FileHandler):
+    """Opens the log, appends one record and closes it again.
+
+    Bundles often live in a cloud-synced folder. A handle held open for a
+    whole run kept writing to a file OneDrive had since replaced: a 29-hour
+    run's log ended at hour 3, though the run went on. Reopening by path each
+    time writes to whatever file is there now. A batch logs one line every few
+    seconds, so the extra open costs nothing measurable.
+    """
+
+    def __init__(self, filename: str):
+        super().__init__(filename, mode="a", encoding="utf-8", delay=True)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            super().emit(record)      # delay=True: opens the file first
+        finally:
+            if self.stream is not None:
+                self.stream.close()
+                self.stream = None
+
+
 def open_run_log(logs_dir: Path, *, label: str = "run") -> logging.Logger:
     """
     Create run_YYYYMMDD_HHMMSS.log in logs_dir and return a Logger.
@@ -42,7 +64,7 @@ def open_run_log(logs_dir: Path, *, label: str = "run") -> logging.Logger:
     log.setLevel(logging.DEBUG)
     log.propagate = False
 
-    h = logging.FileHandler(str(log_path), encoding="utf-8")
+    h = _AppendPerRecordHandler(str(log_path))
     h.setLevel(logging.DEBUG)
     h.setFormatter(logging.Formatter(_FMT, datefmt=_DATE))
     log.addHandler(h)
@@ -53,7 +75,7 @@ def open_run_log(logs_dir: Path, *, label: str = "run") -> logging.Logger:
         previous_level = source.level
         if source.level == logging.NOTSET or source.level > logging.INFO:
             source.setLevel(logging.INFO)
-        capture = logging.FileHandler(str(log_path), encoding="utf-8")
+        capture = _AppendPerRecordHandler(str(log_path))
         capture.setLevel(logging.INFO)
         capture.setFormatter(logging.Formatter(_FMT, datefmt=_DATE))
         source.addHandler(capture)

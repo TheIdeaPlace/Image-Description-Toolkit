@@ -236,7 +236,20 @@ any text at all to `narrative` and watch it flip.
 
 ## If you hit this on your own images
 
-1. **Do not retry.** It is deterministic.
+IDT now tries this itself. When one image is refused, it asks again with the
+`technical` prompt, then `artistic`, keeping the same location context, and
+records the style that wrote the description. In an 11,559-image run of an iPhone
+library, 9 photos were refused (battleship deck guns, a WWII museum exhibit, mounted
+antlers, and two ordinary street scenes). `technical` and `artistic` described all
+nine, while `narrative`, `detailed`, `concise`, `simple` and `accessibility` were each
+refused on several. Retried with `narrative` itself, 3 of the 9 went through, so the
+same prompt is not always refused either. A custom prompt never falls back: IDT will
+not swap your own wording for a built-in one. The run log notes each fallback, for
+example `[narrative refused; used technical]`.
+
+If an image is still refused after that:
+
+1. **Do not retry the same request.** It is refused again more often than not.
 2. **Change the prompt style, and try more than one.** Which styles work varies by image
    and by exact prompt text — `detailed` described this photo on one machine and was
    refused on another. Longer, more elaborate prompts did better than short ones in every
@@ -257,3 +270,8 @@ Nothing is wrong with the installation when this happens.
 `FmServer.open_chat` alongside the context-window case. Test:
 `test_a_safety_refusal_reads_as_a_refusal_not_a_server_fault` in
 `pytest_tests/unit/test_apple_provider.py`.
+
+The fallback is `describe_with_refusal_fallback` and `REFUSAL_FALLBACK_STYLES` in
+`idt_core/pipeline.py`, used by both CLI pipelines and by ImageDescriber's
+`ProcessingWorker`. Tests: `pytest_tests/unit/test_run_durability.py` and
+`pytest_tests/unit/test_refusal_fallback_gui.py`.

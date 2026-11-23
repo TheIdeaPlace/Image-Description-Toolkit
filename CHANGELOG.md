@@ -1,3 +1,16 @@
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+**A photo Apple Intelligence declines is tried again with another prompt style**
+- When Apple's safety guardrails decline one photo, IDT asks again with the **technical** prompt, then **artistic**, keeping the photo's location. The description records the style that wrote it, and the run log says so, for example `[narrative refused; used technical]`.
+- In an 11,559-image iPhone library run, 9 photos were declined. On a retry these two styles described all 9. Most of the others were declined on several of the 9.
+- A custom prompt is never swapped for a built-in one. Both ImageDescriber and the `idt` command line do this.
+
+**A workspace in OneDrive no longer loses its settings at the end of a long run**
+- At the end of a 29-hour batch, the workspace's settings were replaced with the defaults (Ollama, the detailed prompt), as if the workspace had just been created. The descriptions were all kept. A cloud-synced folder can hide a file for a moment while it syncs, and IDT took the missing settings file as "no workspace here" and started a new one. IDT now waits for the file to come back, and if it doesn't, reports the problem and leaves the workspace unchanged.
+- A run's log in the workspace's `logs` folder kept nothing after its third hour, though the run carried on for 26 more. Each line is now written to whatever file is there at the time, so a file the sync client swaps out no longer swallows the rest of the run.
+
 ## [4.9.0] - 2026-11-15
 
 ### ✨ New
