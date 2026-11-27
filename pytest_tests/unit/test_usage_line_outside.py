@@ -194,7 +194,7 @@ class TestProjectExports:
         from idt_core.exporter import export_html
         html = export_html(project).read_text(encoding="utf-8")
         _no_usage(html)
-        assert "<figcaption>Madison, Wisconsin - A red barn" in html
+        assert "<figcaption><p>Madison, Wisconsin - A red barn" in html
 
     def test_csv_and_txt(self, project):
         from idt_core.exporter import export_csv, export_txt

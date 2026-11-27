@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .description_text import strip_usage_line
+from .markdown_html import markdown_to_safe_html
 from .project import Project
 from .providers.registry import display_name
 
@@ -201,7 +202,7 @@ def export_html(project: Project, filename: str = "descriptions.html") -> Path:
         a("      <figure>")
         a(f'        <img src="{_h(img_src_str)}" alt="{_h(_short_alt(item.display_name))}" '
           f'loading="lazy">')
-        a(f"        <figcaption>{_h(text)}</figcaption>")
+        a(f"        <figcaption>{markdown_to_safe_html(text)}</figcaption>")
         a("      </figure>")
 
         if desc:
@@ -403,8 +404,8 @@ def export_workspace_html(ws, filename: str = "descriptions.html") -> Path:
             a('      <div class="desc-block">')
             if multi:
                 a(f'        <h4>{_h(label)}</h4>')
-            text_html = _h(strip_usage_line(desc.text)).replace("\n", "<br>\n")
-            a(f"        <p>{text_html}</p>")
+            # Markdown as headings-as-bold, lists and paragraphs, escaped (#465).
+            a(f"        {markdown_to_safe_html(strip_usage_line(desc.text))}")
             a("      </div>")
         if item.metadata:
             _render_item_metadata(a, item.metadata)

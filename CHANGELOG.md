@@ -2,6 +2,12 @@
 
 ### 🐛 Bug Fixes
 
+**Markdown in descriptions reads properly in HTML exports (#465)**
+- Models often format descriptions with Markdown: `## Setting`, `**Foreground:**`, `- a red chair`. The HTML report, ImageDescriber's Export HTML and all four gallery styles showed it as typed, so a screen reader read "number sign number sign Setting" and "star star". Now headings show as bold lines, `**bold**` and `*italic*` as bold and italic, and lists as real lists.
+- Headings are bold paragraphs, not HTML headings, so the page's own heading structure (a heading for each picture) stays intact.
+- Anything that looks like HTML in a description is still shown as text, never run.
+- Not changed yet: the Viewer, the description list and TXT exports still show Markdown as typed (planned for 4.10).
+
 **OpenAI's December shutdowns: GPT-5, GPT-5 mini, GPT-5 nano and o3 are no longer offered**
 - OpenAI shuts these down on 12/11/2026, so they're gone from the OpenAI model list in ImageDescriber, Configure and `idt models`. Workspaces described with them still show their names, and `idt stats` still prices them. GPT-5 pro and o3-pro, also shutting down, were never offered.
 - If one of them is still chosen in your settings, describing a picture fails with OpenAI's "does not exist" message followed by "OpenAI has shut down GPT-5 Mini. Choose another OpenAI model, such as GPT-6 Luna." Before, it said only that the model doesn't exist. The default, GPT-6 Luna, isn't affected.
