@@ -15,6 +15,12 @@ NVDA checks.
 - **#515, Dependabot.** Holds the Windows App SDK at 1.x until 5.0. #442 and #512 closed.
 - **#519, #493.** After Ctrl+O, focus lands on the image tree. Checked in the VM: with the fix,
   NVDA says "Images:, tree view, pics16, collapsed". Without it, NVDA said nothing.
+- **#520, #428.** The Gallery dialog opens on the style choice, with each description in its
+  style's screen reader name. The VM check found the first version still read the description
+  twice on opening: NVDA reads a dialog's StaticText as dialog text. The line is now drawn on a
+  `NoFocusPanel`; re-checked, the dialog opens with just "Export HTML Gallery, dialog" and the
+  focused style. Arrowing between styles couldn't be checked: Parallels' key events don't send
+  arrow keys.
 
 ## Issues and milestones
 
@@ -32,9 +38,6 @@ NVDA checks.
 - **#517 (#409), batch completion announced.** Rebuilt from #438 without the DLL. Checked in the
   VM: NVDA says "Batch Complete — Review stats then close, dialog … 16/16 images", and Escape
   returns focus to the tree. Waits for Kelly's own ear test.
-- **#520 (#428), Gallery dialog.** The VM check found the first version still read the
-  description twice on opening: NVDA reads a dialog's StaticText as dialog text. The line is
-  now drawn on a `NoFocusPanel`. Re-check in the VM pending.
 - **#521 (#465), Markdown in HTML exports.** `idt_core/markdown_html.py`. The exported HTML was
   checked in the VM and is right. Edge renders blank pages in the VM, so the NVDA browse-mode
   check wasn't done.
