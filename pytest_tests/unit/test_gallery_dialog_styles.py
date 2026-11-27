@@ -45,10 +45,17 @@ def _static_texts(win):
     return found
 
 
-def test_only_one_description_is_on_screen(dialog):
+def test_no_description_is_static_text(dialog):
+    """NVDA reads a dialog's static text as it opens (heard in the VM): the
+    selected style's description was read there and again from the style."""
     texts = _static_texts(dialog)
-    shown = [d for d in _descriptions() if any(d in t for t in texts)]
-    assert len(shown) == 1
+    assert not [d for d in _descriptions() if any(d in t for t in texts)]
+
+
+def test_the_drawn_line_shows_the_selected_style_and_takes_no_focus(dialog):
+    from dialogs_wx import ExportHtmlGalleryDialog
+    assert dialog._style_hint.GetLabel() == ExportHtmlGalleryDialog._STYLES[0][2]
+    assert not dialog._style_hint.AcceptsFocusFromKeyboard()
 
 
 def test_each_style_is_named_with_its_description(dialog):
@@ -63,7 +70,7 @@ def test_the_line_follows_the_selected_style(dialog):
     for value, _label, description in ExportHtmlGalleryDialog._STYLES:
         dialog._style_radios[value].SetValue(True)
         dialog._on_style_changed(wx.CommandEvent(wx.wxEVT_RADIOBUTTON))
-        assert dialog._style_hint.GetLabel().replace("\n", " ") == description
+        assert dialog._style_hint.GetLabel() == description
         assert dialog.get_options()["style"] == value
 
 

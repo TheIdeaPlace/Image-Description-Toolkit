@@ -39,6 +39,7 @@ from shared.wx_common import (
     number_field,
     refuse_bad_number,
     set_screen_reader_name,
+    NoFocusPanel,
 )
 from shared.number_entry import (validate_number, VIDEO_INTERVAL_RANGE,
                                  SCENE_THRESHOLD_RANGE)
@@ -1710,6 +1711,38 @@ class VideoExtractionDialog(wx.Dialog):
             event.Skip()
 
 
+class _DrawnHint(NoFocusPanel):
+    """A line of grey text drawn on a panel, for sight only.
+
+    A wx.StaticText is read by NVDA as part of the dialog's text when the
+    dialog opens, so the selected style's description was heard there and
+    again from the focused style (found with NVDA in the Windows VM, #428).
+    Drawn text has no accessible text, and the panel is never a Tab stop.
+    """
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._text = ""
+        self.SetMinSize((-1, 3 * self.GetCharHeight() + 6))
+        self.Bind(wx.EVT_PAINT, self._on_paint)
+        self.Bind(wx.EVT_SIZE, lambda e: (self.Refresh(), e.Skip()))
+
+    def SetLabel(self, text):
+        self._text = text
+        self.Refresh()
+
+    def GetLabel(self):
+        return self._text
+
+    def _on_paint(self, event):
+        from wx.lib.wordwrap import wordwrap
+        dc = wx.PaintDC(self)
+        dc.SetFont(self.GetFont())
+        dc.SetTextForeground(wx.Colour(108, 117, 125))
+        width = max(50, self.GetClientSize().width - 4)
+        dc.DrawText(wordwrap(self._text, width, dc), 2, 2)
+
+
 class ExportHtmlGalleryDialog(wx.Dialog):
     """Dialog for configuring and initiating an HTML gallery export.
 
@@ -1797,9 +1830,9 @@ class ExportHtmlGalleryDialog(wx.Dialog):
             style_sizer.Add(rb, 0, wx.LEFT | wx.TOP, 6)
             self._style_radios[value] = rb
 
-        # One line, for sight: the selected style's description.
-        self._style_hint = wx.StaticText(self, label='')
-        self._style_hint.SetForegroundColour(wx.Colour(108, 117, 125))
+        # One line, for sight: the selected style's description. Drawn, not
+        # a StaticText, so it isn't read again as dialog text on opening.
+        self._style_hint = _DrawnHint(self)
         style_sizer.Add(self._style_hint, 0, wx.ALL | wx.EXPAND, 8)
 
         self._style_radios['card_grid'].SetValue(True)
@@ -1897,7 +1930,6 @@ class ExportHtmlGalleryDialog(wx.Dialog):
     def _show_style_hint(self) -> None:
         descriptions = {value: description for value, _label, description in self._STYLES}
         self._style_hint.SetLabel(descriptions[self._selected_style()])
-        self._style_hint.Wrap(max(200, self.GetClientSize().width - 60))
 
     def _on_style_changed(self, event):
         self._show_style_hint()
