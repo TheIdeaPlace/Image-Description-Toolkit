@@ -68,6 +68,12 @@ updates:
       prefix: "deps"
     labels:
       - "dependencies"
+    # Windows App SDK stays on 1.x until 5.0 (release plan #509, decision 10):
+    # 2.x needs Microsoft.WindowsAppSDK.AI to move with it, and a mixed set
+    # fails the Runtime's version check (#442, #512, plan in #510).
+    ignore:
+      - dependency-name: "Microsoft.WindowsAppSDK*"
+        update-types: ["version-update:semver-major"]
     groups:
       windows-app-sdk:
         patterns:
