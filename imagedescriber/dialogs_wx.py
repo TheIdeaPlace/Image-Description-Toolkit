@@ -39,6 +39,7 @@ from shared.wx_common import (
     number_field,
     refuse_bad_number,
     set_screen_reader_name,
+    NoFocusPanel,
 )
 from shared.number_entry import (validate_number, VIDEO_INTERVAL_RANGE,
                                  SCENE_THRESHOLD_RANGE)
@@ -1710,6 +1711,38 @@ class VideoExtractionDialog(wx.Dialog):
             event.Skip()
 
 
+class _DrawnHint(NoFocusPanel):
+    """A line of grey text drawn on a panel, for sight only.
+
+    A wx.StaticText is read by NVDA as part of the dialog's text when the
+    dialog opens, so the selected style's description was heard there and
+    again from the focused style (found with NVDA in the Windows VM, #428).
+    Drawn text has no accessible text, and the panel is never a Tab stop.
+    """
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._text = ""
+        self.SetMinSize((-1, 3 * self.GetCharHeight() + 6))
+        self.Bind(wx.EVT_PAINT, self._on_paint)
+        self.Bind(wx.EVT_SIZE, lambda e: (self.Refresh(), e.Skip()))
+
+    def SetLabel(self, text):
+        self._text = text
+        self.Refresh()
+
+    def GetLabel(self):
+        return self._text
+
+    def _on_paint(self, event):
+        from wx.lib.wordwrap import wordwrap
+        dc = wx.PaintDC(self)
+        dc.SetFont(self.GetFont())
+        dc.SetTextForeground(wx.Colour(108, 117, 125))
+        width = max(50, self.GetClientSize().width - 4)
+        dc.DrawText(wordwrap(self._text, width, dc), 2, 2)
+
+
 class ExportHtmlGalleryDialog(wx.Dialog):
     """Dialog for configuring and initiating an HTML gallery export.
 
@@ -1738,7 +1771,8 @@ class ExportHtmlGalleryDialog(wx.Dialog):
         self._init_ui()
         self.SetSize((580, 700))
         self.Centre()
-        wx.CallAfter(self._browse_btn.SetFocus)
+        # Opens on the style choice (#428), the first thing to decide.
+        wx.CallAfter(self._selected_style_radio().SetFocus)
 
     # ------------------------------------------------------------------
     # UI construction
@@ -1782,21 +1816,27 @@ class ExportHtmlGalleryDialog(wx.Dialog):
         style_box = wx.StaticBox(self, label='Gallery Style')
         style_sizer = wx.StaticBoxSizer(style_box, wx.VERTICAL)
 
+        # Each style's description is part of its screen reader name, so it's
+        # read when that style is reached. It used to sit in a text line under
+        # every button, and all four were read in a row as the dialog opened,
+        # before anything that could be acted on (#428, NVDA bug bash).
         for i, (value, label, description) in enumerate(self._STYLES):
             rb_style = wx.RB_GROUP if i == 0 else 0
-            rb = wx.RadioButton(self, label=label, style=rb_style,
-                                name=f'Style: {label.replace("&", "")}')
-            set_accessible_name(rb, f'Gallery style: {label.replace("&", "")}')
+            plain = label.replace("&", "")
+            rb = wx.RadioButton(self, label=label, style=rb_style)
+            set_screen_reader_name(rb, f'{plain}, {description}')
             rb.SetToolTip(description)
+            rb.Bind(wx.EVT_RADIOBUTTON, self._on_style_changed)
             style_sizer.Add(rb, 0, wx.LEFT | wx.TOP, 6)
-
-            hint = wx.StaticText(self, label=f'    {description}')
-            hint.SetForegroundColour(wx.Colour(108, 117, 125))
-            style_sizer.Add(hint, 0, wx.LEFT | wx.BOTTOM, 14)
-
             self._style_radios[value] = rb
 
+        # One line, for sight: the selected style's description. Drawn, not
+        # a StaticText, so it isn't read again as dialog text on opening.
+        self._style_hint = _DrawnHint(self)
+        style_sizer.Add(self._style_hint, 0, wx.ALL | wx.EXPAND, 8)
+
         self._style_radios['card_grid'].SetValue(True)
+        self._show_style_hint()
         main_sizer.Add(style_sizer, 0, wx.ALL | wx.EXPAND, 10)
 
         # ---- Descriptions ----
@@ -1878,13 +1918,26 @@ class ExportHtmlGalleryDialog(wx.Dialog):
     # Public interface
     # ------------------------------------------------------------------
 
-    def get_options(self) -> dict:
-        """Return the user's selections as a dict ready for gallery_exporter."""
-        selected_style = 'card_grid'
+    def _selected_style(self) -> str:
         for value, rb in self._style_radios.items():
             if rb.GetValue():
-                selected_style = value
-                break
+                return value
+        return 'card_grid'
+
+    def _selected_style_radio(self) -> wx.RadioButton:
+        return self._style_radios[self._selected_style()]
+
+    def _show_style_hint(self) -> None:
+        descriptions = {value: description for value, _label, description in self._STYLES}
+        self._style_hint.SetLabel(descriptions[self._selected_style()])
+
+    def _on_style_changed(self, event):
+        self._show_style_hint()
+        event.Skip()
+
+    def get_options(self) -> dict:
+        """Return the user's selections as a dict ready for gallery_exporter."""
+        selected_style = self._selected_style()
         if self._desc_all_rb.GetValue():
             desc_sel = 'all'
         elif self._desc_oldest_rb.GetValue():
