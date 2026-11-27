@@ -5592,6 +5592,12 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
             self.SetStatusText(f"Workspace loaded: {Path(file_path).name}", 0)
             self.SetStatusText(f"{count} images", 1)
             self.clear_modified()
+            # Focus on the image tree (the Viewer's list in Viewer mode), as
+            # every other way of filling the list does. After this handler, so
+            # the progress window and any warning below have closed first:
+            # otherwise focus was left wherever the Open dialog returned it,
+            # and a screen reader said nothing about the workspace (#493).
+            wx.CallAfter(self._focus_current_mode)
 
             if hasattr(self.workspace, 'load_failures') and self.workspace.load_failures:
                 failed_count = len(self.workspace.load_failures)

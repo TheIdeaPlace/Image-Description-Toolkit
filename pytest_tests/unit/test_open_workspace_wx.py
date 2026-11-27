@@ -125,3 +125,34 @@ def test_the_update_check_waits_for_an_open(frame, monkeypatch):
     finally:
         frame._progress_pump_depth = 0
     assert later and later[0][1] == frame._auto_check_updates
+
+
+def test_focus_goes_to_the_image_tree_after_opening(frame, bundle, monkeypatch):
+    """#493: after Ctrl+O, focus stayed where the Open dialog left it."""
+    calls, later = [], []
+    monkeypatch.setattr(frame, "_focus_current_mode", lambda: calls.append("focus"))
+    real_call_after = wx.CallAfter
+    monkeypatch.setattr(wx, "CallAfter",
+                        lambda fn, *a, **k: later.append(fn) if fn == frame._focus_current_mode
+                        else real_call_after(fn, *a, **k))
+    frame.load_workspace(str(bundle))
+    assert frame._focus_current_mode in later       # queued, not done inline
+    for fn in later:
+        fn()
+    assert calls == ["focus"]
+
+
+def test_a_failed_open_does_not_move_focus(frame, bundle, monkeypatch):
+    import idt_core.gui_bridge as bridge
+    calls = []
+    monkeypatch.setattr(frame, "_focus_current_mode", lambda: calls.append("focus"))
+    monkeypatch.setattr(wx, "CallAfter", lambda fn, *a, **k: fn(*a, **k))
+
+    def broken(ws, progress=None):
+        raise OSError("unreadable")
+    monkeypatch.setattr(bridge, "bundle_to_gui_workspace_dict", broken)
+    import imagedescriber_wx
+    monkeypatch.setattr(imagedescriber_wx, "show_error", lambda *a, **k: None)
+    frame.load_workspace(str(bundle))
+    assert calls == []
+
