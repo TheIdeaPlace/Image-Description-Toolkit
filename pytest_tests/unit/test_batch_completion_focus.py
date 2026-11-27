@@ -148,6 +148,7 @@ def test_focus_back_uses_the_mode_list_when_there_is_one(owner):
 
 
 def test_focus_back_skips_a_closed_window():
+    _import_wx()
     import batch_progress_dialog
 
     class Gone:
