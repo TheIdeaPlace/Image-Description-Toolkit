@@ -7,6 +7,10 @@
 - Close, Escape or Alt+F4 then closes the finished window and puts focus back on the image list, or on the Viewer's list in Viewer mode. Escape did nothing on a finished window before.
 - A batch that fails or stops still shows its message, as before. If you hid the progress window, or you're in another window such as the chat window, focus stays where you are, and the status bar says "Batch complete".
 
+**The Gallery dialog opens on the style choice (#428)**
+- Export HTML Gallery (Ctrl+Shift+H) used to open by reading all four style descriptions in a row. Now it opens on the selected style, and each style's description is read when you arrow to it.
+- On screen, one line under the styles shows the selected style's description.
+
 **After opening a workspace, focus is on the image tree (#493)**
 - After Ctrl+O, focus is now on the image tree, or on the Viewer's list in Viewer mode, like every other way of filling the list. Before, it stayed wherever the Open dialog left it, so a screen reader said nothing about the workspace just opened.
 
