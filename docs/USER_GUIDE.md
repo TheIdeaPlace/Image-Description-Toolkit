@@ -1523,7 +1523,7 @@ As with Claude, IDT asks OpenAI what your account can use. Run `idt models --pro
 | `gpt-6.2-sol` | OpenAI's everyday flagship ($2 in, $10 out per million tokens) |
 | `gpt-6.2-astra` | OpenAI's most capable model; slowest and most expensive ($8 in, $40 out per million tokens) |
 
-Prices are OpenAI's standard rates as of November 2026. Older models such as `gpt-5.2`, `gpt-5-mini`, `gpt-4o` and `o3` are still offered while OpenAI keeps them running; OpenAI has shut down `o1`, `o4-mini` and `gpt-4.1-nano`, so IDT no longer offers them, though workspaces described with them still show their names.
+Prices are OpenAI's standard rates as of November 2026. Older models such as `gpt-5.2`, `gpt-5.1` and `gpt-4o` are still offered while OpenAI keeps them running. OpenAI has shut down `o1`, `o4-mini` and `gpt-4.1-nano`, and shuts down `gpt-5`, `gpt-5-mini`, `gpt-5-nano` and `o3` on 12/11/2026, so IDT no longer offers them. Workspaces described with them still show their names and costs. If you chose one of them, describing fails with a message saying OpenAI has shut it down; choose another OpenAI model, such as `gpt-6-luna`.
 
 OpenAI's account list also contains speech, image-generation, embedding and moderation models, which cannot describe pictures or hold a conversation. IDT hides those so the picker stays usable with a keyboard and screen reader. If something you need is missing, `idt models --provider openai --all` shows the unfiltered list.
 

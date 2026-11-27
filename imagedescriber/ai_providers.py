@@ -1211,6 +1211,12 @@ class OpenAIProvider(AIProvider):
             except Exception as log_error:
                 print(f"  Warning: Could not write to error log: {log_error}")
             
+            if classified_status == 404:
+                from idt_core.providers.openai_provider import shut_down_hint
+                hint = shut_down_hint(model)
+                if hint:
+                    error_msg = f"{error_msg} {hint}"
+
             # One formatter, one classifier -- see format_provider_error.
             raise_provider_error(
                 provider="OpenAI API",

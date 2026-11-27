@@ -70,10 +70,6 @@ PRICES: dict = {
         "gpt-5.4-nano":  Price("gpt-5.4-nano", 0.20, 1.25),
         "gpt-5.2":      Price("gpt-5.2", 1.75, 14.0),
         "gpt-5.1":      Price("gpt-5.1", 1.25, 10.0),
-        "gpt-5":        Price("gpt-5", 1.25, 10.0),
-        "gpt-5-mini":   Price("gpt-5-mini", 0.25, 2.0),
-        "gpt-5-nano":   Price("gpt-5-nano", 0.05, 0.40),
-        "o3":           Price("o3", 2.0, 8.0),
         "gpt-4.1":      Price("gpt-4.1", 2.0, 8.0),
         "gpt-4.1-mini": Price("gpt-4.1-mini", 0.40, 1.60),
         "gpt-4o":       Price("gpt-4o", 2.5, 10.0),
@@ -83,12 +79,18 @@ PRICES: dict = {
         "o4-mini":      Price("o4-mini", 1.10, 4.40),
         "o1":           Price("o1", 15.0, 60.0),
         "gpt-4.1-nano": Price("gpt-4.1-nano", 0.10, 0.40),
+        # Shut down 12/11/2026; prices from the pricing page, 11/18/2026.
+        "gpt-5":        Price("gpt-5", 1.25, 10.0),
+        "gpt-5-mini":   Price("gpt-5-mini", 0.25, 2.0),
+        "gpt-5-nano":   Price("gpt-5-nano", 0.05, 0.40),
+        "o3":           Price("o3", 2.0, 8.0),
     },
 }
 
 #: Priced only so old workspaces described with them can still be costed;
 #: their providers no longer list them, so the weekly check doesn't expect them.
-KEPT_FOR_OLD_WORKSPACES = {"claude-haiku-3-5-20241022", "o4-mini", "o1", "gpt-4.1-nano"}
+KEPT_FOR_OLD_WORKSPACES = {"claude-haiku-3-5-20241022", "o4-mini", "o1", "gpt-4.1-nano",
+                           "gpt-5", "gpt-5-mini", "gpt-5-nano", "o3"}
 
 #: Providers that don't bill per token, and what's shown instead of a price.
 NO_PER_TOKEN_CHARGE = {
