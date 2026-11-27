@@ -7333,7 +7333,10 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 dlg.failed_count = max(
                     0, dlg.failed_count - len(getattr(event, 'halted_files', None) or ()))
             self.batch_progress_dialog.mark_complete(summary, stopped=bool(halted))
+            finished_dialog = self.batch_progress_dialog
             self.batch_progress_dialog = None  # detach ref; dialog stays visible until user closes it
+        else:
+            finished_dialog = None
 
         # Phase 3: Clear worker reference
         self.batch_worker = None
@@ -7380,8 +7383,25 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
         # tree level) when the rebuild replaced it.
         self.refresh_image_list()
 
-        # Return keyboard focus to image list
-        self._focus_current_mode()
+        # Where focus goes (#409). A clean finish goes to the completion window,
+        # so a screen reader says its "Batch Complete" title and the summary;
+        # closing it brings focus back here. Moving focus straight to the image
+        # list left that window behind, never heard. Failures and stops get a
+        # message box below, which speaks for itself.
+        clean_finish = not halted and not failures and not video_failures
+        if finished_dialog and clean_finish and finished_dialog.IsShown():
+            # After this handler, so nothing later in it can take focus back.
+            wx.CallAfter(finished_dialog.focus_completion)
+        else:
+            if finished_dialog and clean_finish:
+                # The user hid the progress window to keep working here. It
+                # can't be shown again (Show Batch Progress is off now), so
+                # close it; the status bar says "Batch complete".
+                finished_dialog.Destroy()
+            active = wx.GetActiveWindow()
+            if active is None or active is self:
+                # Not out of a window the user is in, such as the chat window.
+                self._focus_current_mode()
 
         if (failures or video_failures) and not halted:
             parts = []
