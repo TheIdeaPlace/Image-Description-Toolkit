@@ -2,6 +2,9 @@
 
 ### 🐛 Bug Fixes
 
+**After opening a workspace, focus is on the image tree (#493)**
+- After Ctrl+O, focus is now on the image tree, or on the Viewer's list in Viewer mode, like every other way of filling the list. Before, it stayed wherever the Open dialog left it, so a screen reader said nothing about the workspace just opened.
+
 **OpenAI's December shutdowns: GPT-5, GPT-5 mini, GPT-5 nano and o3 are no longer offered**
 - OpenAI shuts these down on 12/11/2026, so they're gone from the OpenAI model list in ImageDescriber, Configure and `idt models`. Workspaces described with them still show their names, and `idt stats` still prices them. GPT-5 pro and o3-pro, also shutting down, were never offered.
 - If one of them is still chosen in your settings, describing a picture fails with OpenAI's "does not exist" message followed by "OpenAI has shut down GPT-5 Mini. Choose another OpenAI model, such as GPT-6 Luna." Before, it said only that the model doesn't exist. The default, GPT-6 Luna, isn't affected.
