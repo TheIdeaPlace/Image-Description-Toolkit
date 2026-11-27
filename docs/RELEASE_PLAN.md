@@ -75,6 +75,8 @@ exports/reports (HTML only), dialogs/Configure (one Ctrl+Tab fix, one Gallery fi
 | 6 | **#465 (rest)** Markdown shown literally in HTML | S–M | See below. |
 | 7 | **#438 as its own item: the NVDA controller DLL** | decision | See below. |
 | 8 | **#428** Gallery dialog reads all four style descriptions on opening | S | Cause found: `ExportHtmlGalleryDialog` (`dialogs_wx.py:1713`) puts a `StaticText` hint beside every radio button (`:81`), so all four are read on opening. Keep only the tooltip or accessible description, and show the selected style's text in one field. It belongs here because 4.9.1 already touches exports. |
+| 9 | **OpenAI's 12/11/2026 shutdowns** (#514) | S, **date-driven** | Added 11/26/2026. OpenAI ends API access to GPT-5, GPT-5 mini, GPT-5 nano, GPT-5 pro, o3 and o3-pro on 12/11/2026. #514 retires the four IDT offered (the pro models never were) and says "OpenAI has shut down …" when one still chosen fails. The default, GPT-6 Luna, isn't affected. This gives 4.9.1 a deadline: ship by 12/10, or 4.9.0 keeps offering four models that stop working while it's installed. |
+| 10 | **Already on main (#511):** Apple refusal fallback, OneDrive-safe workspaces | done | Merged 11/23/2026. A photo Apple's guardrails decline is retried with technical, then artistic. A briefly missing manifest is waited for, never recreated. Run logs survive OneDrive replacing the file. Only needs the smoke check by ear. |
 
 **The 4.9.1 label is right on all six issues** (#409, #410, #422, #439, #465, #493). None
 should move. #422 and #465 are only the leftovers after 4.9.0's partial fixes.
@@ -161,6 +163,7 @@ instead of it.
   7. Ctrl+Tab through Configure: no item read twice.
   8. Open the Gallery dialog: it should open on the style choice.
   9. Open the HTML report: headings and lists should read as such.
+  10. With an OpenAI key: the OpenAI model list in Configure has no GPT-5, GPT-5 Mini, GPT-5 Nano or O3.
 - Plus the smoke checklist (section 6).
 
 ---
