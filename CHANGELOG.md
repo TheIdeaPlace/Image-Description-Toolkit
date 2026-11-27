@@ -2,6 +2,10 @@
 
 ### 🐛 Bug Fixes
 
+**OpenAI's December shutdowns: GPT-5, GPT-5 mini, GPT-5 nano and o3 are no longer offered**
+- OpenAI shuts these down on 12/11/2026, so they're gone from the OpenAI model list in ImageDescriber, Configure and `idt models`. Workspaces described with them still show their names, and `idt stats` still prices them. GPT-5 pro and o3-pro, also shutting down, were never offered.
+- If one of them is still chosen in your settings, describing a picture fails with OpenAI's "does not exist" message followed by "OpenAI has shut down GPT-5 Mini. Choose another OpenAI model, such as GPT-6 Luna." Before, it said only that the model doesn't exist. The default, GPT-6 Luna, isn't affected.
+
 **A photo Apple Intelligence declines is tried again with another prompt style**
 - When Apple's safety guardrails decline one photo, IDT asks again with the **technical** prompt, then **artistic**, keeping the photo's location. The description records the style that wrote it, and the run log says so, for example `[narrative refused; used technical]`.
 - In an 11,559-image iPhone library run, 9 photos were declined. On a retry these two styles described all 9. Most of the others were declined on several of the 9.

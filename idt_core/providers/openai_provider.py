@@ -48,14 +48,19 @@ OPENAI_MODELS = [
     "gpt-5.4-mini", "gpt-5.4", "gpt-5.2",
     # Deprecated by OpenAI but still answering (users may have old descriptions
     # referencing them). They leave this list when OpenAI shuts them down.
-    "gpt-5.4-nano", "gpt-5.1", "gpt-5", "gpt-5-mini", "gpt-5-nano", "o3",
+    "gpt-5.4-nano", "gpt-5.1",
     "gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini",
 ]
 
 #: Shut down by OpenAI (their model pages say "Status: Shut down" and
 #: GET /v1/models no longer lists them). Not offered, but their metadata stays
-#: below so a workspace described with one still shows its name.
-RETIRED_MODELS = ("o4-mini", "o1", "gpt-4.1-nano")
+#: below so a workspace described with one still shows its name. GPT-5, GPT-5
+#: mini, GPT-5 nano and o3 joined on 11/26/2026, two weeks before OpenAI's
+#: 12/11/2026 shutdown (their notice also named GPT-5 pro and o3-pro, which
+#: IDT never offered): a release out before then shouldn't offer a model that
+#: stops answering while it's installed.
+RETIRED_MODELS = ("o4-mini", "o1", "gpt-4.1-nano",
+                  "gpt-5", "gpt-5-mini", "gpt-5-nano", "o3")
 
 # context_window / max_output are the platform-documented figures. They feed
 # the chat token budgeter and the context gauge; before they were recorded,
@@ -111,26 +116,13 @@ OPENAI_MODEL_METADATA: dict = {
     "gpt-5.4-nano": {"name": "GPT-5.4 Nano", "description": "Deprecated by OpenAI; prefer GPT-6 Luna",
                      "cost": "$", "supports_vision": True, "recommended": False,
                      "context_window": 400_000, "max_output": 128_000},
-    # --- GPT-5.2 and earlier GPT-5 --- 400,000 context, 128,000 max output.
+    # --- GPT-5.2 and GPT-5.1 --- 400,000 context, 128,000 max output.
     "gpt-5.2": {"name": "GPT-5.2", "description": "Earlier flagship",
                 "cost": "$$", "supports_vision": True, "recommended": False,
                 "context_window": 400_000, "max_output": 128_000},
     "gpt-5.1": {"name": "GPT-5.1", "description": "Deprecated by OpenAI",
                 "cost": "$$", "supports_vision": True, "recommended": False,
                 "context_window": 400_000, "max_output": 128_000},
-    "gpt-5": {"name": "GPT-5", "description": "Deprecated by OpenAI",
-              "cost": "$$", "supports_vision": True, "recommended": False,
-              "context_window": 400_000, "max_output": 128_000},
-    "gpt-5-mini": {"name": "GPT-5 Mini", "description": "Deprecated by OpenAI",
-                   "cost": "$", "supports_vision": True, "recommended": False,
-                   "context_window": 400_000, "max_output": 128_000},
-    "gpt-5-nano": {"name": "GPT-5 Nano", "description": "Deprecated by OpenAI",
-                   "cost": "$", "supports_vision": True, "recommended": False,
-                   "context_window": 400_000, "max_output": 128_000},
-    # --- o-series --- 200,000 context, 100,000 max output.
-    "o3": {"name": "O3", "description": "Deprecated by OpenAI",
-           "cost": "$$", "supports_vision": True, "recommended": False,
-           "context_window": 200_000, "max_output": 100_000},
     # --- GPT-4.x --- (all deprecated by OpenAI)
     "gpt-4.1": {"name": "GPT-4.1", "description": "Deprecated by OpenAI; last model without reasoning",
                 "cost": "$$", "supports_vision": True, "recommended": False,
@@ -145,6 +137,18 @@ OPENAI_MODEL_METADATA: dict = {
                     "cost": "$", "supports_vision": True, "recommended": False,
                     "context_window": 128_000, "max_output": 16_384},
     # --- Shut down (RETIRED_MODELS): names for old workspaces only ---
+    "gpt-5": {"name": "GPT-5", "description": "Shut down by OpenAI on 12/11/2026",
+              "cost": "$$", "supports_vision": True, "recommended": False,
+              "context_window": 400_000, "max_output": 128_000},
+    "gpt-5-mini": {"name": "GPT-5 Mini", "description": "Shut down by OpenAI on 12/11/2026",
+                   "cost": "$", "supports_vision": True, "recommended": False,
+                   "context_window": 400_000, "max_output": 128_000},
+    "gpt-5-nano": {"name": "GPT-5 Nano", "description": "Shut down by OpenAI on 12/11/2026",
+                   "cost": "$", "supports_vision": True, "recommended": False,
+                   "context_window": 400_000, "max_output": 128_000},
+    "o3": {"name": "O3", "description": "Shut down by OpenAI on 12/11/2026",
+           "cost": "$$", "supports_vision": True, "recommended": False,
+           "context_window": 200_000, "max_output": 100_000},
     "o4-mini": {"name": "O4 Mini", "description": "Shut down by OpenAI",
                 "cost": "$$", "supports_vision": True, "recommended": False,
                 "context_window": 200_000, "max_output": 100_000},
@@ -159,6 +163,17 @@ OPENAI_MODEL_METADATA: dict = {
 
 def get_openai_model_info(model_id: str) -> dict:
     return OPENAI_MODEL_METADATA.get(model_id, {"name": model_id, "supports_vision": True})
+
+
+def shut_down_hint(model_id: str) -> str:
+    """A sentence for a "model not found" failure with a model OpenAI has shut
+    down, or "". OpenAI's own message ("The model `gpt-5-mini` does not exist
+    or you do not have access to it") says neither why nor what to do."""
+    if model_id not in RETIRED_MODELS:
+        return ""
+    name = get_openai_model_info(model_id).get("name", model_id)
+    default = get_openai_model_info(DEFAULT_MODEL).get("name", DEFAULT_MODEL)
+    return f"OpenAI has shut down {name}. Choose another OpenAI model, such as {default}."
 
 
 # ---------------------------------------------------------------------------
@@ -532,9 +547,15 @@ class OpenAIProvider(BaseProvider):
                 ],
             }
         ]
-        response = send_with_fallback(self._client.chat.completions.create, params,
-                                      with_extra_body(OPTIONAL_PARAMS, params),
-                                      "openai", self._model, EFFORT_FALLBACK)
+        try:
+            response = send_with_fallback(self._client.chat.completions.create, params,
+                                          with_extra_body(OPTIONAL_PARAMS, params),
+                                          "openai", self._model, EFFORT_FALLBACK)
+        except Exception as exc:
+            hint = shut_down_hint(self._model)
+            if hint and getattr(exc, "status_code", None) == 404:
+                raise RuntimeError(f"{exc} {hint}") from exc
+            raise
         usage = response.usage
         choice = response.choices[0]
         text = choice.message.content or ""
