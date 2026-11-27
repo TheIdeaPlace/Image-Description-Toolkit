@@ -17,7 +17,6 @@ by ear.
 
 | Issue | Evidence |
 |---|---|
-| #23 hardcoded dev model lists | `DEV_MODE_HARDCODED_MODELS` isn't on main. It survives only in a stale `.claude/worktrees/agent-*` copy, which can be deleted. |
 | #39 Claude 5 MB image limit | `converter.fit_image(max_bytes, max_side)` (`idt_core/converter.py:118`). Commit ce76eb9 (#487) fits pictures to Claude's limits in ImageDescriber, idt and chat. |
 | #49 image retention / copies | Originals are referenced unless `copy_originals` is set (`workspace.py:708`), and there are no `wf_*` copies. |
 | #58 user guide install section | `docs/USER_GUIDE.md:72-90` covers the installer first. |
@@ -68,8 +67,8 @@ exports/reports (HTML only), dialogs/Configure (one Ctrl+Tab fix, one Gallery fi
 | # | Item | Size | Notes |
 |---|---|---|---|
 | 1 | **#409** batch completion is announced | S | On PR #438. Doesn't need the DLL: it moves focus to the completion window. NVDA heard "Batch Complete … 3/3 images" in the VM (out/pr438-nvda-check.md). |
-| 2 | **#410** ImageDescriber chat replies are read | S code / **decision** | On PR #438. See item 7. |
-| 3 | **#439** IDT Chat replies under NVDA | S code / **decision** | On PR #438. See item 7. |
+| 2 | ~~**#410** ImageDescriber chat replies are read~~ | moved out | Decided 11/27/2026: not in 4.9.1. Waits on the NVDA DLL. |
+| 3 | ~~**#439** IDT Chat replies under NVDA~~ | moved out | As #410. |
 | 4 | **#493** focus on the image tree after Ctrl+O | S | Still open. `load_workspace` (`imagedescriber_wx.py:5539`) has no `_focus_current_mode` call, unlike every other path. The fix is the one in the issue: `wx.CallAfter(self._focus_current_mode)` at the end, plus a test spying on SetFocus. Repro (Ctrl+O through the real dialog, cold open with the progress window) to be done in the VM first. |
 | 5 | **#422 (rest)** Ctrl+Tab reads a tab's first item twice | S, unknown cause | Plain names and the single title shipped in 4.9.0 (#505). Needs an NVDA speech capture in the VM before any code changes. If no cause is found in a session, move it to 4.12 rather than hold the release. |
 | 6 | **#465 (rest)** Markdown shown literally in HTML | S–M | See below. |
@@ -155,8 +154,7 @@ instead of it.
 - **Kelly, by ear, JAWS then NVDA, about 15 minutes:**
   1. Run a batch to the end: you should hear "Batch Complete" and the summary.
   2. Escape: focus should be on the image tree.
-  3. Ask one chat question in ImageDescriber: the whole reply should be read, with focus
-     still in the message box.
+  3. (Not in 4.9.1: chat replies stay on the focus bounce until the DLL is decided.)
   4. Press Enter while a reply is pending: you should hear "Still waiting…".
   5. Send one message in IDT Chat.
   6. Ctrl+O a large workspace: focus should land on the tree.
@@ -457,6 +455,14 @@ VM, with evidence in a report beside the build:
 ---
 
 ## 7. Decisions only Kelly can make
+
+**Decided 11/27/2026.** Every recommendation was taken except decision 1. The NVDA DLL
+isn't shipped for now, so 4.9.1 ships #409 alone (decision 2). #410 and #439 left the
+4.9.1 milestone and wait on the DLL. Decision 10 is done: #442 and #512 are closed, and
+Dependabot skips Windows App SDK majors (#515). Decision 8 is done: 28 issues closed with
+the evidence above. #23 stays open, because its flag is still in `ai_providers.py` (set to
+`False`, not removed), so it moved to 4.12. #201 and #14 stay open until their one check
+each. Milestones exist for every release, and each open issue is in one.
 
 | # | Question | Recommended |
 |---|---|---|
