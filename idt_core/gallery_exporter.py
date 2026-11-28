@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from .description_text import strip_usage_line
+from .markdown_html import markdown_to_safe_html
 
 logger = logging.getLogger(__name__)
 
@@ -231,11 +232,14 @@ def _get_descriptions(item, selection: str) -> List[dict]:
 def _render_descriptions_html(descriptions: List[dict], text_class: str) -> str:
     """Render description block(s) to HTML.
 
-    Single unlabeled description  → plain <p class=text_class>.
+    Single unlabeled description  → <div class=text_class>.
     Multiple or labelled           → <div class="desc-block"> wrappers with attribution.
+    The text's Markdown becomes paragraphs, lists and bold, escaped (#465); a
+    <div>, not a <p>, as it can hold several paragraphs or a list.
     """
     if len(descriptions) == 1 and not descriptions[0]['label']:
-        return f'<p class="{text_class}">{_esc(descriptions[0]["text"])}</p>'
+        return (f'<div class="{text_class}">'
+                f'{markdown_to_safe_html(descriptions[0]["text"])}</div>')
     parts = []
     for d in descriptions:
         label_html = (
@@ -245,7 +249,7 @@ def _render_descriptions_html(descriptions: List[dict], text_class: str) -> str:
         parts.append(
             f'<div class="desc-block">'
             f'{label_html}'
-            f'<p class="{text_class}">{_esc(d["text"])}</p>'
+            f'<div class="{text_class}">{markdown_to_safe_html(d["text"])}</div>'
             f'</div>'
         )
     return '\n'.join(parts)

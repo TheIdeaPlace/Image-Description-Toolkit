@@ -2,6 +2,12 @@
 
 ### 🐛 Bug Fixes
 
+**Markdown in descriptions reads properly in HTML exports (#465)**
+- Models often format descriptions with Markdown: `## Setting`, `**Foreground:**`, `- a red chair`. The HTML report, ImageDescriber's Export HTML and all four gallery styles showed it as typed, so a screen reader read "number sign number sign Setting" and "star star". Now headings show as bold lines, `**bold**` and `*italic*` as bold and italic, and lists as real lists.
+- Headings are bold paragraphs, not HTML headings, so the page's own heading structure (a heading for each picture) stays intact.
+- Anything that looks like HTML in a description is still shown as text, never run.
+- Not changed yet: the Viewer, the description list and TXT exports still show Markdown as typed (planned for 4.10).
+
 **A finished batch is announced (#409)**
 - When a batch finishes with nothing failed, focus goes to the progress window's summary line, so a screen reader says "Batch Complete" and the summary. Before, focus went straight back to the main window, and the finished window stayed behind, never heard.
 - Close, Escape or Alt+F4 then closes the finished window and puts focus back on the image list, or on the Viewer's list in Viewer mode. Escape did nothing on a finished window before.

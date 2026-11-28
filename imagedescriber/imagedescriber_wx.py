@@ -136,6 +136,7 @@ from idt_core.video import write_frame  # noqa: E402
 # The "[Token Usage: ... | Time: ...]" line stays in ImageDescriber's own views
 # and comes off wherever a description leaves them (copy, export, embed, prompts).
 from idt_core.description_text import strip_usage_line  # noqa: E402
+from idt_core.markdown_html import markdown_to_safe_html  # noqa: E402
 
 
 class ExtractionCancelled(Exception):
@@ -6619,8 +6620,8 @@ class ImageDescriberFrame(wx.Frame, ModifiedStateMixin):
                 parts.append(f'<div class="{css_class}">')
                 if len(item.descriptions) > 1:
                     parts.append(f'<p class="desc-source">{html_module.escape(source_label)}</p>')
-                desc_html = html_module.escape(strip_usage_line(desc.text)).replace('\n', '<br>\n')
-                parts.append(f'<p>{desc_html}</p>')
+                # Markdown as headings-as-bold, lists and paragraphs, escaped (#465).
+                parts.append(markdown_to_safe_html(strip_usage_line(desc.text)))
                 parts.append('</div>')
 
             parts.append('</div>')

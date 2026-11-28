@@ -454,7 +454,7 @@ class TestExporter:
         from idt_core.exporter import export_html
         project = self._setup_described_project(tmp_path)
         content = export_html(project).read_text(encoding="utf-8")
-        assert "<figcaption>Mock description" in content
+        assert "<figcaption><p>Mock description" in content
         assert 'alt="Mock description' not in content
         assert content.count("Mock description") == content.count("<figcaption>")
 
