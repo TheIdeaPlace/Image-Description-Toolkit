@@ -718,6 +718,12 @@ def test_the_last_image_reaches_the_progress_window(frame, monkeypatch):
     assert any(r.startswith("Last Image Described:") and r.endswith("a.jpg") for r in rows), rows
     assert any(r.strip().startswith("Total Tokens:") and r.endswith("876") for r in rows), rows
     f.batch_worker = None
+    # Detached and destroyed here, as on_workflow_complete detaches a finished
+    # window: left on the frame, the fixture's teardown closes it, and a
+    # finished window then sends focus back to the frame (#409) in the middle
+    # of the next test.
+    f.batch_progress_dialog = None
+    dlg.Destroy()
 
 
 def test_a_stopped_workers_last_image_leaves_the_window_alone(frame, monkeypatch):

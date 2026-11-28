@@ -31,6 +31,21 @@ def _row_label(row: str) -> str:
     return label.strip() if sep else row
 
 
+def _focus_back(window) -> None:
+    """Focus the main window's list for its mode (the Viewer's list in Viewer
+    mode), or its image list; a window closed in the meantime is skipped."""
+    try:
+        if not window:
+            return
+        focus_mode = getattr(window, '_focus_current_mode', None)
+        if focus_mode:
+            focus_mode()
+        elif getattr(window, 'image_list', None):
+            window.image_list.SetFocus()
+    except RuntimeError:        # wrapped C++ object deleted
+        pass
+
+
 def _is_stopping_row(row: str) -> bool:
     """The Stopping row, as mark_stopping appends it or a rebuild shows it.
     Matched on the whole line, not "Stopping:" anywhere, so a file name or a
@@ -245,6 +260,25 @@ class BatchProgressDialog(wx.Dialog):
         dialog_sizer = wx.BoxSizer(wx.VERTICAL)
         dialog_sizer.Add(panel, 1, wx.EXPAND)
         self.SetSizer(dialog_sizer)
+
+        # Escape, Alt+F4 and the title bar close a finished window the way its
+        # Close button does (destroy, focus back to the main window); before it
+        # finishes they hide it, as they always did. Escape needs its own hook:
+        # this dialog has no Cancel button, so wx ignored it (found under NVDA).
+        self.Bind(wx.EVT_CLOSE, self._on_close_event)
+        self.Bind(wx.EVT_CHAR_HOOK, self._on_char_hook)
+
+    def _on_char_hook(self, event):
+        if event.GetKeyCode() == wx.WXK_ESCAPE and getattr(self, '_is_complete', False):
+            self.on_stop_clicked(event)
+            return
+        event.Skip()
+
+    def _on_close_event(self, event):
+        if getattr(self, '_is_complete', False):
+            self.on_stop_clicked(event)
+        else:
+            event.Skip()
 
     def begin_stage(self, name: str, total: int,
                     stage_index: int = 0, stage_count: int = 0,
@@ -624,7 +658,10 @@ class BatchProgressDialog(wx.Dialog):
     def on_stop_clicked(self, event):
         """Stop processing — or close the dialog when batch is already complete."""
         if self._is_complete:
+            parent = self.parent_window
             self.Destroy()
+            # Back to where the user works, as focus_completion took it away (#409).
+            wx.CallAfter(_focus_back, parent)
             return
 
         # Import here to avoid circular dependency
@@ -717,6 +754,29 @@ class BatchProgressDialog(wx.Dialog):
         # Update window title so screen readers announce completion
         self.SetTitle("Batch Stopped  —  Review stats then close" if stopped
                       else "Batch Complete  —  Review stats then close")
+
+    def focus_completion(self):
+        """Bring the finished window forward with focus on its summary line.
+
+        A screen reader then says the "Batch Complete" title and the summary.
+        The main window used to take focus right after the batch ended, so the
+        retitle above was never heard (#409, NVDA bug bash 11/15/2026).
+        """
+        if not self or not self.IsShown():
+            return
+        active = wx.GetActiveWindow()
+        if not self.IsEnabled() or (active is not None and active not in (self, self.GetParent())):
+            # Another window has the user (a modal one, such as the chat
+            # window, disables this one): don't pull focus out of it. The
+            # finished window stays where it is, and the status bar says
+            # "Batch complete". Saying it aloud from here needs NVDA's
+            # controller client, not shipped yet (#410, #439).
+            return
+        self.Raise()
+        last = self.stats_list.GetCount() - 1
+        if last >= 0:
+            self.stats_list.SetSelection(last)
+        self.stats_list.SetFocus()
 
     def reset_pause_button(self):
         """Reset pause button to 'Pause' state"""
